@@ -1,0 +1,138 @@
+#!/usr/bin/env zsh
+# -*- Mode: sh; sh-indentation: 4; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
+# vim:ft=zsh:sw=4:sts=4:et
+
+# Copyright (c) 2019 Sebastian Gniazdowski
+# License MIT
+
+emulate -L zsh -o extendedglob
+setopt typesetsilent warncreateglobal
+
+local MATCH REPLY nl=$'\n'
+integer MBEGIN MEND
+local -a match mbegin mend reply
+
+.zsh-lint-smatch() {
+    local str="$1" pat="$2" retval=1
+    : ${(S)str/(#b)(${~pat})/${retval::=0}}
+    REPLY="${match[1]}"
+    return "$retval"
+}
+
+.zsh-lint-script-pre() {
+    local input="$1" command prev_token token spc
+    local -a cmds cbits
+    integer cmidx cmsize tosave=1 tostart=1 toidx tosize cbidx cbsize \
+            is_match=0 cm_is_match
+    input="${input##[[:blank:]]#PRE[[:blank:]]#\{[[:blank:]]#}"
+    input="${input%%[[:blank:]]#\}[[:blank:]]#}"
+    cmds=( "${(@s.;.)input}" )
+    cmsize=${#cmds}
+    tosize=${#ZSHLINT_PB_WORDS}
+
+    print "@ STARTING @"
+
+    for (( cmidx = 1; cmidx <= cmsize; ++ cmidx )); do
+        # Fetch and split a new command
+        command="${cmds[cmidx]}"
+        cbits=( "${(z@)command}" )
+        cbidx=1
+        cbsize=${#cbits}
+
+        print "Processing command: $command, being at token #$tostart / ${ZSHLINT_PB_WORDS[tostart]}"
+
+        # Look up tokens of the command
+        cm_is_match=0
+        for (( toidx = tostart; toidx <= tosize; ++ toidx )); do
+            prev_token="${ZSHLINT_PB_WORDS[toidx-1]}"
+            token="${ZSHLINT_PB_WORDS[toidx]}"
+            spc="${ZSHLINT_PB_SPACES[toidx]}"
+
+            if [[ ( $cbidx -eq 1 || ";" = ${cbits[cbidx-1]} ) && $token = ";" ]]; then
+                # Move to next token
+                :
+                print "@@ Skipping ; @@"
+            # If at command-start in both input and token stream OR inside
+            # (i.e. at second or following token) a command in both input and
+            # token stream
+            elif [[ ( ( $cbidx -eq 1 || ";" = ${cbits[cbidx-1]} ) && ( $spc = *$nl* || $prev_token = ";" )  ) || \
+                  ( ( $cbidx -ne 1 && ";" != ${cbits[cbidx-1]} ) && $spc != *$nl* && $prev_token != ";" )
+            ]] {
+                print -r -- "___processing token $toidx / ${token}___"
+                # If token matches
+                if [[ "$token" = ${~cbits[cbidx]} ]]; then
+                    print -r -- "Partial match of ${cbits[cbidx]} at token #$toidx / $token"
+                    # If it's the last token that we have to match, then set
+                    # overall success in the matching and break
+                    (( cbidx == cbsize )) && \
+                        { tostart=toidx+1; cm_is_match=1;
+                            print -r -- "Got match at token #$toidx / $token"
+                            break;
+                        }
+                    # If we're at the first searched command and it's its first
+                    # matched token, then save tosave pointing at the next token
+                    (( tosave = (cmidx == 1 && cbidx == 1) ? toidx + 1 : tosave ))
+                    print -r "### tosave:$tosave ###"
+                    cbidx+=1
+                # If it was a non-first token of the first command. This is a
+                # code short-path, instead there could be a break
+                elif (( cbidx > 1 && cmidx == 1 )); then
+                    # restart search
+                    print "# No partial-match of ${cbits[cbidx]} at token #$toidx / $token, The code short-path, cbidx=1, toidx=$tosave-1"
+                    cbidx=1
+                    toidx=tosave-1
+                # If at a non-first command
+                elif (( cmidx > 1 )); then
+                    print "## No partial-match of ${cbits[cbidx]} at token #$toidx / $token, the cmidx > 1 break after a non-match (partial, of token)"
+                    break
+                fi
+            } else {
+                if (( cbidx > 1 && cmidx == 1 )); then
+                    # restart search
+                    print "# No partial-match of ${cbits[cbidx]} at token #$toidx / $token, The code short-path, cbidx=1, toidx=$tosave-1"
+                    cbidx=1
+                    toidx=tosave-1
+                # If at a non-first command
+                elif (( cmidx > 1 )); then
+                    print "## No partial-match of ${cbits[cbidx]} at token #$toidx / $token, the cmidx > 1 break after a non-match (partial, of token)"
+                    break
+                fi
+                print -r -- "---skipping non-arranged token $toidx / ${token}--- ( ( \$cbidx:$cbidx -eq 1 || ; = \${cbits[cbidx-1]}:${cbits[cbidx-1]} ) && ( \$spc:${(qqqq)spc} = *nl* || \$prev_token:$prev_token = ; ) )"
+            }
+        done
+        (( !cm_is_match && toidx >= tosize && cmidx == 1 )) && break
+        # If we're breaking not because of the successful matching,
+        # but because 
+        (( !cm_is_match && cmidx != 0 )) && {
+            print -r -- "Didn't match cmidx:$cmidx at token #$toidx / $token, starting at $tosave / ${ZSHLINT_PB_WORDS[tosave]}"
+            cmidx=1-1; tostart=tosave;
+        }
+        (( cmidx == cmsize && cm_is_match )) && is_match=1
+    done
+
+    print "@ RETURNING @"
+    return $(( 1 - is_match ))
+}
+
+# PRE { setopt #; print "**"; }
+# ALTER { echo * "added"; * DEBUG=1; ls \* }
+# POST { VALUE=* }
+
+local zql="$1" script
+
+if .zsh-lint-smatch "$zql" "PRE[[:space:]]#{(*)}"; then
+    script+=".zsh-lint-script-pre ${(qq)match[1]}"
+    print -r -- "Detected a PRE directive..."
+elif .zsh-lint-smatch "$zql" "POST[[:space:]]#{(*)}"; then
+    script+=".zsh-lint-script-post ${(qq)match[1]}"
+    print -r -- "Detected a POST directive..."
+elif .zsh-lint-smatch "$zql" "ALTER[[:space:]]#{(*)}"; then
+    script+=".zsh-lint-script-alter ${(qq)match[1]}"
+    print -r -- "Detected an ALTER directive..."
+fi
+
+@zsh-lint-process-buffer "$(<~/.zshrc)" 1
+
+print -r -- "Running script:$nl$script"
+
+eval "$script"
