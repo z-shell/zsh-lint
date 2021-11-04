@@ -15,7 +15,7 @@ local IFS=$' \n'
 # Run as script?
 if [[ "$0" != zsh-lint || -n "$ZSH_SCRIPT" ]]; then
     # Handle $0 according to the Zsh Plugin Standard:
-    # http://zdharma.org/Zsh-100-Commits-Club/Zsh-Plugin-Standard.html
+    # http://z-shell.github.io/Zsh-100-Commits-Club/Zsh-Plugin-Standard.html
     0="${${ZERO:-${0:#$ZSH_ARGZERO}}:-${(%):-%N}}"
     0="${${(M)0##/*}:-$PWD/$0}"
     fpath+=( "$0:h" )
@@ -39,12 +39,12 @@ local -a ZSHLINT_DEBUG_MSGS
     lines=( "${(f@)zshrc}" )
     ZSHLINT_DEBUG_MSGS=( "${ZSHLINT_DEBUG_MSGS[@]/<ZSHRCLINES>/${#lines}}" )
 
-    { local ver="$(<${ZPLGM[BIN_DIR]}/.git/refs/heads/master)" } 2>/dev/null
-    [[ -z "$ver" ]] && ver="unknown (no .git/refs/heads/master)" || ver="${ver[1,7]}"
+    { local ver="$(<${ZPLGM[BIN_DIR]}/.git/refs/heads/main)" } 2>/dev/null
+    [[ -z "$ver" ]] && ver="unknown (no .git/refs/heads/main)" || ver="${ver[1,7]}"
     ZSHLINT_DEBUG_MSGS=( "${ZSHLINT_DEBUG_MSGS[@]/<ZPLGVERSION>/$ver}" )
 
-    { local ver="$(<$ZSHLINT_REPO_DIR/.git/refs/heads/master)" } 2>/dev/null
-    [[ -z "$ver" ]] && ver="unknown (no .git/refs/heads/master)" || ver="${ver[1,7]}"
+    { local ver="$(<$ZSHLINT_REPO_DIR/.git/refs/heads/main)" } 2>/dev/null
+    [[ -z "$ver" ]] && ver="unknown (no .git/refs/heads/main)" || ver="${ver[1,7]}"
     ZSHLINT_DEBUG_MSGS=( "${ZSHLINT_DEBUG_MSGS[@]/<ZSHLINTVERSION>/$ver}" )
     print -rl -- "${ZSHLINT_DEBUG_MSGS[@]}";
 }
@@ -1384,7 +1384,7 @@ cdreplay|env-whitelist|create) ]]; then
 # }}}
 # FUNCTION: .zsh-lint_action_add {{{
 # Example call:
-# zsh-lint --zp-add [ wait'0' lucid pick'/dev/null' ] zdharma/null
+# zsh-lint --zp-add [ wait'0' lucid pick'/dev/null' ] z-shell/null
 .zsh-lint_action_add() {
     local -a args ices plugspec
     integer idx
