@@ -13,8 +13,9 @@
 ._zplugin
 .zplugin_lstupd
 
-# zdharma/zshelldoc tool's files
+# z-shell zshelldoc tool's files
 zsdoc/data
+doc/zsdoc/data
 
 # robbyrussell/oh-my-zsh/plugins/per-directory-history plugin's files
 # (when set-up to store the history in the local directory)

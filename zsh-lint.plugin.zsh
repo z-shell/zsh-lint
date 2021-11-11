@@ -13,3 +13,5 @@ typeset -g ZSHLINT_REPO_DIR="${0:h}"
 typeset -g ZSHLINT_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/zsh-lint"
 
 autoload zsh-lint
+# !!! This file modified by automated tool by Z-Shell. This tool fix variables and URL for Zinit project.
+# For any queries please visit https://github.com/z-shell/zinit/issues

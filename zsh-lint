@@ -39,9 +39,9 @@ local -a ZSHLINT_DEBUG_MSGS
     lines=( "${(f@)zshrc}" )
     ZSHLINT_DEBUG_MSGS=( "${ZSHLINT_DEBUG_MSGS[@]/<ZSHRCLINES>/${#lines}}" )
 
-    { local ver="$(<${ZPLGM[BIN_DIR]}/.git/refs/heads/main)" } 2>/dev/null
+    { local ver="$(<${ZINIT[BIN_DIR]}/.git/refs/heads/main)" } 2>/dev/null
     [[ -z "$ver" ]] && ver="unknown (no .git/refs/heads/main)" || ver="${ver[1,7]}"
-    ZSHLINT_DEBUG_MSGS=( "${ZSHLINT_DEBUG_MSGS[@]/<ZPLGVERSION>/$ver}" )
+    ZSHLINT_DEBUG_MSGS=( "${ZSHLINT_DEBUG_MSGS[@]/<ZINITVERSION>/$ver}" )
 
     { local ver="$(<$ZSHLINT_REPO_DIR/.git/refs/heads/main)" } 2>/dev/null
     [[ -z "$ver" ]] && ver="unknown (no .git/refs/heads/main)" || ver="${ver[1,7]}"
@@ -57,7 +57,7 @@ ice_order=(
     compile nocompile nocompletions reset-prompt
     # Include all additional ices – after
     # stripping them from the possible: ''
-    ${(@s.|.)${ZPLG_EXTS[ice-mods]//\'\'/}}
+    ${(@s.|.)${ZINIT_EXTS[ice-mods]//\'\'/}}
 )
 
 nval_ices=(
@@ -66,20 +66,20 @@ nval_ices=(
         # Include only those additional ices,
         # don't have the '' in their name, i.e.
         # aren't designed to hold value
-        ${(@)${(@s.|.)ZPLG_EXTS[ice-mods]}:#*\'\'*}
+        ${(@)${(@s.|.)ZINIT_EXTS[ice-mods]}:#*\'\'*}
 )
 
 # Initial debug message
 /zsh-lint-dbg "ZSH version: $ZSH_VERSION ($ZSH_PATCHLEVEL), machine: $CPUTYPE $VENDOR $OSTYPE, LANG: $LANG"
-if [[ ${+ZPLGM} = 1 ]]; then
-    /zsh-lint-dbg "Zplugin version: <ZPLGVERSION>, declare-zshrc version: <ZSHLINTVERSION>"
-    /zsh-lint-dbg "Zplugin BIN_DIR: ${ZPLGM[BIN_DIR]/$HOME/~}, HOME_DIR: ${ZPLGM[HOME_DIR]/$HOME/~}, PLUGINS_DIR: ${ZPLGM[PLUGINS_DIR]/$HOME/~}, COMPLETIONS_DIR: ${ZPLGM[COMPLETIONS_DIR]/$HOME/~}"
+if [[ ${+ZINIT} = 1 ]]; then
+    /zsh-lint-dbg "Zinit version: <ZINITVERSION>, declare-zshrc version: <ZSHLINTVERSION>"
+    /zsh-lint-dbg "Zinit BIN_DIR: ${ZINIT[BIN_DIR]/$HOME/~}, HOME_DIR: ${ZINIT[HOME_DIR]/$HOME/~}, PLUGINS_DIR: ${ZINIT[PLUGINS_DIR]/$HOME/~}, COMPLETIONS_DIR: ${ZINIT[COMPLETIONS_DIR]/$HOME/~}"
 else
-    /zsh-lint-dbg "${ZUI[RED]}Zplugin not loaded${ZUI[FMT_END]}"
+    /zsh-lint-dbg "${ZUI[RED]}Zinit not loaded${ZUI[FMT_END]}"
 fi
 
 /zsh-lint-dbg ""
-/zsh-lint-dbg-array "Active plugins:" "${ZPLG_REGISTERED_PLUGINS[@]/(#s)/ }"
+/zsh-lint-dbg-array "Active plugins:" "${ZINIT_REGISTERED_PLUGINS[@]/(#s)/ }"
 /zsh-lint-dbg ""
 
 +zsh-lint-error() {
@@ -212,11 +212,11 @@ zshrc_path=${~zshrc_in_path}
 # Parsing state-machine parameters
 #
 
-# The bits returned by -zplg-process-buffer
+# The bits returned by -zinit-process-buffer
 local token prev_token spaces prev_spaces next_token next_spaces
 
 # Command detection
-integer at_command=1 in_zplugin=0
+integer at_command=1 in_zinit=0
 
 # Functions
 local fun_name
@@ -234,7 +234,7 @@ local -A features call_tree rev_call_tree funs
 local -a known_functions sourced_files
 
 # Text and commands data
-integer was_zplugin=0 pre_block_end=0 post_block_begin=0
+integer was_zinit=0 pre_block_end=0 post_block_begin=0
 local -A cmd3
 local -a cmdlist
 integer coidx=1
@@ -332,7 +332,7 @@ local -A theme
 # FUNCTION: .zsh-lint-process-zsh-rc {{{
 # Parses tokens of the loaded zshrc and detects:
 # - functions
-# - block preceding zplugin commands
+# - block preceding zinit commands
 # - block with those commands
 # - block following them
 #
@@ -426,14 +426,14 @@ local -A theme
         fi
 
         ### Detect function call
-        # Check for introduction of Zplugin call
+        # Check for introduction of Zinit call
         if [[ "$spaces" = *$'\n'* || -z "$prev_token" || "${TOKEN_TYPES[$prev_token]}" = [1234] ]]; then
             if [[ "$spaces" != [[:blank:]]#"\\"(|$'\r')$'\n'[[:blank:]]# ]]; then
                 at_command=1
-                [[ "$token" != [[:blank:]]#\#* ]] && in_zplugin=0 || { (( in_zplugin )) && in_zplugin=1; }
+                [[ "$token" != [[:blank:]]#\#* ]] && in_zinit=0 || { (( in_zinit )) && in_zinit=1; }
             fi
-            (( in_zplugin )) && {
-                (( 2*i - 1 - post_block_begin > 7*4 )) && { /zsh-lint-dbg "WARNING: many non-Zplugin commands in Zplugin block"; }
+            (( in_zinit )) && {
+                (( 2*i - 1 - post_block_begin > 7*4 )) && { /zsh-lint-dbg "WARNING: many non-Zinit commands in Zinit block"; }
                 # A new command (i.e. $spaces has a new line, etc.) - move the post-block pointer
                 post_block_begin=2*i-1
             }
@@ -442,22 +442,22 @@ local -A theme
         # Command token
         if (( at_command )); then
             at_command=0
-            # Zplugin call not in function
+            # Zinit call not in function
             if [[ "$cur_fun" -eq 0 && "$next_token" != "()"(|$'\r') && "$fun_stack_depths[-1]" -le "0" ]]; then
-                if [[ "$token" = (zplugin|zplg|zpl) || ( "$token" = ":" && "$next_token" = (zplugin|zplg|zpl) ) ]]; then
-                    in_zplugin=1
-                    (( was_zplugin == 0 )) && {
+                if [[ "$token" = (zinit|zinit|zpl) || ( "$token" = ":" && "$next_token" = (zinit|zinit|zpl) ) ]]; then
+                    in_zinit=1
+                    (( was_zinit == 0 )) && {
                         # Initially point the pre-block at the previous token
-                        # (the result will be zero if zplugin command is first)
+                        # (the result will be zero if zinit command is first)
                         pre_block_end=2*(i-1)
                         for (( j=i-1; j >= 1; j -- )); do
                             # Include also some preceding comments
                             [[ "${ZSHLINT_PB_WORDS[j]}" != [[:blank:]]#\#* || "${ZSHLINT_PB_SPACES[j+1]}" = *$'\n'*$'\n'* ]] && { pre_block_end=2*j; break; }
                         done
                     }
-                    was_zplugin=1
+                    was_zinit=1
 
-                    # Revive at_command mode if disabled zplugin command
+                    # Revive at_command mode if disabled zinit command
                     [[ "$token" = ":" ]] && at_command=1
                 fi
             fi
@@ -539,11 +539,11 @@ local -A theme
         prev_spaces="$spaces"
     done
 
-    # If zplugin command ended the zshrc, detect it here
-    (( in_zplugin )) && post_block_begin=2*i-1
+    # If zinit command ended the zshrc, detect it here
+    (( in_zinit )) && post_block_begin=2*i-1
 
     if (( pre_block_end == 0 )); then
-        # No zplugin commands -> pre-block ends at
+        # No zinit commands -> pre-block ends at
         # the last token in the file
         (( post_block_begin == 0 )) && pre_block_end=2*(i-1)
     else
@@ -581,7 +581,7 @@ local -A theme
     else
         # Detect not related trailing comments
         for (( j=(post_block_begin+1)/2-1; j >= 1; -- j )); do
-            [[ "${ZSHLINT_PB_WORDS[j]}" = [[:blank:]]#\#* && "${ZSHLINT_PB_WORDS[j]}" != [[:blank:]]#\#[[:blank:]]#zplugin* ]] && {
+            [[ "${ZSHLINT_PB_WORDS[j]}" = [[:blank:]]#\#* && "${ZSHLINT_PB_WORDS[j]}" != [[:blank:]]#\#[[:blank:]]#zinit* ]] && {
                 post_block_begin=2*j-1
             } || break
         done
@@ -608,26 +608,26 @@ local -A theme
     fi
 }
 # }}}
-# FUNCTION: .zsh-lint-process-zplugin-commands {{{
-# Processes block with zplugin commands established earlier
+# FUNCTION: .zsh-lint-process-zinit-commands {{{
+# Processes block with zinit commands established earlier
 # in .zsh-lint-process-zsh-rc() and generates $cmdlist array
-# which holds serialized hashes of every zplugin invocation,
+# which holds serialized hashes of every zinit invocation,
 # mixed-in additional (external) commands, comments.
 #
 # Uses parameters filled by @zsh-lint-process-buffer:
 # - $ZSHLINT_PB_WORDS - tokens
 # - $ZSHLINT_PB_SPACES - spaces in front of each token, +1 at the end
-.zsh-lint-process-zplugin-commands() {
+.zsh-lint-process-zinit-commands() {
     integer i
     cmd3=()
 
     # Reset parameters used in .zsh-lint-process-zsh-rc
     prev_depth=0 prev_token="" prev_spaces=""
 
-    # From start to end of zplugin block
+    # From start to end of zinit block
     # (pre_block_end/2)+1 - from the one space-token element after the pre-block
     # (post_block_begin+1)/2-1 - to one space-token element before the post-block
-    # (post_block_begin+1)/2 - to the next, first element after last zplugin command
+    # (post_block_begin+1)/2 - to the next, first element after last zinit command
     for (( i=(pre_block_end/2)+1; i<=(post_block_begin+1)/2-1; ++ i )); do
         token="${ZSHLINT_PB_WORDS[i]}"
         spaces="${ZSHLINT_PB_SPACES[i]}"
@@ -659,14 +659,14 @@ local -A theme
             fi
 
             if [[ "$spaces" = [[:blank:]]#"\\"(|$'\r')$'\n'[[:blank:]]# ]]; then
-                cmd3[\\-break_$in_zplugin]="$spaces"
+                cmd3[\\-break_$in_zinit]="$spaces"
             else
-                in_zplugin=1
+                in_zinit=1
 
-                if [[ "${cmd3[c]}" = "zplugin" && "${cmd3[sub]}" = "ice" ]]; then
+                if [[ "${cmd3[c]}" = "zinit" && "${cmd3[sub]}" = "ice" ]]; then
                     cmdlist[coidx+1]="${(j: :)${(qkv)cmd3[@]}}"
                     /zsh-lint-dbg "Stored <ice>/$coidx-cmd: ${cmdlist[coidx+1]}"
-                elif [[ "${cmd3[c]}" = "zplugin" && "${cmd3[sub]}" != "ice" ]]; then
+                elif [[ "${cmd3[c]}" = "zinit" && "${cmd3[sub]}" != "ice" ]]; then
                     cmdlist[coidx+2]="${(j: :)${(qkv)cmd3[@]}}"
                     /zsh-lint-dbg "Stored <non-ice>/$coidx-cmd: ${cmdlist[coidx+2]}"
                     coidx+=3
@@ -687,18 +687,18 @@ local -A theme
 
         # Command token
         if [[ "$token" = [[:blank:]]#\#* ]]; then
-            if (( in_zplugin == 1 )); then
+            if (( in_zinit == 1 )); then
                 cmdlist[coidx]="${cmdlist[coidx]%%[[:space:]]##}"
                 cmdlist[coidx]+="$spaces$token$next_spaces"
             else
                 cmd3[comment]="$spaces$token"
             fi
-        elif (( in_zplugin == 1 )); then
-            [[ "$token" = (zplugin|zplg|zpl) ]] && cmd3[c]="zplugin" || cmd3[c]="$token"
+        elif (( in_zinit == 1 )); then
+            [[ "$token" = (zinit|zinit|zpl) ]] && cmd3[c]="zinit" || cmd3[c]="$token"
             # Postpone current state to next token
-            [[ "$token" = ":" ]] && { cmd3[disabled]=1; (( in_zplugin -- )); }
-        elif (( in_zplugin == 2 )); then
-            if [[ "${cmd3[c]}" = "zplugin" ]]; then
+            [[ "$token" = ":" ]] && { cmd3[disabled]=1; (( in_zinit -- )); }
+        elif (( in_zinit == 2 )); then
+            if [[ "${cmd3[c]}" = "zinit" ]]; then
                 [[ "$token" = (ice|load|light|snippet|cdclear|\
 cdreplay|env-whitelist|create)
                 ]] && {
@@ -722,29 +722,29 @@ cdreplay|env-whitelist|create)
                 ]] && {
                     local key="${match[1]}" string="${match[2]#[:=]}${match[3]}${match[4]}${match[5]}"
                     local second="${match[2]}" third="${match[3]}" last="${match[5]}"
-                    cmd3[${${(M)own_order#0}:+${in_zplugin}_}$key]="${string//(#b)(:|=|)([\"\']|\$\'|)(*)[\"\']/${match[3]}}"
+                    cmd3[${${(M)own_order#0}:+${in_zinit}_}$key]="${string//(#b)(:|=|)([\"\']|\$\'|)(*)[\"\']/${match[3]}}"
                     # Remember also the quoting style, if the quoting
                     # is a recognized one
                     [[ ( -n "$second" && "$second" = "$last" ) || \
                         "$second" = (:|=)* # Via the star this handles both matchings
                     ]] && \
-                        cmd3[${${(M)own_order#0}:+${in_zplugin}_}${key}_style]="${second[1]}" || {
+                        cmd3[${${(M)own_order#0}:+${in_zinit}_}${key}_style]="${second[1]}" || {
                             [[ "$second" = '$' && "$third" = "'" ]] && \
-                                cmd3[${${(M)own_order#0}:+${in_zplugin}_}${key}_style]="\$'"
+                                cmd3[${${(M)own_order#0}:+${in_zinit}_}${key}_style]="\$'"
                         }
                     ((1))
                 } || {
-                    cmd3[custom_$(( in_zplugin - 2 ))]="$token"
-                    cmd3[spaces_$(( in_zplugin - 2 ))]="$spaces"
+                    cmd3[custom_$(( in_zinit - 2 ))]="$token"
+                    cmd3[spaces_$(( in_zinit - 2 ))]="$spaces"
                 }
             elif [[ "${cmd3[sub]}" = (load|light) ]]; then
-                if (( in_zplugin == 4 )); then
+                if (( in_zinit == 4 )); then
                     cmd3[url]+="/$token"
                 elif (( ${+cmd3[url]} == 0 )); then
                     cmd3[url]="$token"
                 else
-                    cmd3[custom_$(( in_zplugin - 2 ))]="$token"
-                    cmd3[spaces_$(( in_zplugin - 2 ))]="$spaces"
+                    cmd3[custom_$(( in_zinit - 2 ))]="$token"
+                    cmd3[spaces_$(( in_zinit - 2 ))]="$spaces"
                 fi
             elif [[ "${cmd3[sub]}" = "snippet" ]]; then
                 if [[ "$token" = "-f" ]]; then
@@ -754,32 +754,32 @@ cdreplay|env-whitelist|create)
                 elif [[ ${+cmd3[url]} != 1 && "${TOKEN_TYPES[$token]}" != [34] ]]; then
                     cmd3[url]="$token"
                 else
-                    cmd3[custom_$(( in_zplugin - 2 ))]="$token"
-                    cmd3[spaces_$(( in_zplugin - 2 ))]="$spaces"
+                    cmd3[custom_$(( in_zinit - 2 ))]="$token"
+                    cmd3[spaces_$(( in_zinit - 2 ))]="$spaces"
                 fi
             elif [[ "${cmd3[sub]}" = "cdclear" ]]; then
                 [[ "$token" = "-q" ]] && cmd3[-q]="1" || {
-                    cmd3[custom_$(( in_zplugin - 2 ))]="$token"
-                    cmd3[spaces_$(( in_zplugin - 2 ))]="$spaces"
+                    cmd3[custom_$(( in_zinit - 2 ))]="$token"
+                    cmd3[spaces_$(( in_zinit - 2 ))]="$spaces"
                 }
             elif [[ "${cmd3[sub]}" = "cdreplay" ]]; then
                 [[ "$token" = "-q" ]] && cmd3[-q]="1" || {
-                    cmd3[custom_$(( in_zplugin - 2 ))]="$token"
-                    cmd3[spaces_$(( in_zplugin - 2 ))]="$spaces"
+                    cmd3[custom_$(( in_zinit - 2 ))]="$token"
+                    cmd3[spaces_$(( in_zinit - 2 ))]="$spaces"
                 }
             elif [[ "${cmd3[sub]}" = "unkn" ]]; then
-                # Argument following "zplugin <unknown> ..."
-                cmd3[arg_$(( in_zplugin - 2 ))]="$token"
+                # Argument following "zinit <unknown> ..."
+                cmd3[arg_$(( in_zinit - 2 ))]="$token"
             else
                 # Argument following "<unknown> <arg_1> ..."
-                cmd3[arg_$(( in_zplugin - 1 ))]="$token"
-                cmd3[spaces_$(( in_zplugin - 1 ))]="$spaces"
+                cmd3[arg_$(( in_zinit - 1 ))]="$token"
+                cmd3[spaces_$(( in_zinit - 1 ))]="$spaces"
             fi
         fi
 
-        # Advance deeper into "zplugin ..." if it wasn't comment
-        #[[ "$token" != [[:blank:]]#\#* ]] && in_zplugin+=1
-        in_zplugin+=1
+        # Advance deeper into "zinit ..." if it wasn't comment
+        #[[ "$token" != [[:blank:]]#\#* ]] && in_zinit+=1
+        in_zinit+=1
 
         # History of state
         prev_depth="$depth"
@@ -788,26 +788,26 @@ cdreplay|env-whitelist|create)
     done
 
     if [[ -n "${cmd3[c]}" ]];then
-        if [[ "${cmd3[c]}" = "zplugin" && "${cmd3[sub]}" = "ice" ]]; then
+        if [[ "${cmd3[c]}" = "zinit" && "${cmd3[sub]}" = "ice" ]]; then
             cmdlist[coidx+1]="${(j: :)${(qkv)cmd3[@]}}"
             /zsh-lint-dbg "Stored <ice>/$coidx-cmd: ${cmdlist[coidx+1]}"
-        elif [[ "${cmd3[c]}" = "zplugin" && "${cmd3[sub]}" != "ice" ]]; then
+        elif [[ "${cmd3[c]}" = "zinit" && "${cmd3[sub]}" != "ice" ]]; then
             cmdlist[coidx+2]="${(j: :)${(qkv)cmd3[@]}}"
             /zsh-lint-dbg "Stored <non-ice>/$coidx-cmd: ${cmdlist[coidx+2]}"
-        elif [[ "${cmd3[c]}" != "zplugin" ]]; then
+        elif [[ "${cmd3[c]}" != "zinit" ]]; then
             cmdlist[coidx+2]="${(j: :)${(qkv)cmd3[@]}}"
             /zsh-lint-dbg "Stored <custom>/$coidx-cmd: ${cmdlist[coidx+2]}"
         fi
-        /zsh-lint-dbg "Zplugin block in zshrc has $(( (coidx + 2) / 3 )) commands (not counting \`zplugin ice ...')"
+        /zsh-lint-dbg "Zinit block in zshrc has $(( (coidx + 2) / 3 )) commands (not counting \`zinit ice ...')"
     else
-        /zsh-lint-dbg "Zplugin block in zshrc has $(( (coidx-1) / 3 )) commands (not counting \`zplugin ice ...')"
+        /zsh-lint-dbg "Zinit block in zshrc has $(( (coidx-1) / 3 )) commands (not counting \`zinit ice ...')"
     fi
 
     /zsh-lint-dbg ""
 }
 # }}}
 # FUNCTION: .zsh-lint_compose {{{
-# Constructs text with zplugin commands, optionally
+# Constructs text with zinit commands, optionally
 # including original Zshrc blocks (in order to create
 # full .zshrc). Can skip comments (via $1).
 #
@@ -853,10 +853,10 @@ cdreplay|env-whitelist|create)
         }
 
         # ICE
-        # Something more than [c]=zplugin [sub]=ice [comment]=comment
+        # Something more than [c]=zinit [sub]=ice [comment]=comment
         if (( ${#ice_cmd} > 2 && ${+ice_cmd[comment]} == 0 || ${#ice_cmd} > 3 && ${+ice_cmd[comment]} == 1 )); then
             (( ice_cmd[disabled] || main_cmd[disabled] )) && buf+=": "
-            buf+="zplugin${ice_cmd[\\-break_2]:- }ice"
+            buf+="zinit${ice_cmd[\\-break_2]:- }ice"
             if (( own_order )); then
                 for tmp in "${ice_order[@]}"; do
                     .zsh-lint_the_ice_case "$tmp" "$tmp"
@@ -885,11 +885,11 @@ cdreplay|env-whitelist|create)
 
         # COMMAND
         if [[ "${#main_cmd}" -ge 1 ]]; then
-            if [[ "${main_cmd[c]}" = (zplugin|zplg|zpl) ]]; then
+            if [[ "${main_cmd[c]}" = (zinit|zplg|zpl) ]]; then
                 (( ice_cmd[disabled] || main_cmd[disabled] )) && buf+=": "
                 if [[ "${main_cmd[sub]}" = (load|light|snippet|cdclear|\
 cdreplay|env-whitelist|create) ]]; then
-                    buf+="zplugin${main_cmd[\\-break_2]:- }${main_cmd[sub]}"
+                    buf+="zinit${main_cmd[\\-break_2]:- }${main_cmd[sub]}"
                     [[ "${main_cmd[--command]}" = "1" ]] && buf+=" --command"
                     [[ "${main_cmd[-f]}" = "1" ]] && buf+=" -f"
                     [[ "${main_cmd[-q]}" = "1" ]] && buf+=" -q"
@@ -964,7 +964,7 @@ cdreplay|env-whitelist|create) ]]; then
 
 # FUNCTION: .zsh-lint_update_main_cmd {{{
 # Updates main entry in given ($3) command packet. There
-# is single command packet per zplugin invocation and it
+# is single command packet per zinit invocation and it
 # contains main command, optionally ICE command, and also
 # optionally a preceding comment.
 #
@@ -995,7 +995,7 @@ cdreplay|env-whitelist|create) ]]; then
 # }}}
 # FUNCTION: .zsh-lint_update_ice_cmd {{{
 # Updates ICE entry in given ($3) command packet. There
-# is single command packet per zplugin invocation and it
+# is single command packet per zinit invocation and it
 # contains main command, optionally ICE command, and also
 # optionally a preceding comment.
 #
@@ -1025,14 +1025,14 @@ cdreplay|env-whitelist|create) ]]; then
     if (( ${#other} == 0 )); then
         ice_cmd=( comment "${ice_cmd[comment]}" )
     else
-        ice_cmd+=( c "zplugin" sub "ice" )
+        ice_cmd+=( c "zinit" sub "ice" )
     fi
 
     cmdlist[idx*3-1]="${(j: :)${(qkv)ice_cmd[@]}}"
 }
 # }}}
-# FUNCTION: .zsh-lint_search_zplugin {{{
-.zsh-lint_search_zplugin() {
+# FUNCTION: .zsh-lint_search_zinit {{{
+.zsh-lint_search_zinit() {
     local input="$1"
     integer idx size
     local -a cmd
@@ -1047,7 +1047,7 @@ cdreplay|env-whitelist|create) ]]; then
         main_cmd=( "${(z@)cmd[3]}" )
         main_cmd=( "${(Qkv)main_cmd[@]}" )
 
-        [[ "${main_cmd[c]}" = zplugin && \
+        [[ "${main_cmd[c]}" = zinit && \
             "${main_cmd[sub]}" = (load|light|snippet) && \
             "${main_cmd[url]}" = ${~input}
         ]] && \
@@ -1188,8 +1188,8 @@ cdreplay|env-whitelist|create) ]]; then
 # FUNCTION: .zsh-lint_action_move_up {{{
 # Moves given instance ($2) up, i.e. swaps current and
 # previous instance. Using "instance" here means: ZUI's
-# module instance representing single zplugin command
-# (possibly preceded with "zplugin ice ..." invocation)
+# module instance representing single zinit command
+# (possibly preceded with "zinit ice ..." invocation)
 # by the design of Crasis. Instance = invocation of a
 # generator with "module_idx" "instance_idx" arguments.
 #
@@ -1213,8 +1213,8 @@ cdreplay|env-whitelist|create) ]]; then
 # FUNCTION: .zsh-lint_action_move_down {{{
 # Moves given instance ($2) down, i.e. swaps current and
 # next instance. Using "instance" here means: ZUI's
-# module instance representing single zplugin command
-# (possibly preceded with "zplugin ice ..." invocation)
+# module instance representing single zinit command
+# (possibly preceded with "zinit ice ..." invocation)
 # by the design of Crasis. Instance = invocation of a
 # generator with "module_idx" "instance_idx" arguments.
 #
@@ -1237,7 +1237,7 @@ cdreplay|env-whitelist|create) ]]; then
 # }}}
 # FUNCTION: .zsh-lint_action_add_snippet {{{
 # Adds snippet to $cmdlist. So it creates a packet with
-# "zplg snippet ..." main command.
+# "zinit snippet ..." main command.
 .zsh-lint_action_add_snippet() {
     local url="${ZUI[my_tfield3_data]}"
     local -A main_cmd
@@ -1245,7 +1245,7 @@ cdreplay|env-whitelist|create) ]]; then
     [[ -z "$url" || "$url" = \<*\> ]] && { -zui_std_stalog "" "" "" "WARNING: " "" "Aborted, please enter a proper snippet URL"; return; }
     [[ "$url" != /* && "$url" != (http|ftp|https|OMZ|PZT):* ]] && -zui_std_stalog "" "" "" "WARNING: " "" "Snippet isn't absolute path or URL"
 
-    main_cmd[c]="zplugin"
+    main_cmd[c]="zinit"
     main_cmd[sub]="snippet"
     main_cmd[url]="$url"
 
@@ -1256,7 +1256,7 @@ cdreplay|env-whitelist|create) ]]; then
 # }}}
 # FUNCTION: .zsh-lint_action_add_plugin {{{
 # Adds plugin to $cmdlist. So it creates a packet with
-# "zplg load/light ..." main command. Ice command can be
+# "zinit load/light ..." main command. Ice command can be
 # added by editing actions.
 .zsh-lint_action_add_plugin() {
     local url="${ZUI[my_tfield3_data]}"
@@ -1265,7 +1265,7 @@ cdreplay|env-whitelist|create) ]]; then
     [[ -z "$url" ]] && { /zsh-lint-dbg "WARNING: Plugin addition aborted, please provide a proper plugin ID"; return 1; }
     [[ "$url" != [a-zA-Z0-9-]##/[a-zA-Z0-9-]## ]] && /zsh-lint-dbg "WARNING: Plugin ID isn't of the form \`user/plugin'"
 
-    main_cmd[c]="zplugin"
+    main_cmd[c]="zinit"
     main_cmd[sub]="load"
     main_cmd[url]="$url"
 
@@ -1276,7 +1276,7 @@ cdreplay|env-whitelist|create) ]]; then
 # }}}
 # FUNCTION: .zsh-lint_action_reload {{{
 # Ran at startup. Performs full zshrc processing, recognizes
-# other and zplugin-related zshrc parts, it regenerates the
+# other and zinit-related zshrc parts, it regenerates the
 # backend model-structure, the $cmdlist array of hashes.
 .zsh-lint_action_reload() {
     local id="$1"
@@ -1309,8 +1309,8 @@ cdreplay|env-whitelist|create) ]]; then
     sum+=SECONDS
 
     SECONDS=0
-    .zsh-lint-process-zplugin-commands
-    stats+=( "Zplugin-commands processing time: $SECONDS seconds" )
+    .zsh-lint-process-zinit-commands
+    stats+=( "Zinit-commands processing time: $SECONDS seconds" )
     sum+=SECONDS
 
     /zsh-lint-dbg-array "${stats[@]}" "Total time: $sum seconds" ""
@@ -1329,7 +1329,7 @@ cdreplay|env-whitelist|create) ]]; then
 .zsh-lint_action_disable() {
     local input="$1" idx
     reply=()
-    .zsh-lint_search_zplugin "$input"
+    .zsh-lint_search_zinit "$input"
     for idx in "${reply[@]}"; do
         (( idx*3 > ${#cmdlist} || idx <= 0 )) && \
             { /zsh-lint-dbg "[disable] IMPROPER INDEX {$idx}/{${#cmdlist}}"; continue; }
@@ -1343,7 +1343,7 @@ cdreplay|env-whitelist|create) ]]; then
 .zsh-lint_action_enable() {
     local input="$1" idx
     reply=()
-    .zsh-lint_search_zplugin "$input"
+    .zsh-lint_search_zinit "$input"
     for idx in "${reply[@]}"; do
         (( idx*3 > ${#cmdlist} || idx <= 0 )) && \
             { /zsh-lint-dbg "[enable] IMPROPER INDEX {$idx}/{${#cmdlist}}"; continue; }
@@ -1357,7 +1357,7 @@ cdreplay|env-whitelist|create) ]]; then
 .zsh-lint_action_toggle() {
     local input="$1" idx
     reply=()
-    .zsh-lint_search_zplugin "$input"
+    .zsh-lint_search_zinit "$input"
     for idx in "${reply[@]}"; do
         (( idx*3 > ${#cmdlist} || idx <= 0 )) && \
             { /zsh-lint-dbg "[toggle] IMPROPER INDEX {$idx}/{${#cmdlist}}"; continue; }
@@ -1373,7 +1373,7 @@ cdreplay|env-whitelist|create) ]]; then
 .zsh-lint_action_purge() {
     local input="$1" idx
     reply=()
-    .zsh-lint_search_zplugin "$input"
+    .zsh-lint_search_zinit "$input"
     for idx in "${(Oa)reply[@]}"; do
         (( idx*3 > ${#cmdlist} || idx <= 0 )) && \
             { /zsh-lint-dbg "[purge] IMPROPER INDEX {$idx}/{${#cmdlist}}"; continue; }
@@ -1443,8 +1443,8 @@ cdreplay|env-whitelist|create) ]]; then
     # Parse ice-modifiers and build-up the command
     local -A cmd3_ice cmd3_main
     local icestr
-    cmd3_ice=( c zplugin sub ice )
-    cmd3_main=( c zplugin sub load url "$plugspec" )
+    cmd3_ice=( c zinit sub ice )
+    cmd3_main=( c zinit sub load url "$plugspec" )
     for icestr in ${args[@]}; do
         [[ "$icestr" = (#b)(${(~j:|:)ice_order})(?)(?)(*)(?) || \
                 "$icestr" = (#b)(${(~j:|:)ice_order})(*)
@@ -1527,3 +1527,5 @@ local dest="${${OPT_OUT[1]:+${OPT_OUT[1]}}:-${zshrc_path}_gen}"
     +zsh-lint-error "Couldn't save the modified zshrc to: ${dest/(#s)$HOME/~}" #/zsh-lint-dbg-print-out
 
 return 0
+# !!! This file modified by automated tool by Z-Shell. This tool fix variables and URL for Zinit project.
+# For any queries please visit https://github.com/z-shell/zinit/issues
