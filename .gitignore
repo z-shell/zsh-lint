@@ -12,6 +12,8 @@
 # A popular plugin manager's files
 ._zplugin
 .zplugin_lstupd
+._zinit
+._zinit_lstupd
 
 # z-shell zshelldoc tool's files
 zsdoc/data
