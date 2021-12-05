@@ -1,9 +1,6 @@
-# -*- Mode: sh; sh-indentation: 4; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# vim:ft=zsh:sw=4:sts=4:et
-
 # Copyright (c) 2019 Sebastian Gniazdowski
-# License MIT
-
+# Copyright (c) 2021 Salvydas Lukosius
+#
 # Handle $0 according to the Zsh Plugin Standard:
 # http://z-shell.github.io/Zsh-100-Commits-Club/Zsh-Plugin-Standard.html
 0="${${ZERO:-${0:#$ZSH_ARGZERO}}:-${(%):-%N}}"
@@ -13,5 +10,3 @@ typeset -g ZSHLINT_REPO_DIR="${0:h}"
 typeset -g ZSHLINT_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/zsh-lint"
 
 autoload zsh-lint
-# !!! This file modified by automated tool by Z-Shell. This tool fix variables and URL for Zinit project.
-# For any queries please visit https://github.com/z-shell/zinit/issues
