@@ -9,4 +9,10 @@
 typeset -g ZSHLINT_REPO_DIR="${0:h}"
 typeset -g ZSHLINT_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/zsh-lint"
 
+# According to Zsh Plugin Standart.
+# https://github.com/z-shell/zi/wiki/Zsh-Plugin-Standard#2-functions-directory
+if [[ $PMSPEC != *f* ]] {
+    fpath+=( "${0:h}/functions" )
+}
+
 autoload zsh-lint
