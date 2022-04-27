@@ -1,16 +1,18 @@
-# Copyright (c) 2019 Sebastian Gniazdowski
+# -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
+# vim: ft=zsh sw=2 ts=2 et
+#
 # Copyright (c) 2021 Salvydas Lukosius
 #
-# Handle $0 according to the Zsh Plugin Standard:
-# http://z-shell.github.io/Zsh-100-Commits-Club/Zsh-Plugin-Standard.html
-0="${${ZERO:-${0:#$ZSH_ARGZERO}}:-${(%):-%N}}"
+# Standardized $0 Handling
+# https://z.digitalclouds.dev/community/zsh_plugin_standard#zero-handling
+0="${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}"
 0="${${(M)0:#/*}:-$PWD/$0}"
 
 typeset -g ZSHLINT_REPO_DIR="${0:h}"
 typeset -g ZSHLINT_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/zsh-lint"
 
-# According to Zsh Plugin Standart.
-# https://github.com/z-shell/zi/wiki/Zsh-Plugin-Standard#2-functions-directory
+# Functions Directory
+# https://z.digitalclouds.dev/community/zsh_plugin_standard#funtions-directory
 if [[ $PMSPEC != *f* ]] {
     fpath+=( "${0:h}/functions" )
 }
