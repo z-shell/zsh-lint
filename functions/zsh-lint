@@ -47,18 +47,19 @@ local -a ZSHLINT_DEBUG_MSGS
 
 local -a ice_order nval_ices
 ice_order=(
-  wait lucid silent service svn proto from teleid as id-as depth cloneopts
-  ver has if load unload blockf pick bpick src notify mv cp atinit atclone
-  atload atpull make run-atpull nocd cloneonly trackbinds bindmap multisrc
-  compile nocompile nocompletions reset-prompt
+  svn proto from teleid bindmap cloneopts id-as depth if wait load unload blockf pick bpick src as
+  ver silent lucid notify mv cp atinit atclone atload atpull nocd run-atpull has cloneonly make service trackbinds
+  multisrc compile nocompile nocompletions reset-prompt wrap reset sh \!sh bash \!bash ksh \!ksh csh \!csh aliases
+  countdown ps-on-unload ps-on-update trigger-load light-mode is-snippet atdelete pack git verbose on-update-of
+  subscribe extract param opts autoload subst install pullopts debug null binary
   # Include all additional ices – after
   # stripping them from the possible: ''
   ${(@s.|.)${ZI_EXTS[ice-mods]//\'\'/}}
 )
 
 nval_ices=(
-  blockf silent lucid trackbinds cloneonly nocd run-atpull
-  nocompletions svn
+  blockf silent lucid trackbinds cloneonly nocd run-atpull nocompletions sh \!sh bash \!bash ksh \!ksh csh \!csh 
+  aliases countdown light-mode is-snippet git verbose cloneopts pullopts debug null binary make nocompile notify reset
   # Include only those additional ices,
   # don't have the '' in their name, i.e.
   # aren't designed to hold value
@@ -694,20 +695,16 @@ local -A theme
             [[ "$token" = ":" ]] && { cmd3[disabled]=1; (( in_zi -- )); }
         elif (( in_zi == 2 )); then
             if [[ "${cmd3[c]}" = "zi" ]]; then
-                [[ "$token" = (ice|load|light|snippet|cdclear|\
-cdreplay|env-whitelist|create)
-                ]] && {
-                    cmd3[sub]="$token"
-                    # We get another ice-command while a previous ice-command
-                    # is still being pointed to by coidx? -> progress coidx
-                    [[ "$token" = ice && -n "${cmdlist[coidx+1]}" ]] && \
-                        coidx+=3
-                    ((1))
-                } || \
-                    { cmd3[sub]="unkn"; cmd3[unkn]="$token"; }
+              [[ "$token" = (ice|load|light|snippet|cdclear|cdreplay|env-whitelist|create) ]] && {
+                cmd3[sub]="$token"
+                # We get another ice-command while a previous ice-command
+                # is still being pointed to by coidx? -> progress coidx
+                [[ "$token" = ice && -n "${cmdlist[coidx+1]}" ]] && coidx+=3
+                ((1))
+              } || { cmd3[sub]="unkn"; cmd3[unkn]="$token"; }
             else
-                cmd3[arg_1]="$token"
-                cmd3[spaces_1]="$spaces"
+              cmd3[arg_1]="$token"
+              cmd3[spaces_1]="$spaces"
             fi
         else
             if [[ "${cmd3[sub]}" = "ice" ]]; then
@@ -1514,7 +1511,6 @@ done
 
 local dest="${${OPT_OUT[1]:+${OPT_OUT[1]}}:-${zshrc_path}_gen}"
 .zsh-lint_save  "$dest" && \
-  +zsh-lint-info -"Saved the modified zshrc to: ${dest/(#s)$HOME/~}" || \
-  +zsh-lint-error "Couldn't save the modified zshrc to: ${dest/(#s)$HOME/~}" #/zsh-lint-dbg-print-out
++zsh-lint-info -"Saved the modified zshrc to: ${dest/(#s)$HOME/~}" || +zsh-lint-error "Couldn't save the modified zshrc to: ${dest/(#s)$HOME/~}" #/zsh-lint-dbg-print-out
 
 return 0
