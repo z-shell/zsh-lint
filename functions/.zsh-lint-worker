@@ -1,5 +1,8 @@
 #!/usr/bin/env zsh
-# Copyright (c) 2019 Sebastian Gniazdowski
+#
+# -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
+# vim: ft=zsh sw=2 ts=2 et
+#
 # Copyright (c) 2021 Salvydas Lukosius
 
 emulate -L zsh -o extendedglob
