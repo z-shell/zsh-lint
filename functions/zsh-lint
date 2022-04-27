@@ -1,5 +1,4 @@
 #!/usr/bin/env zsh
-# Copyright (c) 2019 Sebastian Gniazdowski
 # Copyright (c) 2021 Salvydas Lukosius
 
 emulate -LR zsh -o extendedglob -o typesetsilent -o warncreateglobal
@@ -7,10 +6,10 @@ local IFS=$' \n'
 
 # Run as script?
 if [[ "$0" != zsh-lint || -n "$ZSH_SCRIPT" ]]; then
-  # Handle $0 according to the Zsh Plugin Standard:
-  # https://github.com/z-shell/zi/wiki/Zsh-Plugin-Standard
-  0="${${ZERO:-${0:#$ZSH_ARGZERO}}:-${(%):-%N}}"
-  0="${${(M)0##/*}:-$PWD/$0}"
+  # Standardized $0 Handling
+  # https://z.digitalclouds.dev/community/zsh_plugin_standard#zero-handling
+  0="${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}"
+  0="${${(M)0:#/*}:-$PWD/$0}"
   fpath+=( "$0:h" )
 fi
 
@@ -972,9 +971,9 @@ cdreplay|env-whitelist|create)
         main_cmd=( "${(z@)cmd[3]}" )
         main_cmd=( "${(Qkv)main_cmd[@]}" )
     fi
-    if [[ "$data" = " delete " ]]; then
+    if [[ "$data" = "�delete�" ]]; then
         unset "main_cmd[$key]"
-    elif [[ "$data" = " toggle " ]]; then
+    elif [[ "$data" = "�toggle�" ]]; then
         main_cmd[$key]=$(( !main_cmd[$key] ))
     else
         main_cmd[$key]="$data"
@@ -1003,9 +1002,9 @@ cdreplay|env-whitelist|create)
         ice_cmd=( "${(z@)cmd[2]}" )
         ice_cmd=( "${(Qkv)ice_cmd[@]}" )
     fi
-    if [[ "$data" = " delete " ]]; then
+    if [[ "$data" = "�delete�" ]]; then
         unset "ice_cmd[$key]"
-    elif [[ "$data" = " toggle " ]]; then
+    elif [[ "$data" = "�toggle�" ]]; then
         ice_cmd[$key]=$(( !ice_cmd[$key] ))
     else
         ice_cmd[$key]="$data"
@@ -1352,8 +1351,8 @@ cdreplay|env-whitelist|create)
     for idx in "${reply[@]}"; do
         (( idx*3 > ${#cmdlist} || idx <= 0 )) && \
             { /zsh-lint-dbg "[toggle] IMPROPER INDEX {$idx}/{${#cmdlist}}"; continue; }
-        .zsh-lint_update_ice_cmd disabled ' toggle ' "$idx"
-        .zsh-lint_update_main_cmd disabled ' toggle ' "$idx"
+        .zsh-lint_update_ice_cmd disabled '�toggle�' "$idx"
+        .zsh-lint_update_main_cmd disabled '�toggle�' "$idx"
     done
     return 0
 }
