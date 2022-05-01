@@ -5,13 +5,13 @@ repo:
   repo:
     host: github.com
     owner: z-shell
-    name: declare-zsh
+    name: zsh-lint
 lint:
   linters:
     - name: zsh-n
       files: [zsh]
       type: pass_fail
-      command: [zsh, -fc, "zsh -fn ${target} 2>&1"]
+      command: [zsh, -fc, "zsh -n ${target} 2>&1"]
       success_codes: [0, 1]
       environment:
         - name: PATH
@@ -37,7 +37,7 @@ lint:
   ignore:
     - linters: [ALL]
       paths:
-        - ".*"
+        - "functions/.zsh-lint-worker"
     - linters: [actionlint]
       paths:
         - .github/workflows/sync-labels.yml
