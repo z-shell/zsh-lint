@@ -11,7 +11,7 @@ lint:
     - name: zsh-n
       files: [zsh]
       type: pass_fail
-      command: [zsh, -fc, "zsh -n ${target} 2>&1"]
+      command: [zsh, -fc, "zsh -fn ${target} 2>&1"]
       success_codes: [0, 1]
       environment:
         - name: PATH
