@@ -1,4 +1,4 @@
-<div align="center"><table width="100%" height="auto">
+<h1></h1><div align="center"><table width="100%" height="auto">
  <tr align="center" margin-left="auto" margin-right="auto"><td align="center">
   <h1>
    <a title="❮ ZI ❯" target="_self" href="https://github.com/z-shell/zi">

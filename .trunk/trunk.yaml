@@ -1,0 +1,43 @@
+version: 0.1
+cli:
+  version: 0.11.0-beta
+repo:
+  repo:
+    host: github.com
+    owner: z-shell
+    name: declare-zsh
+lint:
+  linters:
+    - name: zsh-n
+      files: [zsh]
+      type: pass_fail
+      command: [zsh, -fc, "zsh -n ${target} 2>&1"]
+      success_codes: [0, 1]
+      environment:
+        - name: PATH
+          list: ["${env.PATH}"]
+    - name: zsh-zcompile
+      files: [zsh]
+      type: pass_fail
+      command: [zsh, -fc, "zcompile -U ${target} rc=$?; rm -f ${target}.zwc; exit $rc"]
+      success_codes: [0, 1]
+      environment:
+        - name: PATH
+          list: ["${env.PATH}"]
+  enabled:
+    - zsh-zcompile@system
+    - zsh-n@system
+    - actionlint@1.6.12
+    - gitleaks@8.8.4
+    - hadolint@2.10.0
+    - markdownlint@0.31.1
+    - prettier@2.6.2
+    - shellcheck@0.8.0
+    - shfmt@3.4.0
+  ignore:
+    - linters: [ALL]
+      paths:
+        - ".*"
+    - linters: [actionlint]
+      paths:
+        - .github/workflows/sync-labels.yml
