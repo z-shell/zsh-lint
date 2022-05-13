@@ -11,7 +11,8 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  check-call:
+  trunk:
+    if: github.repository == 'z-shell/zsh-lint'
     name: "⚡"
     uses: z-shell/.github/.github/workflows/trunk-call.yml@main
     with:
