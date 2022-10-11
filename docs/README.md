@@ -1,10 +1,10 @@
 <h1></h1><div align="center"><table width="100%" height="auto">
  <tr align="center" margin-left="auto" margin-right="auto"><td align="center">
   <h1>
-   <a title="❮ ZI ❯" target="_self" href="https://github.com/z-shell/zi">
+   <a title="❮ Zi ❯" target="_self" href="https://github.com/z-shell/zi">
   <img style="width:60;height:60px"
-    src="https://raw.githubusercontent.com/z-shell/zi/main/docs/images/favicon.svg"
-    alt="Logo" /></a>❮ ZI ❯
+    src="https://raw.githubusercontent.com/z-shell/zi/main/docs/images/logo.png"
+    alt="Logo" /></a>❮ Zi ❯
   </h1>
   <h2>A linter for Zsh scripting language.</h2>
 <h3>
@@ -39,9 +39,9 @@
 
 ## Install
 
-Prerequisites: [ZI](https://github.com/z-shell/zi).
+Prerequisites: [Zi](https://github.com/z-shell/zi).
 
-Then add to your .zshrc following:
+Then add the following to your `.zshrc` file:
 
 ```zsh
 zi light z-shell/zui
