@@ -9,14 +9,14 @@
   <h2>A linter for Zsh scripting language.</h2>
 <h3>
   <a href="https://github.com/orgs/z-shell/discussions/">《❔》Ask a Question </a>
-  <a href="https://z.digitalclouds.dev/search/">《💡》Search Wiki </a>
+  <a href="https://wiki.zshell.dev/search/">《💡》Search Wiki </a>
   <a href="https://github.com/z-shell/community/issues/new?assignees=&labels=%F0%9F%91%A5+member&template=membership.yml&title=team%3A+">《💜》Join </a>
-  <a href="https://digitalclouds.crowdin.com/z-shell/">《🌐》Localize </a>
+  <a href="https://translate.zshell.dev">《🌐》Localize </a>
 </h3>
   </td></tr>
 <tr>
 <td align="center">
-  <a title="Crowdin" target="_self" href="https://crowdin.digitalclouds.dev/z-shell">
+  <a title="Crowdin" target="_self" href="https://translate.zshell.dev">
     <img align="center" src="https://badges.crowdin.net/e/f108c12713ee8526ac878d5671ad6e29/localized.svg" />
   </a>
   <!--
