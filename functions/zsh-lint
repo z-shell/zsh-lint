@@ -1,11 +1,11 @@
-#!/usr/bin/env zsh
-#
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
 #
 # Copyright (c) 2021 Salvydas Lukosius
 
-emulate -LR zsh -o extendedglob -o typesetsilent -o warncreateglobal
+builtin emulate -LR zsh ${=${options[xtrace]:#off}:+-o xtrace}
+builtin setopt extended_glob warn_create_global typeset_silent no_short_loops rc_quotes no_auto_pushd
+
 local IFS=$' \n'
 
 # Run as script?
@@ -17,7 +17,7 @@ if [[ "$0" != zsh-lint || -n "$ZSH_SCRIPT" ]]; then
   fpath+=( "$0:h" )
 fi
 
-# Already autoloaded in *.plugin.zsh, here it's for Zshelldoc
+# Already auto-loaded in *.plugin.zsh, here it's for zsdoc
 autoload -Uz -- @zsh-lint-process-buffer colors
 colors
 
@@ -47,32 +47,26 @@ local -a ZSHLINT_DEBUG_MSGS
 
 local -a ice_order nval_ices
 ice_order=(
-  svn proto from teleid bindmap cloneopts id-as depth if wait load unload blockf pick bpick src as
-  ver silent lucid notify mv cp atinit atclone atload atpull nocd run-atpull has cloneonly make service trackbinds
-  multisrc compile nocompile nocompletions reset-prompt wrap reset sh \!sh bash \!bash ksh \!ksh csh \!csh aliases
-  countdown ps-on-unload ps-on-update trigger-load light-mode is-snippet atdelete pack git verbose on-update-of
-  subscribe extract param opts autoload subst install pullopts debug null binary
-  # Include all additional ices – after
-  # stripping them from the possible: ''
-  ${(@s.|.)${ZI_EXTS[ice-mods]//\'\'/}}
+  ${(As:|:)ZI[ice-list]}
+  # Include all additional ices – after stripping them from the possible: ''
+  ${(@)${(@Akons:|:u)${ZI_EXTS[ice-mods]//\'\'/}}/(#s)<->-/}
 )
 
 nval_ices=(
-  blockf silent lucid trackbinds cloneonly nocd run-atpull nocompletions sh \!sh bash \!bash ksh \!ksh csh \!csh 
-  aliases countdown light-mode is-snippet git verbose cloneopts pullopts debug null binary make nocompile notify reset
-  # Include only those additional ices,
-  # don't have the '' in their name, i.e.
-  # aren't designed to hold value
-  ${(@)${(@s.|.)ZI_EXTS[ice-mods]}:#*\'\'*}
+  ${(As:|:)ZI[nval-ice-list]}
+  # Include only those additional ices, don't have the '' in their name, i.e. aren't designed to hold value
+  ${(@)${(@)${(@Akons:|:u)${ZI_EXTS[ice-mods]//\'\'/}}/(#s)<->-/}}
+  # Must be last
+  svn
 )
 
 # Initial debug message
 /zsh-lint-dbg "ZSH version: $ZSH_VERSION ($ZSH_PATCHLEVEL), machine: $CPUTYPE $VENDOR $OSTYPE, LANG: $LANG"
 if [[ ${+ZI} = 1 ]]; then
-  /zsh-lint-dbg "ZI version: <ZIVERSION>, declare-zshrc version: <ZSHLINTVERSION>"
-  /zsh-lint-dbg "ZI BIN_DIR: ${ZI[BIN_DIR]/$HOME/~}, HOME_DIR: ${ZI[HOME_DIR]/$HOME/~}, PLUGINS_DIR: ${ZI[PLUGINS_DIR]/$HOME/~}, COMPLETIONS_DIR: ${ZI[COMPLETIONS_DIR]/$HOME/~}"
+  /zsh-lint-dbg "Zi version: <ZIVERSION>, declare-zshrc version: <ZSHLINTVERSION>"
+  /zsh-lint-dbg "Zi BIN_DIR: ${ZI[BIN_DIR]/$HOME/~}, HOME_DIR: ${ZI[HOME_DIR]/$HOME/~}, PLUGINS_DIR: ${ZI[PLUGINS_DIR]/$HOME/~}, COMPLETIONS_DIR: ${ZI[COMPLETIONS_DIR]/$HOME/~}"
 else
-  /zsh-lint-dbg "${ZUI[RED]}ZI not loaded${ZUI[FMT_END]}"
+  /zsh-lint-dbg "${ZUI[RED]}Zi not loaded${ZUI[FMT_END]}"
 fi
 
 /zsh-lint-dbg ""
@@ -80,41 +74,41 @@ fi
 /zsh-lint-dbg ""
 
 +zsh-lint-error() {
-    [[ -n "$OPT_QUIET" && "$1" != \!* ]] && return 0
-    local opt="${(M)1:#(-r|-rl|-l|-rnl|-rln|-n|-nl|-rn|-nr)}"
-    [[ -n "$opt" ]] && shift
-    print -r $opt -- "$fg[red]ERROR$reset_color:" "$@"
+  [[ -n "$OPT_QUIET" && "$1" != \!* ]] && return 0
+  local opt="${(M)1:#(-r|-rl|-l|-rnl|-rln|-n|-nl|-rn|-nr)}"
+  [[ -n "$opt" ]] && shift
+  print -r $opt -- "$fg[red]ERROR$reset_color:" "$@"
 }
 
 +zsh-lint-warn() {
-    [[ -n "$OPT_QUIET" && "$1" != \!* ]] && return 0
-    local opt="${(M)1:#(-r|-rl|-l|-rnl|-rln|-n|-nl|-rn|-nr)}"
-    [[ -n "$opt" ]] && shift
-    print -r $opt -- "$fg[red]WARNING$reset_color:" "$@"
+  [[ -n "$OPT_QUIET" && "$1" != \!* ]] && return 0
+  local opt="${(M)1:#(-r|-rl|-l|-rnl|-rln|-n|-nl|-rn|-nr)}"
+  [[ -n "$opt" ]] && shift
+  print -r $opt -- "$fg[red]WARNING$reset_color:" "$@"
 }
 
 +zsh-lint-info() {
-    [[ -n "$OPT_QUIET" && "$1" != \!* ]] && return 0
-    local opt="${(M)1:#(-r|-rl|-l|-rnl|-rln|-n|-nl|-rn|-nr)}"
-    [[ -n "$opt" ]] && shift
-    print -r $opt -- ${fg[yellow]}${${(M)1#-}:+INFO: }"${1#-}" "${@[2,-1]}"$reset_color
+  [[ -n "$OPT_QUIET" && "$1" != \!* ]] && return 0
+  local opt="${(M)1:#(-r|-rl|-l|-rnl|-rln|-n|-nl|-rn|-nr)}"
+  [[ -n "$opt" ]] && shift
+  print -r $opt -- ${fg[yellow]}${${(M)1#-}:+INFO: }"${1#-}" "${@[2,-1]}"$reset_color
 }
 
 +zsh-lint-msg() {
-    [[ -n "$OPT_QUIET" && "$1" != \!* ]] && return 0
+  [[ -n "$OPT_QUIET" && "$1" != \!* ]] && return 0
 
-    local opt="${(M)1:#(-r|-rl|-l|-rnl|-rln|-n|-nl|-rn|-nr)}"
-    [[ -n "$opt" ]] && shift
+  local opt="${(M)1:#(-r|-rl|-l|-rnl|-rln|-n|-nl|-rn|-nr)}"
+  [[ -n "$opt" ]] && shift
 
-    local -A map
-    map=(
-        RE "${fg[red]:-x}"     GR "${fg[green]:-x}"
-        YE "${fg[yellow]:-x}"  BL "${fg[blue]:-x}"
-        CY "${fg[cyan]:-x}"    MA "${fg[magenta]:-x}"
-        RS "${reset_color:-x}"
-    )
+  local -A map
+  map=(
+    RE "${fg[red]:-x}"     GR "${fg[green]:-x}"
+    YE "${fg[yellow]:-x}"  BL "${fg[blue]:-x}"
+    CY "${fg[cyan]:-x}"    MA "${fg[magenta]:-x}"
+    RS "${reset_color:-x}"
+  )
 
-    print -r $opt -- "${@//(#m)[A-Z][A-Z]/${${map[$MATCH]:-$MATCH}:#x}}"$reset_color
+  print -r $opt -- "${@//(#m)[A-Z][A-Z]/${${map[$MATCH]:-$MATCH}:#x}}"$reset_color
 }
 
 #
@@ -125,17 +119,17 @@ local -A TOKEN_TYPES
 
 TOKEN_TYPES=(
 
-  # Precommand
+  # Pre-command
 
   'builtin'     1
   'command'     1
   'exec'        1
   'nocorrect'   1
   'noglob'      1
-  'pkexec'      1
+  'pkexec'      1 # immune to #121 because it's usually not passed --option flags
 
   # Control flow
-  # Tokens that at "command position" are followed by a command
+  # Tokens that, at (naively-determined) "command position", are followed by a de jure command position.  All of these are reserved words.
 
   $'\x7b'   2 # {
   $'\x28'   2 # (
@@ -168,21 +162,20 @@ TOKEN_TYPES=(
 # Parse options
 #
 
-local -a OPT_HELP OPT_VERBOSE OPT_QUIET OPT_NOANSI \
-          OPT_DISABLE OPT_ENABLE OPT_TOGGLE OPT_ADD \
-          OPT_ADD_FLAG OPT_PURGE OPT_OUT
+local -a OPT_HELP OPT_VERBOSE OPT_QUIET OPT_NOANSI OPT_DISABLE OPT_ENABLE OPT_TOGGLE OPT_ADD \
+  OPT_ADD_FLAG OPT_PURGE OPT_OUT
+
 local -A opthash
 zparseopts -E -D -A opthash h=OPT_HELP -help=OPT_HELP \
-        v=OPT_VERBOSE -verbose=OPT_VERBOSE \
-        q=OPT_QUIET -quiet=OPT_QUIET \
-        n=OPT_NOANSI -noansi=OPT_NOANSI \
-        o:=OPT_OUT -out:=OPT_OUT \
-        DD+:=OPT_DISABLE -zp-disable+:=OPT_DISABLE \
-        EE+:=OPT_ENABLE -zp-enable+:=OPT_ENABLE \
-        TT+:=OPT_TOGGLE -zp-toggle+:=OPT_TOGGLE \
-        AA+:=OPT_ADD -zp-add+=OPT_ADD_FLAG \
-        PP+:=OPT_PURGE -zp-purge+:=OPT_PURGE || \
-    { echo "Improper options given, see help (-h/--help)"; return 1; }
+  v=OPT_VERBOSE -verbose=OPT_VERBOSE \
+  q=OPT_QUIET -quiet=OPT_QUIET \
+  n=OPT_NOANSI -noansi=OPT_NOANSI \
+  o:=OPT_OUT -out:=OPT_OUT \
+  DD+:=OPT_DISABLE -zp-disable+:=OPT_DISABLE \
+  EE+:=OPT_ENABLE -zp-enable+:=OPT_ENABLE \
+  TT+:=OPT_TOGGLE -zp-toggle+:=OPT_TOGGLE \
+  AA+:=OPT_ADD -zp-add+=OPT_ADD_FLAG \
+  PP+:=OPT_PURGE -zp-purge+:=OPT_PURGE || { echo "Improper options given, see help (-h/--help)"; return 1; }
 
 integer i l
 local -a mbegin mend match
@@ -272,7 +265,7 @@ local -A theme
 # exists in other projects, is an autoload function, and is kept
 # in separate file "@zsh-lint-process-buffer".
 .zsh-lint-tokenize-zsh-rc() {
-    @zsh-lint-process-buffer "$zshrc" 1
+  @zsh-lint-process-buffer "$zshrc" 1
 }
 # }}}
 # FUNCTION: .zsh-lint_verify_tokenization {{{
@@ -422,14 +415,14 @@ local -A theme
         fi
 
         ### Detect function call
-        # Check for introduction of ZI call
+        # Check for introduction of Zi call
         if [[ "$spaces" = *$'\n'* || -z "$prev_token" || "${TOKEN_TYPES[$prev_token]}" = [1234] ]]; then
             if [[ "$spaces" != [[:blank:]]#"\\"(|$'\r')$'\n'[[:blank:]]# ]]; then
                 at_command=1
                 [[ "$token" != [[:blank:]]#\#* ]] && in_zi=0 || { (( in_zi )) && in_zi=1; }
             fi
             (( in_zi )) && {
-                (( 2*i - 1 - post_block_begin > 7*4 )) && { /zsh-lint-dbg "WARNING: many non-ZI commands in ZI block"; }
+                (( 2*i - 1 - post_block_begin > 7*4 )) && { /zsh-lint-dbg "WARNING: many non-Zi commands in Zi block"; }
                 # A new command (i.e. $spaces has a new line, etc.) - move the post-block pointer
                 post_block_begin=2*i-1
             }
@@ -438,7 +431,7 @@ local -A theme
         # Command token
         if (( at_command )); then
             at_command=0
-            # ZI call not in function
+            # Zi call not in function
             if [[ "$cur_fun" -eq 0 && "$next_token" != "()"(|$'\r') && "$fun_stack_depths[-1]" -le "0" ]]; then
                 if [[ "$token" = (zi|zinit) || ( "$token" = ":" && "$next_token" = (zi|zinit) ) ]]; then
                     in_zi=1
@@ -667,7 +660,7 @@ local -A theme
                     /zsh-lint-dbg "Stored <non-ice>/$coidx-cmd: ${cmdlist[coidx+2]}"
                     coidx+=3
                 else
-                    # Don't increase coidx untill we get some command.
+                    # Don't increase coidx until we get some command.
                     # This causes preceding comments to accumulate.
                     if [[ -n "${cmd3[c]}" ]]; then
                         # Custom command
@@ -695,7 +688,7 @@ local -A theme
             [[ "$token" = ":" ]] && { cmd3[disabled]=1; (( in_zi -- )); }
         elif (( in_zi == 2 )); then
             if [[ "${cmd3[c]}" = "zi" ]]; then
-              [[ "$token" = (ice|load|light|snippet|cdclear|cdreplay|env-whitelist|create) ]] && {
+              [[ "$token" = (ice|times|unload|env-whitelist|update|snippet|load|light|cdreplay|cdclear|delete|create) ]] && {
                 cmd3[sub]="$token"
                 # We get another ice-command while a previous ice-command
                 # is still being pointed to by coidx? -> progress coidx
@@ -708,7 +701,7 @@ local -A theme
             fi
         else
             if [[ "${cmd3[sub]}" = "ice" ]]; then
-                # Also dequote the ice modifier
+                # Also de-quote the ice modifier
                 [[ "$token" = (#b)(${(~j:|:)ice_order})(?)(?)(*)(?) || \
                     "$token" = (#b)(${(~j:|:)ice_order})(*)
                 ]] && {
@@ -790,9 +783,9 @@ local -A theme
             cmdlist[coidx+2]="${(j: :)${(qkv)cmd3[@]}}"
             /zsh-lint-dbg "Stored <custom>/$coidx-cmd: ${cmdlist[coidx+2]}"
         fi
-        /zsh-lint-dbg "ZI block in zshrc has $(( (coidx + 2) / 3 )) commands (not counting \`zi ice ...')"
+        /zsh-lint-dbg "Zi block in zshrc has $(( (coidx + 2) / 3 )) commands (not counting \`zi ice ...')"
     else
-        /zsh-lint-dbg "ZI block in zshrc has $(( (coidx-1) / 3 )) commands (not counting \`zi ice ...')"
+        /zsh-lint-dbg "Zi block in zshrc has $(( (coidx-1) / 3 )) commands (not counting \`zi ice ...')"
     fi
 
     /zsh-lint-dbg ""
@@ -879,7 +872,7 @@ local -A theme
         if [[ "${#main_cmd}" -ge 1 ]]; then
             if [[ "${main_cmd[c]}" = (zi|zinit) ]]; then
                 (( ice_cmd[disabled] || main_cmd[disabled] )) && buf+=": "
-                if [[ "${main_cmd[sub]}" = (load|light|snippet|cdclear|cdreplay|env-whitelist|create) ]]; then
+                if [[ "${main_cmd[sub]}" = (times|unload|env-whitelist|update|snippet|load|light|cdreplay|cdclear|delete|create) ]]; then
                     buf+="zi${main_cmd[\\-break_2]:- }${main_cmd[sub]}"
                     [[ "${main_cmd[--command]}" = "1" ]] && buf+=" --command"
                     [[ "${main_cmd[-f]}" = "1" ]] && buf+=" -f"
@@ -1024,27 +1017,27 @@ local -A theme
 # }}}
 # FUNCTION: .zsh-lint_search_zi {{{
 .zsh-lint_search_zi() {
-    local input="$1"
-    integer idx size
-    local -a cmd
-    local -A main_cmd
+  local input="$1"
+  integer idx size
+  local -a cmd
+  local -A main_cmd
 
-    size=${#cmdlist}
+  size=${#cmdlist}
 
-    for (( idx=1; idx*3 <= size; ++ idx )); do
-        cmd=( "${(@)cmdlist[(idx-1)*3+1,idx*3]}" )
-        [[ -z "${cmd[3]}" ]] && continue
+  for (( idx=1; idx*3 <= size; ++ idx )); do
+    cmd=( "${(@)cmdlist[(idx-1)*3+1,idx*3]}" )
+    [[ -z "${cmd[3]}" ]] && continue
 
-        main_cmd=( "${(z@)cmd[3]}" )
-        main_cmd=( "${(Qkv)main_cmd[@]}" )
+    main_cmd=( "${(z@)cmd[3]}" )
+    main_cmd=( "${(Qkv)main_cmd[@]}" )
 
-        [[ "${main_cmd[c]}" = zi && \
-            "${main_cmd[sub]}" = (load|light|snippet) && \
-            "${main_cmd[url]}" = ${~input}
-        ]] && \
-            reply+=( "$idx" )
+      [[ "${main_cmd[c]}" = zi && \
+        "${main_cmd[sub]}" = (load|light|snippet) && \
+        "${main_cmd[url]}" = ${~input}
+      ]] && \
+        reply+=( "$idx" )
     done
-    +zsh-lint-info "-Found ${#reply} element(s)"
+  +zsh-lint-info "-Found ${#reply} element(s)"
 }
 # }}}
 # FUNCTION .zsh-lint_the_ice_case {{{
@@ -1054,34 +1047,34 @@ local -A theme
 # ice mod in $tmp, whether with or without the preceding
 # order number.
 .zsh-lint_the_ice_case() {
-    local name="$1" tmp="$2"
-    case "$tmp" in
-        ((<->_|)(${(~j:|:)${ice_order:|nval_ices}}))
-            if (( !own_quoting )); then
-                [[ -z "${ice_cmd[$tmp]}" && ${+ice_cmd[$tmp]} -eq 1 ]] && \
-                    { buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name"; continue; }
-                [[ -z "${ice_cmd[$tmp]}" ]] && continue
-                local apos="'"
-                local quoted="${ice_cmd[${tmp}_style]}${ice_cmd[$tmp]}${${${(M)ice_cmd[${tmp}_style]:#\$\'}:+$apos}:-${ice_cmd[${tmp}_style]:#[:=]}}"
-                buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name$quoted"
-            else
-                [[ -z "${ice_cmd[$tmp]}" && ${+ice_cmd[$tmp]} -eq 1 ]] && { buf+="${main_cmd[\\-break_${(M)tmp#[0-9]}]:- }$tmp"; continue; }
-                [[ -z "${ice_cmd[$tmp]}" ]] && continue
-                # Also quote the ice modifier
-                local opt1="\"${ice_cmd[$tmp]}\""
-                local opt2="'${ice_cmd[$tmp]}'"
-                [[ "${${opt1/\$ZPFX/}/\$/}" != "${opt1/\$ZPFX/}" \
-                    # || "${opt1/\\\!/}" != "$opt1"
-                ]] && \
-                    buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name$opt2" || \
-                    buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name$opt1"
-            fi
-            ;;
-        ((<->_|)(${(~j:|:)nval_ices}))
-            (( ${+ice_cmd[$tmp]} == 0 )) && continue
-            buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name"
-            ;;
-    esac
+  local name="$1" tmp="$2"
+  case "$tmp" in
+    ((<->_|)(${(~j:|:)${ice_order:|nval_ices}}))
+      if (( !own_quoting )); then
+        [[ -z "${ice_cmd[$tmp]}" && ${+ice_cmd[$tmp]} -eq 1 ]] && \
+          { buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name"; continue; }
+        [[ -z "${ice_cmd[$tmp]}" ]] && continue
+        local apos="'"
+        local quoted="${ice_cmd[${tmp}_style]}${ice_cmd[$tmp]}${${${(M)ice_cmd[${tmp}_style]:#\$\'}:+$apos}:-${ice_cmd[${tmp}_style]:#[:=]}}"
+        buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name$quoted"
+      else
+        [[ -z "${ice_cmd[$tmp]}" && ${+ice_cmd[$tmp]} -eq 1 ]] && { buf+="${main_cmd[\\-break_${(M)tmp#[0-9]}]:- }$tmp"; continue; }
+        [[ -z "${ice_cmd[$tmp]}" ]] && continue
+        # Also quote the ice modifier
+        local opt1="\"${ice_cmd[$tmp]}\""
+        local opt2="'${ice_cmd[$tmp]}'"
+        [[ "${${opt1/\$ZPFX/}/\$/}" != "${opt1/\$ZPFX/}" \
+          # || "${opt1/\\\!/}" != "$opt1"
+        ]] && \
+          buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name$opt2" || \
+          buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name$opt1"
+      fi
+      ;;
+    ((<->_|)(${(~j:|:)nval_ices}))
+      (( ${+ice_cmd[$tmp]} == 0 )) && continue
+      buf+="${ice_cmd[\\-break_${(M)tmp#[0-9]}]:- }$name"
+      ;;
+  esac
 }
 # }}}
 # Utility functions
@@ -1091,64 +1084,64 @@ local -A theme
 # The function checks if $1 contains $3 unquoted, i.e. not within
 # ", ' or preceded by an (properly unquoted, of course) backslash
 .zsh-lint_has_unquoted() {
-    local workbuf="$1" needle="$2" qu_char result_str sep=$'|'
-    integer idx beg_idx has_sq=0 has_dq=0 has_bs=0
-    while [[ $workbuf = (#b)([^\"\'\\]#)(([\"\'])|[\\](*))(*) ]]; do
-        [[ -z "$qu_char" && -n "${match[1]}" ]] && result_str+="$sep${match[1]}"
-        [[ -n ${match[4]} ]] && {
-            idx=${mbegin[2]}
-            # Optionally skip 1 quoted char - this implements the
-            # handling of the backslash quoting – when skipping the
-            # character we block it from further processing, so e.g.
-            # " will go unprocessed, or another backslash, etc.
-            if [[ $qu_char = \' ]]; then
-                workbuf=${match[4]}
-            else
-                [[ ${match[4]} != \\* ]] && has_bs=1
-                idx=1
-                workbuf=${match[4]:1}
-            fi
-     } || {
-        idx=${mbegin[2]}
-        workbuf=${match[5]}
-        # Toggle quoting
-        [[ ( ${match[2]} = \" && $qu_char != \' ) || ( ${match[2]} = \' && $qu_char != \" ) ]] && {
-            [[ $qu_char = [\"\'] ]] && {
-                # End of quoting
-                # Detected a single- or double-quoting at indices beg_idx,idx
-                # (including the quotation characters)
-                [[ $qu_char = \" ]] && {
-                    # Detected a double-quoting at indices beg_idx,idx
-                }
-                # The end-of-quoting proper algorithm action
-                qu_char=
-                ((1))
-            } || {
-                # Beginning of quoting
-                beg_idx=itmp
-                # The beginning-of-quoting proper algorithm action
-                qu_char=${match[2]}
-                [[ "$qu_char" = \' ]] && has_sq=1
-                [[ "$qu_char" = \" ]] && has_dq=1
-            }
-        }
-     }
-    done
-    [[ $qu_char = [\"\'] ]] && {
-        # Detected a final single- or double-quoting at indices beg_idx,-1
-        [[ $qu_char = \" ]] && {
-            # Detected a final double-quoting at indices beg_idx,-1
-        }
-        ((1))
+  local workbuf="$1" needle="$2" qu_char result_str sep=$'|'
+  integer idx beg_idx has_sq=0 has_dq=0 has_bs=0
+  while [[ $workbuf = (#b)([^\"\'\\]#)(([\"\'])|[\\](*))(*) ]]; do
+    [[ -z "$qu_char" && -n "${match[1]}" ]] && result_str+="$sep${match[1]}"
+    [[ -n ${match[4]} ]] && {
+      idx=${mbegin[2]}
+      # Optionally skip 1 quoted char - this implements the
+      # handling of the backslash quoting – when skipping the
+      # character we block it from further processing, so e.g.
+      # " will go unprocessed, or another backslash, etc.
+      if [[ $qu_char = \' ]]; then
+        workbuf=${match[4]}
+      else
+        [[ ${match[4]} != \\* ]] && has_bs=1
+        idx=1
+        workbuf=${match[4]:1}
+      fi
     } || {
-        [[ -n "$workbuf" ]] && result_str+="$sep$workbuf"
+      idx=${mbegin[2]}
+      workbuf=${match[5]}
+      # Toggle quoting
+      [[ ( ${match[2]} = \" && $qu_char != \' ) || ( ${match[2]} = \' && $qu_char != \" ) ]] && {
+        [[ $qu_char = [\"\'] ]] && {
+          # End of quoting
+          # Detected a single- or double-quoting at indices beg_idx,idx
+          # (including the quotation characters)
+          [[ $qu_char = \" ]] && {
+            # Detected a double-quoting at indices beg_idx,idx
+          }
+          # The end-of-quoting proper algorithm action
+          qu_char=
+          ((1))
+        } || {
+          # Beginning of quoting
+          beg_idx=itmp
+          # The beginning-of-quoting proper algorithm action
+          qu_char=${match[2]}
+          [[ "$qu_char" = \' ]] && has_sq=1
+          [[ "$qu_char" = \" ]] && has_dq=1
+        }
+      }
     }
+  done
+  [[ $qu_char = [\"\'] ]] && {
+    # Detected a final single- or double-quoting at indices beg_idx,-1
+    [[ $qu_char = \" ]] && {
+      # Detected a final double-quoting at indices beg_idx,-1
+    }
+    ((1))
+  } || {
+    [[ -n "$workbuf" ]] && result_str+="$sep$workbuf"
+  }
 
-    # TODO: Full \, ' and " handling
-    [[ ( $needle = \' && $has_sq = 1 ) || \
-        ( $needle = \" && $has_dq = 1 ) || \
-        ( $needle = \\ && $has_bs = 1 ) || \
-        $result_str = *$needle* ]]
+  # TODO: Full \, ' and " handling
+  [[ ( $needle = \' && $has_sq = 1 ) || \
+    ( $needle = \" && $has_dq = 1 ) || \
+    ( $needle = \\ && $has_bs = 1 ) || \
+    $result_str = *$needle* ]]
 }
 # }}}
 # FUNCTION: .zsh-lint_util_swap {{{
@@ -1234,8 +1227,7 @@ local -A theme
     local -A main_cmd
 
     [[ -z "$url" || "$url" = \<*\> ]] && { -zui_std_stalog "" "" "" "WARNING: " "" "Aborted, please enter a proper snippet URL"; return; }
-    [[ "$url" != /* && "$url" != (http|ftp|https|OMZ|PZT):* ]] && -zui_std_stalog "" "" "" "WARNING: " "" "Snippet isn't absolute path or URL"
-
+    [[ "$url" != /* && "$url" != (http(s|)|ftp(s|)|file|OMZ|PZT|PZTM|OMZP|OMZT|OMZL):* ]] && -zui_std_stalog "" "" "" "WARNING: " "" "Snippet isn't absolute path or URL"
     main_cmd[c]="zi"
     main_cmd[sub]="snippet"
     main_cmd[url]="$url"
@@ -1301,7 +1293,7 @@ local -A theme
 
     SECONDS=0
     .zsh-lint-process-zi-commands
-    stats+=( "ZI-commands processing time: $SECONDS seconds" )
+    stats+=( "Zi-commands processing time: $SECONDS seconds" )
     sum+=SECONDS
 
     /zsh-lint-dbg-array "${stats[@]}" "Total time: $sum seconds" ""
@@ -1409,7 +1401,7 @@ local -A theme
 
     local -a tmp
     if [[ -z "$plugspec" ]]; then
-        # Also decode possible mistakes/ignorances
+        # Also decode possible mistakes/ignorance's
         if [[ 0 != ${idx::=${args[(I)(#b)(*)\](*)]}} ]]; then
             if [[ -n "${match[1]}" && "${match[1]}" != [[:space:]]## ]]; then
                 args[idx]="${match[1]//((#s)[[:space:]]##|[[:space:]]##(#e))/}"

@@ -17,4 +17,4 @@ if [[ $PMSPEC != *f* ]] {
     fpath+=( "${0:h}/functions" )
 }
 
-autoload zsh-lint
+autoload -Uz zsh-lint

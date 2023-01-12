@@ -1,43 +1,25 @@
 version: 0.1
 cli:
-  version: 0.11.0-beta
-repo:
-  repo:
-    host: github.com
-    owner: z-shell
-    name: zsh-lint
+  version: 1.3.1
+plugins:
+  sources:
+    - id: trunk
+      ref: v0.0.8
+      uri: https://github.com/trunk-io/plugins
 lint:
-  linters:
-    - name: zsh-n
-      files: [zsh]
-      type: pass_fail
-      command: [zsh, -fc, "zsh -n ${target} 2>&1"]
-      success_codes: [0, 1]
-      environment:
-        - name: PATH
-          list: ["${env.PATH}"]
-    - name: zsh-zcompile
-      files: [zsh]
-      type: pass_fail
-      command: [zsh, -fc, "zcompile -U ${target} rc=$?; rm -f ${target}.zwc; exit $rc"]
-      success_codes: [0, 1]
-      environment:
-        - name: PATH
-          list: ["${env.PATH}"]
   enabled:
-    - zsh-zcompile@system
-    - zsh-n@system
-    - actionlint@1.6.12
-    - gitleaks@8.8.4
-    - hadolint@2.10.0
-    - markdownlint@0.31.1
-    - prettier@2.6.2
-    - shellcheck@0.8.0
-    - shfmt@3.4.0
-  ignore:
-    - linters: [ALL]
-      paths:
-        - "functions/.zsh-lint-worker"
-    - linters: [actionlint]
-      paths:
-        - .github/workflows/sync-labels.yml
+    - prettier@2.8.2
+    - gitleaks@8.15.2
+    - actionlint@1.6.22
+    - git-diff-check
+    - markdownlint@0.33.0
+runtimes:
+  enabled:
+    - go@1.18.3
+    - node@18.12.1
+actions:
+  enabled:
+    - trunk-announce
+    - trunk-check-pre-push
+    - trunk-fmt-pre-commit
+    - trunk-upgrade-available
