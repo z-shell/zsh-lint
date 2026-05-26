@@ -79,6 +79,10 @@ doc/zsdoc/data
 *.cmd
 .tmp_versions/
 modules.order
+
+# Go module files must be tracked (the broad *.mod* rule above would hide go.mod)
+!go.mod
+!go.sum
 Module.symvers
 Mkfile.old
 dkms.conf
