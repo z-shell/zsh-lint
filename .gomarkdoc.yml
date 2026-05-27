@@ -1,0 +1,2 @@
+# Plain format avoids gomarkdoc's HTML <a name> anchors, which are MDX-hostile.
+format: plain
