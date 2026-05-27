@@ -13,6 +13,7 @@
 package wikidoc
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -82,4 +83,29 @@ func escapeLine(line string) string {
 	line = strings.ReplaceAll(line, "{", "&#123;")
 	line = strings.ReplaceAll(line, "}", "&#125;")
 	return line
+}
+
+// Inject replaces the content between startMarker and endMarker in mdx with
+// block, surrounded by blank lines, and returns the result. The markers
+// themselves are preserved. Returns an error (prefixed "wikidoc:") if either
+// marker is missing or if endMarker appears before startMarker.
+func Inject(mdx, block, startMarker, endMarker string) (string, error) {
+	startIdx := strings.Index(mdx, startMarker)
+	if startIdx < 0 {
+		return "", fmt.Errorf("wikidoc: start marker %q not found", startMarker)
+	}
+	endIdx := strings.Index(mdx, endMarker)
+	if endIdx < 0 {
+		return "", fmt.Errorf("wikidoc: end marker %q not found", endMarker)
+	}
+	afterStart := startIdx + len(startMarker)
+	if endIdx < afterStart {
+		return "", fmt.Errorf("wikidoc: end marker appears before start marker")
+	}
+	result := mdx[:afterStart] +
+		"\n\n" +
+		strings.TrimRight(block, "\n") +
+		"\n\n" +
+		mdx[endIdx:]
+	return result, nil
 }
