@@ -1,0 +1,85 @@
+// Package wikidoc transforms gomarkdoc-generated Markdown into MDX-safe content
+// and injects it into a marked region of a Docusaurus .mdx page. It is dev/CI
+// tooling, not product code.
+//
+// # Known limitations
+//
+// Step 4 (bare-character escaping) operates line-by-line and does NOT exempt
+// inline code spans (single-backtick runs) on prose lines. Characters inside
+// `backtick spans` on prose lines will be escaped along with the surrounding
+// text. This is acceptable for the current gomarkdoc output, which uses only
+// indented blocks and fenced blocks for code samples, not inline spans
+// containing angle brackets or braces.
+package wikidoc
+
+import (
+	"regexp"
+	"strings"
+)
+
+var (
+	reHTMLComment = regexp.MustCompile(`(?s)<!--.*?-->`)
+	reHTMLAnchor  = regexp.MustCompile(`</?a\b[^>]*>`)
+	reAngleLink   = regexp.MustCompile(`\]\(<([^>\s]*)>\)`)
+)
+
+// Sanitize transforms a gomarkdoc Markdown string into MDX-safe content by
+// applying the following transformations in order:
+//
+//  1. Remove HTML comments (gomarkdoc header, etc.).
+//  2. Remove HTML anchor tags (<a name="..."></a>).
+//  3. Unwrap angle-bracketed link destinations (](<#Run>) → ](#Run)).
+//  4. Escape bare <, >, {, } on prose lines (not inside fenced or indented code).
+func Sanitize(md string) string {
+	// Step 1: remove HTML comments.
+	out := reHTMLComment.ReplaceAllString(md, "")
+
+	// Step 2: remove HTML anchor tags.
+	out = reHTMLAnchor.ReplaceAllString(out, "")
+
+	// Step 3: unwrap angle-bracketed link destinations.
+	out = reAngleLink.ReplaceAllString(out, "]($1)")
+
+	// Step 4: escape bare MDX special chars on prose lines only.
+	out = escapeProse(out)
+
+	return out
+}
+
+// escapeProse escapes bare <, >, {, } on non-code lines.
+// Code lines are:
+//   - lines inside a fenced block (toggled by lines whose trimmed text starts
+//     with three backticks), or
+//   - indented lines (start with a tab or 4+ spaces).
+func escapeProse(s string) string {
+	lines := strings.Split(s, "\n")
+	inFenced := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			// Toggle fenced state; the fence line itself is not code content
+			// that needs escaping — it's a delimiter. Leave it unchanged.
+			inFenced = !inFenced
+			continue
+		}
+		if inFenced {
+			continue
+		}
+		// Indented code line: starts with a tab or 4+ spaces.
+		if strings.HasPrefix(line, "\t") || strings.HasPrefix(line, "    ") {
+			continue
+		}
+		// Prose line — escape MDX special characters.
+		lines[i] = escapeLine(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// escapeLine replaces bare MDX-hazardous characters on a single prose line.
+func escapeLine(line string) string {
+	line = strings.ReplaceAll(line, "<", "&lt;")
+	line = strings.ReplaceAll(line, ">", "&gt;")
+	line = strings.ReplaceAll(line, "{", "&#123;")
+	line = strings.ReplaceAll(line, "}", "&#125;")
+	return line
+}
