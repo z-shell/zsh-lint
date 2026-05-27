@@ -1,0 +1,69 @@
+---
+name: Parser Survey
+
+on:
+  workflow_call:
+    inputs:
+      zsh-lint-ref:
+        description: zsh-lint ref to build the survey binary from
+        type: string
+        required: false
+        default: main
+      fail-on-parse-error:
+        description: Fail the job when any file fails to parse
+        type: boolean
+        required: false
+        default: false
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  survey:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out the calling repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: target
+
+      - name: ⤵️ Check out zsh-lint
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: z-shell/zsh-lint
+          ref: ${{ inputs.zsh-lint-ref }}
+          path: zsh-lint
+
+      - name: ⎔ Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.25"
+
+      - name: 🏗 Build the survey binary
+        working-directory: zsh-lint
+        run: go build -o "$RUNNER_TEMP/zsh-lint" ./cmd/zsh-lint
+
+      - name: 🔎 Survey Zsh files
+        working-directory: target
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t files < <(find . -type f \( -name '*.zsh' -o -name '*.zshrc' \) | sort)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No Zsh files found to survey."
+            exit 0
+          fi
+          echo "Surveying ${#files[@]} file(s)..."
+          set +e
+          "$RUNNER_TEMP/zsh-lint" "${files[@]}"
+          status=$?
+          set -e
+          if [ "${{ inputs.fail-on-parse-error }}" = "true" ]; then
+            exit "$status"
+          fi
+          echo "fail-on-parse-error is false; reporting only (survey exit status was $status)."
