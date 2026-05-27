@@ -36,6 +36,17 @@ func TestSurveyParseGap(t *testing.T) {
 	if strings.Contains(got, "testdata/gap.zsh: testdata/gap.zsh") {
 		t.Fatalf("diagnostic has doubled path prefix; got:\n%s", got)
 	}
+	// The diagnostic must begin at column 0 (no indent) so it is greppable
+	// and usable by editor problem matchers.
+	var sawDiag bool
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(line, "testdata/gap.zsh:") {
+			sawDiag = true
+		}
+	}
+	if !sawDiag {
+		t.Fatalf("expected a diagnostic line starting at column 0 with the path; got:\n%s", got)
+	}
 	if !strings.Contains(got, "1 failed") {
 		t.Fatalf("expected summary to report 1 failed; got:\n%s", got)
 	}

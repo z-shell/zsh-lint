@@ -23,7 +23,10 @@ func Run(names []string, w io.Writer) int {
 	for _, name := range names {
 		if err := surveyFile(name); err != nil {
 			failed++
-			fmt.Fprintf(w, "FAIL %s\n  %s\n", name, formatErr(name, err))
+			// The diagnostic is emitted on its own line starting at column 0
+			// (no indent) so it begins with `path:line:col:` and stays
+			// greppable / consumable by editor problem matchers.
+			fmt.Fprintf(w, "FAIL %s\n%s\n", name, formatErr(name, err))
 			continue
 		}
 		fmt.Fprintf(w, "OK   %s\n", name)

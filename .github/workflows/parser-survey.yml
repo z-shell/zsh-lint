@@ -31,12 +31,16 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           path: target
+          # The calling repo's contents are treated as untrusted data (only
+          # parsed, never executed). Don't persist the token into its git
+          # config — CodeQL "checkout of untrusted code in trusted context".
+          persist-credentials: false
 
       - name: ⤵️ Check out zsh-lint
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: z-shell/zsh-lint
-          ref: ${{ inputs.zsh-lint-ref }}
+          ref: ${{ inputs['zsh-lint-ref'] }}
           path: zsh-lint
 
       - name: ⎔ Set up Go
@@ -51,6 +55,10 @@ jobs:
       - name: 🔎 Survey Zsh files
         working-directory: target
         shell: bash
+        env:
+          # Bound via env (not inlined in the script) to avoid shell
+          # expression-injection and keep the run block static.
+          FAIL_ON_PARSE_ERROR: ${{ inputs['fail-on-parse-error'] }}
         run: |
           set -o pipefail
           mapfile -t files < <(find . -type f \( -name '*.zsh' -o -name '*.zshrc' \) | sort)
@@ -63,7 +71,7 @@ jobs:
           "$RUNNER_TEMP/zsh-lint" "${files[@]}"
           status=$?
           set -e
-          if [ "${{ inputs.fail-on-parse-error }}" = "true" ]; then
+          if [ "$FAIL_ON_PARSE_ERROR" = "true" ]; then
             exit "$status"
           fi
           echo "fail-on-parse-error is false; reporting only (survey exit status was $status)."
