@@ -32,6 +32,10 @@ func TestSurveyParseGap(t *testing.T) {
 	if !strings.Contains(got, "testdata/gap.zsh:1:") {
 		t.Fatalf("expected path:line:col diagnostic; got:\n%s", got)
 	}
+	// The path must appear exactly once per diagnostic (no doubled prefix).
+	if strings.Contains(got, "testdata/gap.zsh: testdata/gap.zsh") {
+		t.Fatalf("diagnostic has doubled path prefix; got:\n%s", got)
+	}
 	if !strings.Contains(got, "1 failed") {
 		t.Fatalf("expected summary to report 1 failed; got:\n%s", got)
 	}

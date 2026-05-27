@@ -7,6 +7,7 @@
 package survey
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -45,12 +46,22 @@ func surveyFile(name string) error {
 	return err
 }
 
-// formatErr renders a parser/IO error as a greppable single line. When the
-// error carries a source position (syntax.ParseError), it emits
-// `path:line:col: message`; otherwise it falls back to `path: message`.
+// formatErr renders a parser/IO error as a greppable `path:line:col: message`
+// line. The mvdan/sh front end reports syntax errors as syntax.ParseError and
+// zsh-only constructs (the parser runs in bash mode) as syntax.LangError. Both
+// embed their own filename in Error(); since errors.As yields a copy, the
+// filename is blanked so the path can be controlled by the caller. Anything
+// else (e.g. an IO error) falls back to `path: message`.
 func formatErr(name string, err error) string {
-	if perr, ok := err.(syntax.ParseError); ok {
-		return fmt.Sprintf("%s:%d:%d: %s", name, perr.Pos.Line(), perr.Pos.Col(), perr.Text)
+	var perr syntax.ParseError
+	if errors.As(err, &perr) {
+		perr.Filename = ""
+		return name + ":" + perr.Error()
+	}
+	var lerr syntax.LangError
+	if errors.As(err, &lerr) {
+		lerr.Filename = ""
+		return name + ":" + lerr.Error()
 	}
 	return fmt.Sprintf("%s: %v", name, err)
 }
