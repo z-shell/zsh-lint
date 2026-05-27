@@ -14,7 +14,6 @@ on:
         type: boolean
         required: false
         default: false
-  workflow_dispatch: {}
 
 permissions:
   contents: read
