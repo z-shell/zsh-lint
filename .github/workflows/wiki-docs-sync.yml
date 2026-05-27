@@ -1,0 +1,66 @@
+---
+name: Wiki Docs Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.go"
+      - ".gomarkdoc.yml"
+      - "internal/wikidoc/**"
+      - "cmd/wikidoc/**"
+      - ".github/workflows/wiki-docs-sync.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-docs-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out zsh-lint
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: zsh-lint
+
+      - name: ⤵️ Check out wiki (next)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: z-shell/wiki
+          ref: next
+          path: wiki
+          token: ${{ secrets.WIKI_SYNC_TOKEN }}
+          persist-credentials: false
+
+      - name: ⎔ Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.25"
+
+      - name: 📝 Generate and inject reference
+        working-directory: zsh-lint
+        run: |
+          go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" ./cmd/zsh-lint ./internal/survey
+          go run ./cmd/wikidoc \
+            -in "$RUNNER_TEMP/ref.md" \
+            -mdx ../wiki/ecosystem/plugins/zsh_lint.mdx
+
+      - name: 🔀 Open or update sync PR
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
+        with:
+          token: ${{ secrets.WIKI_SYNC_TOKEN }}
+          path: wiki
+          base: next
+          branch: docs-sync/zsh-lint
+          title: "docs(zsh-lint): sync generated reference"
+          commit-message: "docs(zsh-lint): sync generated reference from zsh-lint"
+          body: |
+            Automated reference sync from `z-shell/zsh-lint`.
+            Generated from Go doc comments — do not hand-edit the marked region.
+            Source commit: ${{ github.sha }}
+          delete-branch: true
