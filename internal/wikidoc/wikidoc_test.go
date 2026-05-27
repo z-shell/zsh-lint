@@ -7,6 +7,75 @@ import (
 	"github.com/z-shell/zsh-lint/internal/wikidoc"
 )
 
+// ---- Inject tests ----
+
+// TestInject_ReplacesContent verifies that Inject replaces the region between
+// markers, preserves content outside the markers, and keeps the markers themselves.
+func TestInject_ReplacesContent(t *testing.T) {
+	const start = "{/* zsh-lint:generated:start */}"
+	const end = "{/* zsh-lint:generated:end */}"
+	mdx := "# Title\n\n" + start + "\nOLD\n" + end + "\n\nFooter"
+	got, err := wikidoc.Inject(mdx, "NEW CONTENT", start, end)
+	if err != nil {
+		t.Fatalf("Inject returned unexpected error: %v", err)
+	}
+	if !strings.Contains(got, "# Title") {
+		t.Errorf("Inject should preserve title; got:\n%s", got)
+	}
+	if !strings.Contains(got, "Footer") {
+		t.Errorf("Inject should preserve footer; got:\n%s", got)
+	}
+	if strings.Contains(got, "OLD") {
+		t.Errorf("Inject should replace OLD content; got:\n%s", got)
+	}
+	if !strings.Contains(got, "NEW CONTENT") {
+		t.Errorf("Inject should insert new block; got:\n%s", got)
+	}
+	if !strings.Contains(got, start) {
+		t.Errorf("Inject should preserve start marker; got:\n%s", got)
+	}
+	if !strings.Contains(got, end) {
+		t.Errorf("Inject should preserve end marker; got:\n%s", got)
+	}
+}
+
+// TestInject_MissingStartMarker verifies an error is returned when start marker is absent.
+func TestInject_MissingStartMarker(t *testing.T) {
+	const end = "{/* zsh-lint:generated:end */}"
+	_, err := wikidoc.Inject("# Title\n"+end, "NEW", "MISSING_START", end)
+	if err == nil {
+		t.Fatal("Inject should return error when start marker is missing")
+	}
+	if !strings.HasPrefix(err.Error(), "wikidoc:") {
+		t.Errorf("error should be prefixed 'wikidoc:'; got: %v", err)
+	}
+}
+
+// TestInject_MissingEndMarker verifies an error is returned when end marker is absent.
+func TestInject_MissingEndMarker(t *testing.T) {
+	const start = "{/* zsh-lint:generated:start */}"
+	_, err := wikidoc.Inject("# Title\n"+start, "NEW", start, "MISSING_END")
+	if err == nil {
+		t.Fatal("Inject should return error when end marker is missing")
+	}
+	if !strings.HasPrefix(err.Error(), "wikidoc:") {
+		t.Errorf("error should be prefixed 'wikidoc:'; got: %v", err)
+	}
+}
+
+// TestInject_EndBeforeStart verifies an error when endMarker appears before startMarker.
+func TestInject_EndBeforeStart(t *testing.T) {
+	const start = "{/* zsh-lint:generated:start */}"
+	const end = "{/* zsh-lint:generated:end */}"
+	_, err := wikidoc.Inject(end+"\n"+start, "NEW", start, end)
+	if err == nil {
+		t.Fatal("Inject should return error when end marker precedes start marker")
+	}
+	if !strings.HasPrefix(err.Error(), "wikidoc:") {
+		t.Errorf("error should be prefixed 'wikidoc:'; got: %v", err)
+	}
+}
+
 // TestSanitize_RemoveHTMLComment verifies that the gomarkdoc-generated header comment
 // is stripped and surrounding content is preserved.
 func TestSanitize_RemoveHTMLComment(t *testing.T) {
