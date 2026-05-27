@@ -12,15 +12,21 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// File is the parsed syntax tree produced by the front end.
-type File = syntax.File
+// File is the parsed source produced by the front end.
+type File struct {
+	tree *syntax.File
+}
 
 // Parse parses a single Zsh/Bash source read from r, using name in error
-// messages. It returns the syntax tree or the first parse error.
+// messages. It returns the parsed source or the first parse error.
 func Parse(r io.Reader, name string) (*File, error) {
 	parser := syntax.NewParser(
 		syntax.KeepComments(true),
 		syntax.Variant(syntax.LangBash),
 	)
-	return parser.Parse(r, name)
+	tree, err := parser.Parse(r, name)
+	if err != nil {
+		return nil, err
+	}
+	return &File{tree: tree}, nil
 }
