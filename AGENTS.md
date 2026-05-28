@@ -30,7 +30,9 @@ hand-edit the generated region there. Regenerate locally with:
 
     go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./internal/survey
 
-`docs/README.md` is a thin landing page that points to the wiki.
+The root `README.md` is a minimal signpost for the GitHub landing page;
+`docs/README.md` holds the repo-local pointers and contributor quickstart. Both
+point at the wiki as the canonical reading surface.
 
 ## Build & test
 
