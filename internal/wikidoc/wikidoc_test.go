@@ -107,6 +107,33 @@ func TestInject_EndMarkerTokenAlsoBeforeStart(t *testing.T) {
 	}
 }
 
+// TestInject_EmptyMarkers verifies that empty start/end markers are rejected
+// rather than silently anchoring at index 0 (strings.Index(s, "") == 0).
+func TestInject_EmptyMarkers(t *testing.T) {
+	const start = "{/* zsh-lint:generated:start */}"
+	const end = "{/* zsh-lint:generated:end */}"
+	mdx := "# Title\n\n" + start + "\nOLD\n" + end + "\n"
+	cases := []struct {
+		name       string
+		start, end string
+	}{
+		{"empty start", "", end},
+		{"empty end", start, ""},
+		{"both empty", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := wikidoc.Inject(mdx, "NEW", tc.start, tc.end)
+			if err == nil {
+				t.Fatal("Inject should return error for empty marker")
+			}
+			if !strings.HasPrefix(err.Error(), "wikidoc:") {
+				t.Errorf("error should be prefixed 'wikidoc:'; got: %v", err)
+			}
+		})
+	}
+}
+
 // TestSanitize_RemoveHTMLComment verifies that the gomarkdoc-generated header comment
 // is stripped and surrounding content is preserved.
 func TestSanitize_RemoveHTMLComment(t *testing.T) {
