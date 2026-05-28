@@ -91,9 +91,17 @@ func escapeLine(line string) string {
 // block, surrounded by blank lines, and returns the result. The markers
 // themselves are preserved. The end marker is searched for only after the start
 // marker, so an unrelated occurrence of the end-marker token earlier in the
-// document is ignored. Returns an error (prefixed "wikidoc:") if the start
-// marker is missing, or if no end marker is found after the start marker.
+// document is ignored. Returns an error (prefixed "wikidoc:") if either marker
+// is empty, if the start marker is missing, or if no end marker is found after
+// the start marker.
+//
+// Empty markers are rejected explicitly: strings.Index(s, "") returns 0, so an
+// empty marker would otherwise silently anchor at the start of the document and
+// corrupt the target file rather than failing loudly.
 func Inject(mdx, block, startMarker, endMarker string) (string, error) {
+	if startMarker == "" || endMarker == "" {
+		return "", fmt.Errorf("wikidoc: start and end markers must be non-empty")
+	}
 	startIdx := strings.Index(mdx, startMarker)
 	if startIdx < 0 {
 		return "", fmt.Errorf("wikidoc: start marker %q not found", startMarker)
