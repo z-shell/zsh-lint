@@ -49,7 +49,9 @@ func main() {
 
 	result, err := wikidoc.Inject(string(page), sanitized, *startMarker, *endMarker)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wikidoc: %v\n", err)
+		// Inject already prefixes its errors with "wikidoc:"; print as-is to
+		// avoid a doubled "wikidoc: wikidoc: ..." prefix.
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 
