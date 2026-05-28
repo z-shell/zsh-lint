@@ -28,7 +28,9 @@ var (
 // applying the following transformations in order:
 //
 //  1. Remove HTML comments (gomarkdoc header, etc.).
-//  2. Remove HTML anchor tags (<a name="..."></a>).
+//  2. Remove HTML anchor tags. gomarkdoc emits named anchors like
+//     <a name="..."></a>; any raw anchor tag is MDX-hostile, so all opening
+//     and closing <a> tags are stripped (inner text, if any, is preserved).
 //  3. Unwrap angle-bracketed link destinations (](<#Run>) → ](#Run)).
 //  4. Escape bare <, >, {, } on prose lines (not inside fenced or indented code).
 func Sanitize(md string) string {
@@ -87,8 +89,10 @@ func escapeLine(line string) string {
 
 // Inject replaces the content between startMarker and endMarker in mdx with
 // block, surrounded by blank lines, and returns the result. The markers
-// themselves are preserved. Returns an error (prefixed "wikidoc:") if either
-// marker is missing or if endMarker appears before startMarker.
+// themselves are preserved. The end marker is searched for only after the start
+// marker, so an unrelated occurrence of the end-marker token earlier in the
+// document is ignored. Returns an error (prefixed "wikidoc:") if the start
+// marker is missing, or if no end marker is found after the start marker.
 func Inject(mdx, block, startMarker, endMarker string) (string, error) {
 	startIdx := strings.Index(mdx, startMarker)
 	if startIdx < 0 {

@@ -33,6 +33,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	info, err := os.Stat(*mdxPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wikidoc: stat %s: %v\n", *mdxPath, err)
+		os.Exit(1)
+	}
+
 	page, err := os.ReadFile(*mdxPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wikidoc: reading %s: %v\n", *mdxPath, err)
@@ -47,7 +53,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile(*mdxPath, []byte(result), 0o644); err != nil {
+	// Preserve the target file's existing permissions rather than forcing 0644.
+	if err := os.WriteFile(*mdxPath, []byte(result), info.Mode().Perm()); err != nil {
 		fmt.Fprintf(os.Stderr, "wikidoc: writing %s: %v\n", *mdxPath, err)
 		os.Exit(1)
 	}
