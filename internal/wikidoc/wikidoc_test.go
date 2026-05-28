@@ -63,7 +63,8 @@ func TestInject_MissingEndMarker(t *testing.T) {
 	}
 }
 
-// TestInject_EndBeforeStart verifies an error when endMarker appears before startMarker.
+// TestInject_EndBeforeStart verifies an error when endMarker appears only before
+// startMarker (and not after) — there is no valid region to inject into.
 func TestInject_EndBeforeStart(t *testing.T) {
 	const start = "{/* zsh-lint:generated:start */}"
 	const end = "{/* zsh-lint:generated:end */}"
@@ -73,6 +74,36 @@ func TestInject_EndBeforeStart(t *testing.T) {
 	}
 	if !strings.HasPrefix(err.Error(), "wikidoc:") {
 		t.Errorf("error should be prefixed 'wikidoc:'; got: %v", err)
+	}
+}
+
+// TestInject_EndMarkerTokenAlsoBeforeStart verifies that an occurrence of the
+// end-marker token in prose before the real start marker does NOT confuse the
+// search; the function must still find the real end marker after the start and
+// inject correctly. Regression test for the bug Copilot flagged on PR #28.
+func TestInject_EndMarkerTokenAlsoBeforeStart(t *testing.T) {
+	const start = "{/* zsh-lint:generated:start */}"
+	const end = "{/* zsh-lint:generated:end */}"
+	// The end-marker token appears in narrative prose first (e.g. a doc page
+	// describing the markers), then the real region follows.
+	mdx := "Narrative mentions " + end + " as an example.\n\n" +
+		"# Reference\n\n" + start + "\nOLD\n" + end + "\n\nfooter\n"
+	out, err := wikidoc.Inject(mdx, "NEW", start, end)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(out, "OLD") {
+		t.Fatalf("OLD must be replaced; got:\n%s", out)
+	}
+	if !strings.Contains(out, "NEW") {
+		t.Fatalf("NEW must be present; got:\n%s", out)
+	}
+	// The earlier narrative occurrence of the end-marker token must be preserved.
+	if !strings.Contains(out, "Narrative mentions "+end+" as an example.") {
+		t.Fatalf("prose mention of the end-marker token must be preserved; got:\n%s", out)
+	}
+	if !strings.Contains(out, "footer") {
+		t.Fatalf("content after the region must be preserved; got:\n%s", out)
 	}
 }
 

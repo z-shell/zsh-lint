@@ -94,14 +94,15 @@ func Inject(mdx, block, startMarker, endMarker string) (string, error) {
 	if startIdx < 0 {
 		return "", fmt.Errorf("wikidoc: start marker %q not found", startMarker)
 	}
-	endIdx := strings.Index(mdx, endMarker)
-	if endIdx < 0 {
-		return "", fmt.Errorf("wikidoc: end marker %q not found", endMarker)
-	}
 	afterStart := startIdx + len(startMarker)
-	if endIdx < afterStart {
-		return "", fmt.Errorf("wikidoc: end marker appears before start marker")
+	// Search for the end marker only AFTER the start marker so an unrelated
+	// occurrence of the end-marker token earlier in the document (e.g. quoted
+	// in narrative prose) does not cause a false "missing end marker" error.
+	relEnd := strings.Index(mdx[afterStart:], endMarker)
+	if relEnd < 0 {
+		return "", fmt.Errorf("wikidoc: end marker %q not found after start marker", endMarker)
 	}
+	endIdx := afterStart + relEnd
 	result := mdx[:afterStart] +
 		"\n\n" +
 		strings.TrimRight(block, "\n") +
