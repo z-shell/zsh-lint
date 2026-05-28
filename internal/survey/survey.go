@@ -17,6 +17,11 @@ import (
 )
 
 // Run parses each file in names, writing per-file status and a summary to w.
+//
+// Each file produces either an "OK   <path>" line or a "FAIL <path>" line
+// followed by a greppable "<path>:<line>:<col>: <message>" diagnostic. A final
+// summary line reports the total number of files surveyed, ok, and failed.
+//
 // It returns a process exit code: 0 if every file parsed, 1 otherwise.
 func Run(names []string, w io.Writer) int {
 	var failed int
