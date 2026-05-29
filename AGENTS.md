@@ -30,6 +30,11 @@ hand-edit the generated region there. Regenerate locally with:
 
     go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./internal/survey
 
+## Writing Lint Rules
+If you are implementing logic for the semantic analyzer, you must adopt the persona and guidelines specified in:
+- `.github/agents/static-analysis-engineer.agent.md`
+- `.github/instructions/go-ast-linting.instructions.md`
+
 The root `README.md` is a minimal signpost for the GitHub landing page;
 `docs/README.md` holds the repo-local pointers and contributor quickstart. Both
 point at the wiki as the canonical reading surface.
