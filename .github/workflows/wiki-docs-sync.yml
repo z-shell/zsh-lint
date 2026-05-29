@@ -75,6 +75,10 @@ jobs:
         with:
           token: ${{ secrets.WIKI_SYNC_TOKEN }}
           path: wiki
+          # Create commits via the GitHub API so they are signed/verified. The
+          # wiki's next branch requires signed commits, so an unsigned bot commit
+          # cannot be merged without an admin override.
+          sign-commits: true
           base: next
           branch: docs-sync/zsh-lint
           title: "docs(zsh-lint): sync generated reference"
