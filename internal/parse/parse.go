@@ -17,6 +17,11 @@ type File struct {
 	tree *syntax.File
 }
 
+// AST returns the underlying mvdan.cc/sh syntax tree.
+func (f *File) AST() *syntax.File {
+	return f.tree
+}
+
 // Parse parses a single Zsh/Bash source read from r, using name in error
 // messages. It returns the parsed source or the first parse error.
 func Parse(r io.Reader, name string) (*File, error) {
