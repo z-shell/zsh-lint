@@ -1,8 +1,8 @@
 package analyzer
 
 import (
-	"mvdan.cc/sh/v3/syntax"
 	"github.com/z-shell/zsh-lint/internal/diag"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // Rule defines the interface for a zsh-lint static analysis rule.

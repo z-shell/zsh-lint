@@ -48,7 +48,7 @@ func (m *Map) Index(node syntax.Node) {
 			}
 
 		// Handle commands like: export foo=bar OR local foo=bar OR alias l="ls"
-				// Handle export, local, declare, typeset
+		// Handle export, local, declare, typeset
 		case *syntax.DeclClause:
 			cmdName := ""
 			if x.Variant != nil {
@@ -56,7 +56,7 @@ func (m *Map) Index(node syntax.Node) {
 			}
 			isExport := cmdName == "export"
 			isLocal := cmdName == "local" || cmdName == "typeset" || cmdName == "declare"
-			
+
 			for _, assign := range x.Args {
 				if assign.Name != nil {
 					sym := Symbol{
@@ -76,7 +76,7 @@ func (m *Map) Index(node syntax.Node) {
 				return true
 			}
 			cmdName := extractLiteral(x.Args[0])
-			
+
 			isExport := cmdName == "export"
 			isLocal := cmdName == "local" || cmdName == "typeset" || cmdName == "declare"
 			isAlias := cmdName == "alias"

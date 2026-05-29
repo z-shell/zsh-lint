@@ -31,10 +31,10 @@ type Symbol struct {
 type Map struct {
 	// Global declarations indexed by name
 	Globals map[string]Symbol
-	
+
 	// Local declarations grouped by the function node that owns them
 	Locals map[*syntax.FuncDecl]map[string]Symbol
-	
+
 	// The current function context during Pass 1 (nil if at top-level)
 	currentFunc *syntax.FuncDecl
 }

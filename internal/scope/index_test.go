@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
 	"github.com/z-shell/zsh-lint/internal/parse"
 	"github.com/z-shell/zsh-lint/internal/scope"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 func TestIndexer(t *testing.T) {
