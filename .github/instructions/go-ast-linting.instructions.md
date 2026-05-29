@@ -21,9 +21,12 @@ type Diagnostic struct {
 }
 
 type Rule interface {
-    // Name returns the unique identifier for the rule (e.g., "SC2086")
+    // ID returns the stable, unique identifier for the rule
+    // (by convention a "category/rule-name" slug, e.g. "quoting/unquoted-var").
+    ID() diag.RuleID
+    // Name returns a human-readable name for the rule.
     Name() string
-    // Analyze evaluates a node and reports diagnostics to the Context
+    // Analyze evaluates a node and reports diagnostics to the Context.
     Analyze(ctx *Context, node syntax.Node)
 }
 ```
