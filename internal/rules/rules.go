@@ -8,5 +8,7 @@ import (
 func Default() []analyzer.Rule {
 	return []analyzer.Rule{
 		UnquotedVar{},
+		Backquotes{},
+		PreferDoubleBrackets{},
 	}
 }
