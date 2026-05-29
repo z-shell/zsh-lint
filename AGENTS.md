@@ -31,7 +31,9 @@ hand-edit the generated region there. Regenerate locally with:
     go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./internal/survey
 
 ## Writing Lint Rules
+
 If you are implementing logic for the semantic analyzer, you must adopt the persona and guidelines specified in:
+
 - `.github/agents/static-analysis-engineer.agent.md`
 - `.github/instructions/go-ast-linting.instructions.md`
 

@@ -74,7 +74,7 @@ func TestMyRule(t *testing.T) {
         {"valid", "echo 'hello'", 0},
         {"invalid", "bad_command 'hello'", 1},
     }
-    
+
     // ... setup parser, feed syntax.File to rule, assert slice length
 }
 ```

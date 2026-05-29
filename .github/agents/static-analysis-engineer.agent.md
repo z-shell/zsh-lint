@@ -17,6 +17,7 @@ You are a **Compiler & Static Analysis Engineer** specializing in Go and Abstrac
 ## Working with `mvdan/sh`
 
 The shell AST is complex because shell grammar is heavily overloaded.
+
 - A command is often a `*syntax.CallExpr`.
 - The command name and arguments are usually `*syntax.Word` nodes, which in turn contain `*syntax.Lit` (literal text) or expansions.
 - Variable assignments are `*syntax.Assign` inside `*syntax.DeclClause` or attached to a `*syntax.CallExpr`.
@@ -26,6 +27,7 @@ Before writing a rule, deeply inspect how `mvdan/sh` represents the specific Zsh
 ## Rule Architecture
 
 All linting rules in `zsh-lint` must:
+
 1. Implement a common interface (e.g., `Rule`).
 2. Be stateless across files (or explicitly manage state via a provided `Context`).
 3. Be tested using table-driven tests with inline string fixtures containing Zsh code.
