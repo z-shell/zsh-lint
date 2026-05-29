@@ -45,9 +45,10 @@ type Diagnostic struct {
 // Diagnostics is an ordered collection of findings.
 type Diagnostics []Diagnostic
 
-// Sort orders diagnostics deterministically: by File, then by Range.Start
-// (Line, Column, Offset), then by RuleID. Unpositioned diagnostics (zero range)
-// sort before positioned ones within the same file.
+// Sort orders diagnostics deterministically and independently of input order:
+// by File, then by Range.Start (Line, Column, Offset), then by RuleID, then by
+// Severity, then by Message. Unpositioned diagnostics (zero range) sort before
+// positioned ones within the same file.
 func (d Diagnostics) Sort() {
 	sort.SliceStable(d, func(i, j int) bool {
 		a, b := d[i], d[j]
@@ -67,6 +68,12 @@ func (d Diagnostics) Sort() {
 		if a.Range.Start.Offset != b.Range.Start.Offset {
 			return a.Range.Start.Offset < b.Range.Start.Offset
 		}
-		return a.RuleID < b.RuleID
+		if a.RuleID != b.RuleID {
+			return a.RuleID < b.RuleID
+		}
+		if a.Severity != b.Severity {
+			return a.Severity < b.Severity
+		}
+		return a.Message < b.Message
 	})
 }

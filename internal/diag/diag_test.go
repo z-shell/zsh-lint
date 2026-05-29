@@ -77,3 +77,24 @@ func TestDiagnosticsSortStableEmpty(t *testing.T) {
 		t.Errorf("empty Sort changed length to %d", len(d))
 	}
 }
+
+func TestDiagnosticsSortTiebreaksBeyondRuleID(t *testing.T) {
+	// Two diagnostics identical in File, Range.Start, and RuleID, differing only
+	// in Severity (and Message). Sorting must place lower Severity first
+	// regardless of input order, so the result is input-independent.
+	at := Range{Start: Position{Line: 1, Column: 1}}
+	a := Diagnostic{RuleID: "same", File: "f.zsh", Range: at, Severity: Error, Message: "a"}
+	b := Diagnostic{RuleID: "same", File: "f.zsh", Range: at, Severity: Warning, Message: "b"}
+
+	fwd := Diagnostics{b, a} // Warning before Error on input
+	fwd.Sort()
+	rev := Diagnostics{a, b} // Error before Warning on input
+	rev.Sort()
+
+	for _, d := range []Diagnostics{fwd, rev} {
+		if d[0].Severity != Error || d[1].Severity != Warning {
+			t.Errorf("expected Error (lower severity) first regardless of input; got %v then %v",
+				d[0].Severity, d[1].Severity)
+		}
+	}
+}
