@@ -20,3 +20,22 @@ type Range struct {
 
 // IsValid reports whether the range refers to a real span.
 func (r Range) IsValid() bool { return r.Start.IsValid() }
+
+// RuleID is the stable identifier of the rule that produced a diagnostic. It is
+// an opaque string; by convention rule IDs are hierarchical kebab slugs of the
+// form "category/rule-name" (e.g. "quoting/unquoted-var"). The type does not
+// validate the format, so an alternate scheme can be adopted later without a
+// model change.
+type RuleID string
+
+// Diagnostic is one finding produced by the analyzer. It is pure data: no
+// formatting behavior lives here (output formatting is issue #20). A zero Range
+// means the diagnostic is unpositioned (whole-file or unknown location); an
+// empty File means the source path is unknown.
+type Diagnostic struct {
+	RuleID   RuleID
+	Severity Severity
+	Message  string
+	File     string
+	Range    Range
+}
