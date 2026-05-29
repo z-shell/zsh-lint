@@ -21,16 +21,21 @@ func (r UnquotedVar) Name() string {
 }
 
 func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
-	word, ok := node.(*syntax.Word)
+	// Only inspect command words: the command name and its arguments. An
+	// unquoted expansion there is subject to word splitting and globbing. This
+	// deliberately excludes assignment right-hand sides (e.g. A=$BAZ), where
+	// expansion is safe in both Zsh and Bash.
+	call, ok := node.(*syntax.CallExpr)
 	if !ok {
 		return
 	}
-
-	for _, part := range word.Parts {
-		if param, ok := part.(*syntax.ParamExp); ok {
-			// A ParamExp directly inside a Word's Parts means it is unquoted.
-			// (If it were quoted, it would be inside a *syntax.DblQuoted part).
-			ctx.Report(param.Pos(), param.End(), r.ID(), diag.Warning, "Variable expansion should be double-quoted")
+	for _, word := range call.Args {
+		for _, part := range word.Parts {
+			if param, ok := part.(*syntax.ParamExp); ok {
+				// A ParamExp directly inside a Word's Parts is unquoted; a quoted
+				// expansion would sit inside a *syntax.DblQuoted part instead.
+				ctx.Report(param.Pos(), param.End(), r.ID(), diag.Warning, "Variable expansion should be double-quoted")
+			}
 		}
 	}
 }

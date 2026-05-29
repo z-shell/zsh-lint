@@ -23,10 +23,16 @@ A=$BAZ
 	analyzerInst := analyzer.New(rule)
 	diags := analyzerInst.Analyze(f, "test.zsh")
 
-	if len(diags) != 2 {
-		t.Errorf("expected 2 diagnostics, got %d", len(diags))
-		for _, d := range diags {
-			t.Logf("diag: %v", d)
-		}
+	// Only the unquoted command argument `$foo` (line 2) is flagged. The quoted
+	// `"$bar"` is safe, and the assignment RHS `A=$BAZ` is safe (no word
+	// splitting on assignment values), so neither is reported.
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d: %v", len(diags), diags)
+	}
+	if diags[0].RuleID != rule.ID() {
+		t.Errorf("expected rule ID %q, got %q", rule.ID(), diags[0].RuleID)
+	}
+	if diags[0].Range.Start.Line != 2 {
+		t.Errorf("expected diagnostic on line 2 (echo $foo), got line %d", diags[0].Range.Start.Line)
 	}
 }

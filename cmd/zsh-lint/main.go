@@ -21,13 +21,13 @@ func main() {
 	}
 
 	an := analyzer.New(rules.Default()...)
-	var hasErrors bool
+	var exitNonZero bool
 
 	for _, name := range os.Args[1:] {
 		f, err := os.Open(name)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
-			hasErrors = true
+			exitNonZero = true
 			continue
 		}
 
@@ -36,16 +36,17 @@ func main() {
 
 		if err != nil {
 			fmt.Println(formatErr(name, err))
-			hasErrors = true
+			exitNonZero = true
 			continue
 		}
 
 		diags := an.Analyze(file, name)
 		for _, d := range diags {
-			if d.Severity <= diag.Error {
-				hasErrors = true
+			// Errors and warnings cause a non-zero exit; Info/Hint do not.
+			if d.Severity <= diag.Warning {
+				exitNonZero = true
 			}
-			
+
 			// Format similar to gcc/clang
 			if d.Range.IsValid() {
 				fmt.Printf("%s:%d:%d: [%s] %s\n", d.File, d.Range.Start.Line, d.Range.Start.Column, d.RuleID, d.Message)
@@ -55,7 +56,7 @@ func main() {
 		}
 	}
 
-	if hasErrors {
+	if exitNonZero {
 		os.Exit(1)
 	}
 }
