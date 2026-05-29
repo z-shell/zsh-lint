@@ -1,13 +1,17 @@
-// Command zsh-lint surveys Zsh files with the mvdan/sh parser front end and
-// reports parse success or failure per file (reboot parser-evaluation phase,
-// issues #5, #8). Lint rule diagnostics (issue #18) build on this foundation.
+// Command zsh-lint performs static analysis of Zsh shell scripts.
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
-	"github.com/z-shell/zsh-lint/internal/survey"
+	"mvdan.cc/sh/v3/syntax"
+
+	"github.com/z-shell/zsh-lint/internal/analyzer"
+	"github.com/z-shell/zsh-lint/internal/diag"
+	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/rules"
 )
 
 func main() {
@@ -15,5 +19,58 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: zsh-lint <file.zsh> [file.zsh ...]")
 		os.Exit(2)
 	}
-	os.Exit(survey.Run(os.Args[1:], os.Stdout))
+
+	an := analyzer.New(rules.Default()...)
+	var hasErrors bool
+
+	for _, name := range os.Args[1:] {
+		f, err := os.Open(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+			hasErrors = true
+			continue
+		}
+
+		file, err := parse.Parse(f, name)
+		f.Close()
+
+		if err != nil {
+			fmt.Println(formatErr(name, err))
+			hasErrors = true
+			continue
+		}
+
+		diags := an.Analyze(file, name)
+		for _, d := range diags {
+			if d.Severity <= diag.Error {
+				hasErrors = true
+			}
+			
+			// Format similar to gcc/clang
+			if d.Range.IsValid() {
+				fmt.Printf("%s:%d:%d: [%s] %s\n", d.File, d.Range.Start.Line, d.Range.Start.Column, d.RuleID, d.Message)
+			} else {
+				fmt.Printf("%s: [%s] %s\n", d.File, d.RuleID, d.Message)
+			}
+		}
+	}
+
+	if hasErrors {
+		os.Exit(1)
+	}
+}
+
+// formatErr renders a parser/IO error as a greppable `path:line:col: message`
+func formatErr(name string, err error) string {
+	var perr syntax.ParseError
+	if errors.As(err, &perr) {
+		perr.Filename = ""
+		return name + ":" + perr.Error()
+	}
+	var lerr syntax.LangError
+	if errors.As(err, &lerr) {
+		lerr.Filename = ""
+		return name + ":" + lerr.Error()
+	}
+	return fmt.Sprintf("%s: %v", name, err)
 }

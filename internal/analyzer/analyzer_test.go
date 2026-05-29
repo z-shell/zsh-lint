@@ -18,7 +18,7 @@ func (r *dummyRule) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	if call, ok := node.(*syntax.CallExpr); ok {
 		if len(call.Args) > 0 && len(call.Args[0].Parts) > 0 {
 			if word, ok := call.Args[0].Parts[0].(*syntax.Lit); ok && word.Value == "badcmd" {
-				ctx.Report(call.Pos(), call.End(), r.ID(), diag.SeverityWarning, "Found badcmd")
+				ctx.Report(call.Pos(), call.End(), r.ID(), diag.Warning, "Found badcmd")
 			}
 		}
 	}

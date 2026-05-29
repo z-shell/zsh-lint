@@ -48,6 +48,29 @@ func (m *Map) Index(node syntax.Node) {
 			}
 
 		// Handle commands like: export foo=bar OR local foo=bar OR alias l="ls"
+				// Handle export, local, declare, typeset
+		case *syntax.DeclClause:
+			cmdName := ""
+			if x.Variant != nil {
+				cmdName = x.Variant.Value
+			}
+			isExport := cmdName == "export"
+			isLocal := cmdName == "local" || cmdName == "typeset" || cmdName == "declare"
+			
+			for _, assign := range x.Args {
+				if assign.Name != nil {
+					sym := Symbol{
+						Name:     assign.Name.Value,
+						Kind:     KindVariable,
+						Node:     assign,
+						Pos:      assign.Pos(),
+						Exported: isExport,
+						Local:    isLocal,
+					}
+					m.Add(sym)
+				}
+			}
+			return false
 		case *syntax.CallExpr:
 			if len(x.Args) == 0 {
 				return true
