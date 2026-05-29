@@ -47,3 +47,33 @@ func TestDiagnosticUnpositioned(t *testing.T) {
 		t.Error("zero-range diagnostic should be unpositioned")
 	}
 }
+
+func TestDiagnosticsSortDeterministic(t *testing.T) {
+	// Intentionally unsorted: different files, positions, an unpositioned one,
+	// and two at the same position differing only by RuleID.
+	in := Diagnostics{
+		{RuleID: "b", File: "z.zsh", Range: Range{Start: Position{Line: 1, Column: 1}}},
+		{RuleID: "a", File: "z.zsh", Range: Range{Start: Position{Line: 1, Column: 1}}},
+		{RuleID: "early", File: "a.zsh", Range: Range{Start: Position{Line: 5, Column: 2}}},
+		{RuleID: "wholefile", File: "a.zsh"}, // unpositioned
+	}
+	in.Sort()
+
+	wantOrder := []RuleID{"wholefile", "early", "a", "b"}
+	if len(in) != len(wantOrder) {
+		t.Fatalf("length changed: got %d, want %d", len(in), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if in[i].RuleID != want {
+			t.Errorf("position %d: got RuleID %q, want %q", i, in[i].RuleID, want)
+		}
+	}
+}
+
+func TestDiagnosticsSortStableEmpty(t *testing.T) {
+	var d Diagnostics
+	d.Sort() // must not panic on nil/empty
+	if len(d) != 0 {
+		t.Errorf("empty Sort changed length to %d", len(d))
+	}
+}

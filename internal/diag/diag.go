@@ -1,5 +1,7 @@
 package diag
 
+import "sort"
+
 // Position is a single point in a source file. Line and Column are 1-based;
 // Offset is a 0-based byte offset from the start of the file.
 type Position struct {
@@ -38,4 +40,33 @@ type Diagnostic struct {
 	Message  string
 	File     string
 	Range    Range
+}
+
+// Diagnostics is an ordered collection of findings.
+type Diagnostics []Diagnostic
+
+// Sort orders diagnostics deterministically: by File, then by Range.Start
+// (Line, Column, Offset), then by RuleID. Unpositioned diagnostics (zero range)
+// sort before positioned ones within the same file.
+func (d Diagnostics) Sort() {
+	sort.SliceStable(d, func(i, j int) bool {
+		a, b := d[i], d[j]
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		// Unpositioned (invalid range) sorts before positioned within a file.
+		if av, bv := a.Range.IsValid(), b.Range.IsValid(); av != bv {
+			return !av
+		}
+		if a.Range.Start.Line != b.Range.Start.Line {
+			return a.Range.Start.Line < b.Range.Start.Line
+		}
+		if a.Range.Start.Column != b.Range.Start.Column {
+			return a.Range.Start.Column < b.Range.Start.Column
+		}
+		if a.Range.Start.Offset != b.Range.Start.Offset {
+			return a.Range.Start.Offset < b.Range.Start.Offset
+		}
+		return a.RuleID < b.RuleID
+	})
 }
