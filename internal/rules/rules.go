@@ -10,5 +10,7 @@ func Default() []analyzer.Rule {
 		UnquotedVar{},
 		Backquotes{},
 		PreferDoubleBrackets{},
+		EvalUsage{},
+		FuncDeclStyle{},
 	}
 }
