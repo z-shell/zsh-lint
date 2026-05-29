@@ -62,3 +62,31 @@ my_func() {
 		t.Errorf("expected local_var NOT to be declared in global context")
 	}
 }
+
+// TestIndexerAliasFlags verifies that alias option flags (e.g. -g, -s) are not
+// recorded as aliases named after the flag; only real name=value definitions are.
+func TestIndexerAliasFlags(t *testing.T) {
+	code := `
+alias -g G="grep"
+alias -s html=cat
+alias plain="ls"
+`
+	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	sm := scope.NewMap()
+	sm.Index(file.AST())
+
+	for _, want := range []string{"G", "html", "plain"} {
+		if _, ok := sm.Globals[want]; !ok {
+			t.Errorf("expected alias %q to be recorded", want)
+		}
+	}
+	for _, flag := range []string{"-g", "-s"} {
+		if _, ok := sm.Globals[flag]; ok {
+			t.Errorf("option flag %q must not be recorded as an alias", flag)
+		}
+	}
+}

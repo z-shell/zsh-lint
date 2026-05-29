@@ -1,6 +1,8 @@
 package scope
 
 import (
+	"strings"
+
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -146,23 +148,23 @@ func (m *Map) processDeclArg(arg *syntax.Word, isExport, isLocal bool) {
 func (m *Map) processAliasArg(arg *syntax.Word) {
 	for _, part := range arg.Parts {
 		if lit, ok := part.(*syntax.Lit); ok {
-			name := lit.Value
-			for i, c := range lit.Value {
-				if c == '=' {
-					name = lit.Value[:i]
-					break
-				}
+			// An alias definition is always of the form name=value. Option flags
+			// (-g, -s, -r, ...) carry no '=', so requiring one skips every flag
+			// rather than special-casing a single one.
+			eq := strings.IndexByte(lit.Value, '=')
+			if eq <= 0 {
+				// No '=' (an option flag) or an empty name (leading '='); not a
+				// definition we should index.
+				continue
 			}
-			if name != "" && name != "-g" { // ignore global alias flag
-				sym := Symbol{
-					Name: name,
-					Kind: KindAlias,
-					Node: arg,
-					Pos:  arg.Pos(),
-				}
-				m.Add(sym)
-				break
+			sym := Symbol{
+				Name: lit.Value[:eq],
+				Kind: KindAlias,
+				Node: arg,
+				Pos:  arg.Pos(),
 			}
+			m.Add(sym)
+			break
 		}
 	}
 }
