@@ -10,7 +10,8 @@ type Position struct {
 	Offset int
 }
 
-// IsValid reports whether the position refers to a real location.
+// IsValid reports whether the position has a set line. Line is 1-based, so a
+// zero value is treated as unset; Column and Offset are not checked.
 func (p Position) IsValid() bool { return p.Line > 0 }
 
 // Range is a half-open span [Start, End) within a single file. The zero value
@@ -20,7 +21,8 @@ type Range struct {
 	End   Position
 }
 
-// IsValid reports whether the range refers to a real span.
+// IsValid reports whether the range has a set start position. It does not
+// validate End or require that Start precedes End.
 func (r Range) IsValid() bool { return r.Start.IsValid() }
 
 // RuleID is the stable identifier of the rule that produced a diagnostic. It is
@@ -46,9 +48,9 @@ type Diagnostic struct {
 type Diagnostics []Diagnostic
 
 // Sort orders diagnostics deterministically and independently of input order:
-// by File, then by Range.Start (Line, Column, Offset), then by RuleID, then by
-// Severity, then by Message. Unpositioned diagnostics (zero range) sort before
-// positioned ones within the same file.
+// by File, then by Range (Start then End, each Line, Column, Offset), then by
+// RuleID, then by Severity, then by Message. Unpositioned diagnostics (zero
+// range) sort before positioned ones within the same file.
 func (d Diagnostics) Sort() {
 	sort.SliceStable(d, func(i, j int) bool {
 		a, b := d[i], d[j]
@@ -67,6 +69,15 @@ func (d Diagnostics) Sort() {
 		}
 		if a.Range.Start.Offset != b.Range.Start.Offset {
 			return a.Range.Start.Offset < b.Range.Start.Offset
+		}
+		if a.Range.End.Line != b.Range.End.Line {
+			return a.Range.End.Line < b.Range.End.Line
+		}
+		if a.Range.End.Column != b.Range.End.Column {
+			return a.Range.End.Column < b.Range.End.Column
+		}
+		if a.Range.End.Offset != b.Range.End.Offset {
+			return a.Range.End.Offset < b.Range.End.Offset
 		}
 		if a.RuleID != b.RuleID {
 			return a.RuleID < b.RuleID

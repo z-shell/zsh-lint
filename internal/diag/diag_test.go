@@ -80,8 +80,9 @@ func TestDiagnosticsSortStableEmpty(t *testing.T) {
 
 func TestDiagnosticsSortTiebreaksBeyondRuleID(t *testing.T) {
 	// Two diagnostics identical in File, Range.Start, and RuleID, differing only
-	// in Severity (and Message). Sorting must place lower Severity first
-	// regardless of input order, so the result is input-independent.
+	// in Severity (and Message). Sort orders by ascending numeric Severity, and
+	// Error is the most severe (numeric 0), so Error must come first regardless
+	// of input order, making the result input-independent.
 	at := Range{Start: Position{Line: 1, Column: 1}}
 	a := Diagnostic{RuleID: "same", File: "f.zsh", Range: at, Severity: Error, Message: "a"}
 	b := Diagnostic{RuleID: "same", File: "f.zsh", Range: at, Severity: Warning, Message: "b"}
@@ -93,8 +94,29 @@ func TestDiagnosticsSortTiebreaksBeyondRuleID(t *testing.T) {
 
 	for _, d := range []Diagnostics{fwd, rev} {
 		if d[0].Severity != Error || d[1].Severity != Warning {
-			t.Errorf("expected Error (lower severity) first regardless of input; got %v then %v",
+			t.Errorf("expected Error (most severe, numeric 0) first regardless of input; got %v then %v",
 				d[0].Severity, d[1].Severity)
+		}
+	}
+}
+
+func TestDiagnosticsSortBreaksTiesOnRangeEnd(t *testing.T) {
+	// Identical except Range.End. Sort must place the smaller End first,
+	// regardless of input order (previously End was ignored, leaving order
+	// input-dependent).
+	start := Position{Line: 1, Column: 1, Offset: 0}
+	shortEnd := Diagnostic{RuleID: "r", File: "f.zsh", Range: Range{Start: start, End: Position{Line: 1, Column: 5, Offset: 4}}}
+	longEnd := Diagnostic{RuleID: "r", File: "f.zsh", Range: Range{Start: start, End: Position{Line: 1, Column: 9, Offset: 8}}}
+
+	fwd := Diagnostics{longEnd, shortEnd}
+	fwd.Sort()
+	rev := Diagnostics{shortEnd, longEnd}
+	rev.Sort()
+
+	for _, d := range []Diagnostics{fwd, rev} {
+		if d[0].Range.End.Column != 5 || d[1].Range.End.Column != 9 {
+			t.Errorf("expected smaller End first regardless of input; got End cols %d then %d",
+				d[0].Range.End.Column, d[1].Range.End.Column)
 		}
 	}
 }
