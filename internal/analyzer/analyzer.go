@@ -18,19 +18,20 @@ func New(rules ...Rule) *Analyzer {
 	}
 }
 
-// Analyze runs the semantic analyzer on the parsed file.
-// Per ADR 0011, this runs in two passes: Scope Resolution, then Rule Evaluation.
+// Analyze runs the semantic analyzer on the parsed file. Rules that implement
+// ScopeAwareRule opt into a scope-resolution pass before rule evaluation.
 func (a *Analyzer) Analyze(file *parse.File, path string) diag.Diagnostics {
 	ctx := NewContext(file, path)
+	ast := file.AST()
 
-	// Pass 1: Scope Resolution (Indexer)
-	if ast := file.AST(); ast != nil {
+	// Pass 1: Scope Resolution (Indexer), only when a rule consumes it.
+	if ast != nil && needsScope(a.rules) {
 		ctx.Scope.Index(ast)
 	}
 
 	// Pass 2: Rule Evaluation (Linter)
 	// Traverse the AST and feed each node to the registered rules.
-	if ast := file.AST(); ast != nil {
+	if ast != nil {
 		syntax.Walk(ast, func(node syntax.Node) bool {
 			if node == nil {
 				return true
@@ -44,4 +45,13 @@ func (a *Analyzer) Analyze(file *parse.File, path string) diag.Diagnostics {
 
 	ctx.Diagnostics.Sort()
 	return ctx.Diagnostics
+}
+
+func needsScope(rules []Rule) bool {
+	for _, rule := range rules {
+		if aware, ok := rule.(ScopeAwareRule); ok && aware.NeedsScope() {
+			return true
+		}
+	}
+	return false
 }

@@ -14,3 +14,10 @@ type Rule interface {
 	// Analyze evaluates a syntax node and reports findings to the context.
 	Analyze(ctx *Context, node syntax.Node)
 }
+
+// ScopeAwareRule is implemented by rules that need the declaration index.
+// Most rules inspect syntax only, so the analyzer skips the indexing pass
+// unless at least one registered rule opts in.
+type ScopeAwareRule interface {
+	NeedsScope() bool
+}

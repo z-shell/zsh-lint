@@ -29,10 +29,7 @@ func (m *Map) Index(node syntax.Node) {
 			prev := m.currentFunc
 			m.currentFunc = x
 			if x.Body != nil {
-				syntax.Walk(x.Body, func(inner syntax.Node) bool {
-					m.Index(inner)
-					return false // We handle the descent manually to avoid double-walking
-				})
+				m.Index(x.Body)
 			}
 			m.currentFunc = prev
 			return false // We already walked the children
@@ -79,18 +76,12 @@ func (m *Map) Index(node syntax.Node) {
 			}
 			cmdName := extractLiteral(x.Args[0])
 
-			isExport := cmdName == "export"
-			isLocal := cmdName == "local" || cmdName == "typeset" || cmdName == "declare"
 			isAlias := cmdName == "alias"
 
-			if isExport || isLocal {
-				for _, arg := range x.Args[1:] {
-					// We only care if they are actually assignments e.g., local foo=bar
-					// mvdan/sh parses local foo=bar as a CallExpr with Assign elements in Args.
-					// Note: If they just do `local foo`, it's a Word.
-					m.processDeclArg(arg, isExport, isLocal)
-				}
-			} else if isAlias {
+			// Under the Bash parser variant, export/local/typeset/declare are
+			// DeclClause nodes handled above. CallExpr declaration handling
+			// would be unreachable here.
+			if isAlias {
 				for _, arg := range x.Args[1:] {
 					m.processAliasArg(arg)
 				}
@@ -113,36 +104,6 @@ func (m *Map) Index(node syntax.Node) {
 		}
 		return true
 	})
-}
-
-func (m *Map) processDeclArg(arg *syntax.Word, isExport, isLocal bool) {
-	// If it's an assignment like `foo=bar`
-	for _, part := range arg.Parts {
-		if lit, ok := part.(*syntax.Lit); ok {
-			// Naive extraction for `foo=bar` vs `foo`
-			// mvdan/sh might also hand this over as an explicit syntax.Assign inside the CallExpr
-			name := lit.Value
-			// if it has an =, split it (simplification for AST extraction)
-			for i, c := range lit.Value {
-				if c == '=' {
-					name = lit.Value[:i]
-					break
-				}
-			}
-			if name != "" {
-				sym := Symbol{
-					Name:     name,
-					Kind:     KindVariable,
-					Node:     arg,
-					Pos:      arg.Pos(),
-					Exported: isExport,
-					Local:    isLocal,
-				}
-				m.Add(sym)
-				break // Only care about the first literal which holds the var name
-			}
-		}
-	}
 }
 
 func (m *Map) processAliasArg(arg *syntax.Word) {
