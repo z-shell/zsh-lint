@@ -61,6 +61,8 @@ doc/zsdoc/data
 *.dylib
 
 # Executables
+# Compiled zsh-lint binary (`go build` output) — must not be committed
+/zsh-lint
 *.exe
 *.out
 *.app
