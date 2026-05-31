@@ -49,7 +49,7 @@ jobs:
 
       - name: 🏗 Build the survey binary
         working-directory: zsh-lint
-        run: go build -o "$RUNNER_TEMP/zsh-lint" ./cmd/zsh-lint
+        run: go build -o "$RUNNER_TEMP/zsh-lint-survey" ./cmd/zsh-lint-survey
 
       - name: 🔎 Survey Zsh files
         working-directory: target
@@ -67,7 +67,7 @@ jobs:
           fi
           echo "Surveying ${#files[@]} file(s)..."
           set +e
-          "$RUNNER_TEMP/zsh-lint" "${files[@]}"
+          "$RUNNER_TEMP/zsh-lint-survey" "${files[@]}"
           status=$?
           set -e
           if [ "$FAIL_ON_PARSE_ERROR" = "true" ]; then
