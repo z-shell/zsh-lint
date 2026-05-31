@@ -34,10 +34,11 @@ var (
 //     <a name="..."></a>; any raw anchor tag is MDX-hostile, so all opening
 //     and closing <a> tags are stripped (inner text, if any, is preserved).
 //  3. Unwrap angle-bracketed link destinations (](<#Run>) → ](#Run)).
-//  4. Escape bare <, >, {, } on prose lines (not inside fenced or indented code).
-//  5. Demote generated headings by three levels so they nest under the wiki
+//  4. Normalize leading tabs to four spaces for Markdown indentation.
+//  5. Escape bare <, >, {, } on prose lines (not inside fenced or indented code).
+//  6. Demote generated headings by three levels so they nest under the wiki
 //     page's "### Reference" section.
-//  6. Rewrite top-level Go declaration fragment links to Docusaurus slugs, so
+//  7. Rewrite top-level Go declaration fragment links to Docusaurus slugs, so
 //     gomarkdoc fragment links like #Run resolve as #func-run.
 func Sanitize(md string) string {
 	// Step 1: remove HTML comments.
@@ -49,16 +50,32 @@ func Sanitize(md string) string {
 	// Step 3: unwrap angle-bracketed link destinations.
 	out = reAngleLink.ReplaceAllString(out, "]($1)")
 
-	// Step 4: escape bare MDX special chars on prose lines only.
+	// Step 4: use spaces for Markdown indentation and repository whitespace.
+	out = normalizeIndent(out)
+
+	// Step 5: escape bare MDX special chars on prose lines only.
 	out = escapeProse(out)
 
-	// Step 5: nest generated headings under the page's Reference section.
+	// Step 6: nest generated headings under the page's Reference section.
 	out = demoteHeadings(out)
 
-	// Step 6: target the slugs Docusaurus derives from declaration headings.
+	// Step 7: target the slugs Docusaurus derives from declaration headings.
 	out = rewriteAPIFragmentLinks(out)
 
 	return out
+}
+
+// normalizeIndent converts leading tabs to four spaces so generated Markdown
+// stays compatible with the wiki repository's whitespace policy.
+func normalizeIndent(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		tabs := len(line) - len(strings.TrimLeft(line, "\t"))
+		if tabs > 0 {
+			lines[i] = strings.Repeat("    ", tabs) + line[tabs:]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // demoteHeadings shifts generated Markdown headings down three levels. Markdown
