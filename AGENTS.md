@@ -4,18 +4,19 @@ This project follows the organization-wide [Z-Shell Organization Guidelines](htt
 
 ## What this is
 
-`zsh-lint` is being rebooted as a **Go-based semantic analyzer for Zsh** (see
+`zsh-lint` is a **Go-based semantic analyzer for Zsh** (see
 [#5](https://github.com/z-shell/zsh-lint/issues/5)). The active product is the
 Go code under `cmd/` and `internal/`; the parser front end uses
-[`mvdan/sh`](https://github.com/mvdan/sh). It currently operates as a
-**parser-survey** tool and implements no lint rules yet.
+[`mvdan/sh`](https://github.com/mvdan/sh). The CLI runs a default set of
+static-analysis rules and reports greppable diagnostics.
 
 The original interactive Zi/`.zshrc` plugin lives under `legacy/` and is **not**
 part of the active product surface.
 
 ## Layout
 
-- `cmd/zsh-lint/` — CLI entry point.
+- `cmd/zsh-lint/` — semantic-analyzer CLI entry point.
+- `cmd/zsh-lint-survey/` — parser-gap survey CLI entry point.
 - `internal/parse/` — parser front end (mvdan/sh, swappable).
 - `internal/survey/` — parser-survey core (greppable diagnostics + exit code).
 - `internal/wikidoc/`, `cmd/wikidoc/` — docs-sync tooling (not product code).
@@ -24,11 +25,11 @@ part of the active product surface.
 ## Documentation
 
 Canonical reader docs live on the **wiki**
-(`ecosystem/plugins/zsh_lint`), which is the single reading surface. Code-derived
+(`community/zsh_lint`), which is the single reading surface. Code-derived
 reference is generated from Go doc comments and synced into the wiki — do not
 hand-edit the generated region there. Regenerate locally with:
 
-    go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./internal/survey
+    go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey
 
 ## Writing Lint Rules
 
