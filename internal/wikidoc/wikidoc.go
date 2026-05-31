@@ -22,6 +22,8 @@ var (
 	reHTMLComment = regexp.MustCompile(`(?s)<!--.*?-->`)
 	reHTMLAnchor  = regexp.MustCompile(`</?a\b[^>]*>`)
 	reAngleLink   = regexp.MustCompile(`\]\(<([^>\s]*)>\)`)
+	reHeading     = regexp.MustCompile(`(?m)^(#{1,6})([ \t]+)`)
+	reAPIHeading  = regexp.MustCompile(`(?m)^#{2,} (func|type|var|const) ([A-Za-z_][A-Za-z0-9_]*)\b.*$`)
 )
 
 // Sanitize transforms a gomarkdoc Markdown string into MDX-safe content by
@@ -33,6 +35,10 @@ var (
 //     and closing <a> tags are stripped (inner text, if any, is preserved).
 //  3. Unwrap angle-bracketed link destinations (](<#Run>) → ](#Run)).
 //  4. Escape bare <, >, {, } on prose lines (not inside fenced or indented code).
+//  5. Demote generated headings by three levels so they nest under the wiki
+//     page's "### Reference" section.
+//  6. Rewrite top-level Go declaration fragment links to Docusaurus slugs, so
+//     gomarkdoc fragment links like #Run resolve as #func-run.
 func Sanitize(md string) string {
 	// Step 1: remove HTML comments.
 	out := reHTMLComment.ReplaceAllString(md, "")
@@ -46,7 +52,34 @@ func Sanitize(md string) string {
 	// Step 4: escape bare MDX special chars on prose lines only.
 	out = escapeProse(out)
 
+	// Step 5: nest generated headings under the page's Reference section.
+	out = demoteHeadings(out)
+
+	// Step 6: target the slugs Docusaurus derives from declaration headings.
+	out = rewriteAPIFragmentLinks(out)
+
 	return out
+}
+
+// demoteHeadings shifts generated Markdown headings down three levels. Markdown
+// has only six heading levels, so deeper input is clamped at h6.
+func demoteHeadings(s string) string {
+	return reHeading.ReplaceAllStringFunc(s, func(heading string) string {
+		hashes := strings.IndexAny(heading, " \t")
+		level := min(hashes+3, 6)
+		return strings.Repeat("#", level) + heading[hashes:]
+	})
+}
+
+// rewriteAPIFragmentLinks rewrites gomarkdoc's top-level declaration links to
+// the slugs Docusaurus derives from headings such as "## func Run".
+func rewriteAPIFragmentLinks(s string) string {
+	for _, match := range reAPIHeading.FindAllStringSubmatch(s, -1) {
+		name := match[2]
+		slug := strings.ToLower(match[1] + "-" + name)
+		s = strings.ReplaceAll(s, "](#"+name+")", "](#"+slug+")")
+	}
+	return s
 }
 
 // escapeProse escapes bare <, >, {, } on non-code lines.

@@ -24,6 +24,19 @@ func (r *dummyRule) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	}
 }
 
+type scopeRule struct {
+	sawGlobal bool
+}
+
+func (r *scopeRule) ID() diag.RuleID { return "test/scope" }
+func (r *scopeRule) Name() string    { return "Scope Rule" }
+func (r *scopeRule) NeedsScope() bool {
+	return true
+}
+func (r *scopeRule) Analyze(ctx *analyzer.Context, _ syntax.Node) {
+	r.sawGlobal = ctx.Scope.IsDeclared("global_var", nil)
+}
+
 func TestAnalyzer(t *testing.T) {
 	code := "echo ok\nbadcmd fail\n"
 	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
@@ -47,5 +60,19 @@ func TestAnalyzer(t *testing.T) {
 	}
 	if d.Range.Start.Line != 2 {
 		t.Errorf("expected line 2, got %d", d.Range.Start.Line)
+	}
+}
+
+func TestAnalyzerIndexesScopeForOptInRule(t *testing.T) {
+	file, err := parse.Parse(strings.NewReader("global_var=value\n"), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	rule := &scopeRule{}
+	analyzer.New(rule).Analyze(file, "test.zsh")
+
+	if !rule.sawGlobal {
+		t.Fatal("scope-aware rule did not receive the declaration index")
 	}
 }

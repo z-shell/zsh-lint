@@ -189,6 +189,28 @@ func TestSanitize_UnwrapAngleBracketLinks(t *testing.T) {
 	}
 }
 
+// TestSanitize_RewriteDocusaurusHeadingID verifies gomarkdoc fragment links still
+// resolve after Docusaurus derives heading slugs from API declaration headings.
+func TestSanitize_RewriteDocusaurusHeadingID(t *testing.T) {
+	input := "[func Run](#Run)\n\n## func Run(names []string, w io.Writer) int"
+	got := wikidoc.Sanitize(input)
+	want := "[func Run](#func-run)\n\n##### func Run(names []string, w io.Writer) int"
+	if got != want {
+		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
+	}
+}
+
+// TestSanitize_DemoteHeadings verifies generated headings nest beneath the
+// wiki page's h3 Reference section without producing invalid h7 headings.
+func TestSanitize_DemoteHeadings(t *testing.T) {
+	input := "# package\n\n## Index\n\n#### Deep"
+	got := wikidoc.Sanitize(input)
+	want := "#### package\n\n##### Index\n\n###### Deep"
+	if got != want {
+		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
+	}
+}
+
 // TestSanitize_EscapeProseChars verifies bare < > { } are escaped on prose lines.
 func TestSanitize_EscapeProseChars(t *testing.T) {
 	input := "usage <file.zsh> {x}"
