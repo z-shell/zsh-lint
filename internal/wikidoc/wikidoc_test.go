@@ -189,6 +189,39 @@ func TestSanitize_UnwrapAngleBracketLinks(t *testing.T) {
 	}
 }
 
+// TestSanitize_RewriteDocusaurusHeadingID verifies gomarkdoc fragment links still
+// resolve after Docusaurus derives heading slugs from API declaration headings.
+func TestSanitize_RewriteDocusaurusHeadingID(t *testing.T) {
+	input := "[func Run](#Run)\n\n## func Run(names []string, w io.Writer) int"
+	got := wikidoc.Sanitize(input)
+	want := "[func Run](#func-run)\n\n##### func Run(names []string, w io.Writer) int"
+	if got != want {
+		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
+	}
+}
+
+// TestSanitize_DemoteHeadings verifies generated headings nest beneath the
+// wiki page's h3 Reference section without producing invalid h7 headings.
+func TestSanitize_DemoteHeadings(t *testing.T) {
+	input := "# package\n\n## Index\n\n#### Deep"
+	got := wikidoc.Sanitize(input)
+	want := "#### package\n\n##### Index\n\n###### Deep"
+	if got != want {
+		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
+	}
+}
+
+// TestSanitize_NormalizeIndent verifies generated Markdown code indentation
+// uses spaces so wiki whitespace checks accept newly generated lines.
+func TestSanitize_NormalizeIndent(t *testing.T) {
+	input := "\timport \"example.test/pkg\"\n\t\tdeep"
+	got := wikidoc.Sanitize(input)
+	want := "    import \"example.test/pkg\"\n        deep"
+	if got != want {
+		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
+	}
+}
+
 // TestSanitize_EscapeProseChars verifies bare < > { } are escaped on prose lines.
 func TestSanitize_EscapeProseChars(t *testing.T) {
 	input := "usage <file.zsh> {x}"
@@ -199,13 +232,14 @@ func TestSanitize_EscapeProseChars(t *testing.T) {
 	}
 }
 
-// TestSanitize_IndentedCodeNotEscaped verifies tab-indented code lines are left verbatim.
+// TestSanitize_IndentedCodeNotEscaped verifies tab-indented code lines are
+// normalized to spaces without escaping their code contents.
 func TestSanitize_IndentedCodeNotEscaped(t *testing.T) {
-	// A tab-indented code line — must NOT be escaped.
 	input := "\tfunc F(a <T>) {}"
 	got := wikidoc.Sanitize(input)
-	if got != input {
-		t.Errorf("Sanitize should not escape tab-indented code; got: %q, want: %q", got, input)
+	want := "    func F(a <T>) {}"
+	if got != want {
+		t.Errorf("Sanitize should normalize but not escape tab-indented code; got: %q, want: %q", got, want)
 	}
 }
 

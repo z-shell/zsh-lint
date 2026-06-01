@@ -29,7 +29,7 @@ func TestSurveyParseGap(t *testing.T) {
 	}
 	got := out.String()
 	// Greppable diagnostic: path:line:col: message
-	if !strings.Contains(got, "testdata/gap.zsh:1:") {
+	if !strings.Contains(got, "testdata/gap.zsh:3:") {
 		t.Fatalf("expected path:line:col diagnostic; got:\n%s", got)
 	}
 	// The path must appear exactly once per diagnostic (no doubled prefix).
