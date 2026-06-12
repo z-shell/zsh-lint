@@ -10,13 +10,13 @@ future front-end ADR starts from evidence rather than assumptions.
 
 ## Runs compared
 
-| Run        | Front end                           | Corpus  | Parsed | Failed |
-| ---------- | ----------------------------------- | ------- | -----: | -----: |
-| 2026-05-17 | mvdan/sh v3.13.1 `LangBash`         | 16-file |      7 |      9 |
-| 2026-05-17 | [tree-sitter-zsh](https://github.com/georgeharker/tree-sitter-zsh) [`86b37f8`](https://github.com/georgeharker/tree-sitter-zsh/commit/86b37f8) | 16-file | 6 | 10 |
-| 2026-06-12 | mvdan/sh v3.13.1 `LangBash`         | 19-file |      6 |     13 |
-| 2026-06-12 | mvdan/sh v3.13.1 `LangZsh`          | 19-file |     11 |      8 |
-| 2026-06-12 | mvdan/sh master `LangZsh` (preview) | 19-file |     13 |      6 |
+| Run        | Front end                                                                                                                                      | Corpus  | Parsed | Failed |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -----: | -----: |
+| 2026-05-17 | mvdan/sh v3.13.1 `LangBash`                                                                                                                    | 16-file |      7 |      9 |
+| 2026-05-17 | [tree-sitter-zsh](https://github.com/georgeharker/tree-sitter-zsh) [`86b37f8`](https://github.com/georgeharker/tree-sitter-zsh/commit/86b37f8) | 16-file |      6 |     10 |
+| 2026-06-12 | mvdan/sh v3.13.1 `LangBash`                                                                                                                    | 19-file |      6 |     13 |
+| 2026-06-12 | mvdan/sh v3.13.1 `LangZsh`                                                                                                                     | 19-file |     11 |      8 |
+| 2026-06-12 | mvdan/sh master `LangZsh` (preview)                                                                                                            | 19-file |     13 |      6 |
 
 The 2026-05-17 fixture-by-fixture tree-sitter table was recorded in a
 working document that was never committed; the aggregate counts and the
