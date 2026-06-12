@@ -3,6 +3,7 @@ package analyzer
 import (
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/suppress"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -41,6 +42,17 @@ func (a *Analyzer) Analyze(file *parse.File, path string) diag.Diagnostics {
 			}
 			return true
 		})
+	}
+
+	// Pass 3: inline suppression (docs/project/suppression.md). Applying it
+	// here keeps human and JSON output consistent: suppressed findings are
+	// dropped and meta/* findings appended before the single final sort.
+	if ast != nil {
+		known := make(map[diag.RuleID]bool, len(a.rules))
+		for _, rule := range a.rules {
+			known[rule.ID()] = true
+		}
+		ctx.Diagnostics = suppress.Apply(suppress.Collect(file), ctx.Diagnostics, known, path)
 	}
 
 	ctx.Diagnostics.Sort()
