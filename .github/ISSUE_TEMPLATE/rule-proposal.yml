@@ -93,3 +93,11 @@ body:
       description: Open parser gaps (#11, #12, #13, #15, #16, #53) that mask the target construct, if any. Rules blocked by a gap are deferred until the gap is resolved.
     validations:
       required: false
+  - type: textarea
+    id: suppression
+    attributes:
+      label: Suppression
+      description: How an intentional finding is silenced, per the shared suppression contract (#19). Until that contract lands, write `pending #19` — rules may not document ad-hoc escape hatches.
+      value: pending #19
+    validations:
+      required: true
