@@ -12,7 +12,9 @@ separately and must cite this file.
 
 A suppression is a Zsh comment directive:
 
-    # zsh-lint disable=<rule-id>[,<rule-id>...] [-- reason]
+```text
+# zsh-lint disable=<rule-id>[,<rule-id>...] [-- reason]
+```
 
 - `<rule-id>` is the stable `category/rule-name` slug (e.g.
   `quoting/unquoted-var`). At least one rule ID is **required** — there is
