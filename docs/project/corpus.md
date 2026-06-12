@@ -33,7 +33,8 @@ gaps found here generalize across the organization's Zsh styles.
 
 ## Running the survey
 
-From a `zsh-lint` checkout:
+Run from `$CORPUS_ROOT`, pointing `go run` at a local `zsh-lint` checkout
+(replace `<path-to-zsh-lint>` with its location):
 
     cd "$CORPUS_ROOT"
     find src/public/zsh/init.zsh \

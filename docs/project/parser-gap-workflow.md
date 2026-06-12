@@ -45,7 +45,9 @@ Add the minimized script as
 `internal/survey/testdata/corpus/gap-<issue>-<slug>.zsh` with the standard
 Zsh modeline and a leading comment naming the issue.
 `TestMinimizedCorpus` (`internal/survey/corpus_test.go`) discovers fixtures
-by glob: `gap-*` must fail to parse, `ok-*` must parse. There is no fixture
+by scanning the corpus directory and enforces the naming contract:
+`gap-<issue>-<slug>.zsh` must fail to parse, `ok-<slug>.zsh` must parse, and
+any other name is rejected. There is no fixture
 count assertion — adding fixtures never requires test edits
 ([#14](https://github.com/z-shell/zsh-lint/issues/14)); only the small
 `requiredFixtures` baseline list is asserted by name.
