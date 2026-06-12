@@ -11,7 +11,7 @@ Run the survey over the documented corpus (`docs/project/corpus.md`). Every
 `FAIL` line comes with a greppable `path:line:col: message` diagnostic.
 Record the run as `docs/project/YYYY-MM-DD-survey.md` with a gap-mapping
 table (see `2026-06-12-survey.md` for the format). Note that the survey
-reports only the *first* parse error per file — later constructs are masked
+reports only the _first_ parse error per file — later constructs are masked
 until earlier gaps are fixed.
 
 ## 2. Classify

@@ -17,14 +17,14 @@ survey command shown below.
 
 ## Inventory
 
-| Repository | Files | Rationale |
-| --- | --- | --- |
-| `z-shell/src` | `public/zsh/init.zsh` | Zi loader; heaviest real-world Zsh (parameter-expansion flags, `always` blocks). |
-| `z-shell/zd` | `docker/utils.zsh`, `docker/zshrc`, `docker/zshenv` | CI bootstrap Zsh; mixes POSIX-ish and Zsh-native style. |
-| `z-shell/zunit` | `build.zsh` | Build script; representative tooling Zsh. |
-| `z-shell/z-a-meta-plugins` | `z-a-meta-plugins.plugin.zsh`, `functions/` (dot-prefixed handler functions) | Annex entry plus handler functions using the strict-emulation pattern. |
-| `z-shell/zsh-fancy-completions` | `zsh-fancy-completions.plugin.zsh`, `functions/`, `lib/` | Completion-style plugin; globbing, zstyle, and completion-discovery heavy. |
-| `z-shell/zsh-eza` | `zsh-eza.plugin.zsh` | Small, typical plugin entry file. |
+| Repository                      | Files                                                                        | Rationale                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `z-shell/src`                   | `public/zsh/init.zsh`                                                        | Zi loader; heaviest real-world Zsh (parameter-expansion flags, `always` blocks). |
+| `z-shell/zd`                    | `docker/utils.zsh`, `docker/zshrc`, `docker/zshenv`                          | CI bootstrap Zsh; mixes POSIX-ish and Zsh-native style.                          |
+| `z-shell/zunit`                 | `build.zsh`                                                                  | Build script; representative tooling Zsh.                                        |
+| `z-shell/z-a-meta-plugins`      | `z-a-meta-plugins.plugin.zsh`, `functions/` (dot-prefixed handler functions) | Annex entry plus handler functions using the strict-emulation pattern.           |
+| `z-shell/zsh-fancy-completions` | `zsh-fancy-completions.plugin.zsh`, `functions/`, `lib/`                     | Completion-style plugin; globbing, zstyle, and completion-discovery heavy.       |
+| `z-shell/zsh-eza`               | `zsh-eza.plugin.zsh`                                                         | Small, typical plugin entry file.                                                |
 
 Inclusion rationale, per family: the corpus deliberately spans the loader
 (`src`), the CI environment (`zd`), test tooling (`zunit`), an annex
