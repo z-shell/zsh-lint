@@ -20,6 +20,6 @@ func (r Backquotes) Name() string {
 
 func (r Backquotes) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	if cs, ok := node.(*syntax.CmdSubst); ok && cs.Backquotes {
-		ctx.Report(cs.Pos(), cs.End(), r.ID(), diag.Warning, "Use $(...) instead of deprecated `...` for command substitution")
+		ctx.Report(cs.Pos(), cs.End(), r.ID(), diag.Hint, "Use $(...) instead of deprecated `...` for command substitution")
 	}
 }

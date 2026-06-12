@@ -28,7 +28,7 @@ func (r PreferDoubleBrackets) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	if len(word.Parts) == 1 {
 		if lit, ok := word.Parts[0].(*syntax.Lit); ok {
 			if lit.Value == "[" || lit.Value == "test" {
-				ctx.Report(call.Pos(), call.End(), r.ID(), diag.Warning, "Prefer Zsh's [[ ... ]] over [ ... ] or test for conditions")
+				ctx.Report(call.Pos(), call.End(), r.ID(), diag.Hint, "Prefer Zsh's [[ ... ]] over [ ... ] or test for conditions")
 			}
 		}
 	}

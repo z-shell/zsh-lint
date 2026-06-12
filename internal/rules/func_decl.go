@@ -26,6 +26,6 @@ func (r FuncDeclStyle) Analyze(ctx *analyzer.Context, node syntax.Node) {
 
 	// Mixing 'function foo' and 'foo()' -> 'function foo()'
 	if decl.RsrvWord && decl.Parens {
-		ctx.Report(decl.Pos(), decl.End(), r.ID(), diag.Warning, "Avoid mixing 'function' keyword with '()' for function declarations; use 'foo()' or 'function foo'")
+		ctx.Report(decl.Pos(), decl.End(), r.ID(), diag.Hint, "Avoid mixing 'function' keyword with '()' for function declarations; use 'foo()' or 'function foo'")
 	}
 }

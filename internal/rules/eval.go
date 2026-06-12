@@ -28,7 +28,7 @@ func (r EvalUsage) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	if len(word.Parts) == 1 {
 		if lit, ok := word.Parts[0].(*syntax.Lit); ok {
 			if lit.Value == "eval" {
-				ctx.Report(call.Pos(), call.End(), r.ID(), diag.Warning, "Use of 'eval' can be dangerous; ensure inputs are properly sanitized")
+				ctx.Report(call.Pos(), call.End(), r.ID(), diag.Info, "Use of 'eval' can be dangerous; ensure inputs are properly sanitized")
 			}
 		}
 	}
