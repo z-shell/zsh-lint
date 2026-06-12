@@ -74,9 +74,9 @@ is reserved for the front end; analyzer rules must not use it.
 Per the suppression contract (`docs/project/suppression.md`): suppressed
 findings are omitted from `diagnostics`, while `meta/*` diagnostics
 (`meta/malformed-suppression`, `meta/unused-suppression`) are always
-included, so integrations can audit suppression usage. Until suppression is
-implemented in the analyzer, no `meta/*` diagnostics are emitted; their
-inclusion is not a version change.
+included, so integrations can audit suppression usage. Suppression is
+implemented in the analyzer (`internal/suppress`, #65); the introduction of
+`meta/*` diagnostics was not a version change.
 
 ## Exit codes
 

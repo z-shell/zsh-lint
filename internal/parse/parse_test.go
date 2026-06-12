@@ -20,6 +20,24 @@ func TestParseError(t *testing.T) {
 	}
 }
 
+func TestParseRetainsSourceLines(t *testing.T) {
+	const src = "print one\n\n  # comment line\nprint two"
+	f, err := Parse(strings.NewReader(src), "lines.zsh")
+	if err != nil {
+		t.Fatalf("expected a valid parse, got error: %v", err)
+	}
+	want := []string{"print one", "", "  # comment line", "print two"}
+	got := f.Lines()
+	if len(got) != len(want) {
+		t.Fatalf("Lines() returned %d lines, want %d: %q", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("Lines()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestParseFixture(t *testing.T) {
 	f, err := os.Open("testdata/sample.zsh")
 	if err != nil {

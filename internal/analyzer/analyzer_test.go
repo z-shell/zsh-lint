@@ -7,6 +7,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/rules"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -74,5 +75,70 @@ func TestAnalyzerIndexesScopeForOptInRule(t *testing.T) {
 
 	if !rule.sawGlobal {
 		t.Fatal("scope-aware rule did not receive the declaration index")
+	}
+}
+
+func findByID(ds diag.Diagnostics, id diag.RuleID) []diag.Diagnostic {
+	var out []diag.Diagnostic
+	for _, d := range ds {
+		if d.RuleID == id {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func TestAnalyzerAppliesSuppression(t *testing.T) {
+	code := "eval $x # zsh-lint disable=security/eval -- static table\n"
+	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	eng := analyzer.New(rules.Default()...)
+	diags := eng.Analyze(file, "test.zsh")
+
+	if got := findByID(diags, "security/eval"); len(got) != 0 {
+		t.Errorf("security/eval finding survived its suppression: %+v", got)
+	}
+	if got := findByID(diags, "quoting/unquoted-var"); len(got) != 1 {
+		t.Errorf("expected quoting/unquoted-var on the same line to be unaffected, got %d findings", len(got))
+	}
+	if got := findByID(diags, "meta/unused-suppression"); len(got) != 0 {
+		t.Errorf("used suppression reported stale: %+v", got)
+	}
+}
+
+func TestAnalyzerReportsStaleSuppression(t *testing.T) {
+	code := "print ok # zsh-lint disable=security/eval\n"
+	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	diags := analyzer.New(rules.Default()...).Analyze(file, "test.zsh")
+	got := findByID(diags, "meta/unused-suppression")
+	if len(got) != 1 {
+		t.Fatalf("expected one meta/unused-suppression, got %v", diags)
+	}
+	if got[0].Severity != diag.Info {
+		t.Errorf("stale suppression severity = %v, want Info", got[0].Severity)
+	}
+}
+
+func TestAnalyzerReportsMalformedSuppression(t *testing.T) {
+	code := "print ok # zsh-lint enable=security/eval\n"
+	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	diags := analyzer.New(rules.Default()...).Analyze(file, "test.zsh")
+	got := findByID(diags, "meta/malformed-suppression")
+	if len(got) != 1 {
+		t.Fatalf("expected one meta/malformed-suppression, got %v", diags)
+	}
+	if got[0].Severity != diag.Warning {
+		t.Errorf("malformed suppression severity = %v, want Warning", got[0].Severity)
 	}
 }
