@@ -298,10 +298,24 @@ func TestApply(t *testing.T) {
 	})
 
 	t.Run("no-target directive reports all IDs unused", func(t *testing.T) {
-		d := wellFormed(0, "security/eval", "quoting/unquoted-var")
+		// A real no-target directive (nothing follows it in the file) still
+		// has a valid comment range; the meta findings must carry it.
+		d := Directive{
+			Rules:  []diag.RuleID{"security/eval", "quoting/unquoted-var"},
+			Target: 0,
+			Range: diag.Range{
+				Start: diag.Position{Line: 5, Column: 1, Offset: 50},
+				End:   diag.Position{Line: 5, Column: 35, Offset: 84},
+			},
+		}
 		got := Apply([]Directive{d}, nil, known, "test.zsh")
 		if len(got) != 2 {
 			t.Fatalf("Apply = %v, want two meta/unused-suppression findings", ids(got))
+		}
+		for _, m := range got {
+			if m.Range.Start.Line != 5 {
+				t.Errorf("meta finding positioned at line %d, want the directive's line 5", m.Range.Start.Line)
+			}
 		}
 	})
 }

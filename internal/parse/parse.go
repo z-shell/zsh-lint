@@ -28,7 +28,8 @@ func (f *File) AST() *syntax.File {
 }
 
 // Lines returns the raw source split into lines (1-based line N is
-// Lines()[N-1]), without trailing newlines. Suppression-scope
+// Lines()[N-1]); each line excludes its terminating newline, and a final
+// newline does not produce a phantom empty line. Suppression-scope
 // classification needs real line content: a comment alone on a line inside
 // a multi-line construct shares the construct's AST span, so span math
 // alone cannot tell trailing from preceding directives.
