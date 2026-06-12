@@ -1,9 +1,11 @@
 // Package parse wraps the mvdan.cc/sh parser as the analyzer's front end.
 //
-// mvdan/sh has no dedicated Zsh dialect, so the reboot uses the Bash variant as
-// the closest available grammar and records Zsh-specific gaps from real code
-// (see issues #8, #11–#16). Isolating the front end here lets it be swapped
-// later (e.g. tree-sitter-zsh, issue #17) without touching callers.
+// The front end uses mvdan/sh's Zsh dialect (LangZsh, available since
+// v3.13.x), which on the documented survey corpus parses roughly twice as
+// many real Z-Shell files as the Bash variant the reboot started with
+// (issues #11, #53). Remaining Zsh gaps are tracked as corpus fixtures (see
+// issues #12, #13, #15 and docs/project/parser-gap-workflow.md). Isolating
+// the front end here lets it be swapped without touching callers.
 package parse
 
 import (
@@ -22,12 +24,12 @@ func (f *File) AST() *syntax.File {
 	return f.tree
 }
 
-// Parse parses a single Zsh/Bash source read from r, using name in error
+// Parse parses a single Zsh source read from r, using name in error
 // messages. It returns the parsed source or the first parse error.
 func Parse(r io.Reader, name string) (*File, error) {
 	parser := syntax.NewParser(
 		syntax.KeepComments(true),
-		syntax.Variant(syntax.LangBash),
+		syntax.Variant(syntax.LangZsh),
 	)
 	tree, err := parser.Parse(r, name)
 	if err != nil {
