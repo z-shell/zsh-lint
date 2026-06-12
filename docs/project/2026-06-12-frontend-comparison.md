@@ -3,17 +3,17 @@
 Tracking issue: [#17](https://github.com/z-shell/zsh-lint/issues/17).
 
 Records the measured comparison between the `mvdan/sh` front end and the
-active `georgeharker/tree-sitter-zsh` grammar on the documented survey
-corpus (`docs/project/corpus.md`), consolidating the 2026-05-17 run and the
-2026-06-12 LangZsh results so a future front-end ADR starts from evidence
-rather than assumptions.
+active [`georgeharker/tree-sitter-zsh`](https://github.com/georgeharker/tree-sitter-zsh)
+grammar on the documented survey corpus (`docs/project/corpus.md`),
+consolidating the 2026-05-17 run and the 2026-06-12 LangZsh results so a
+future front-end ADR starts from evidence rather than assumptions.
 
 ## Runs compared
 
 | Run        | Front end                           | Corpus  | Parsed | Failed |
 | ---------- | ----------------------------------- | ------- | -----: | -----: |
 | 2026-05-17 | mvdan/sh v3.13.1 `LangBash`         | 16-file |      7 |      9 |
-| 2026-05-17 | tree-sitter-zsh `86b37f8`           | 16-file |      6 |     10 |
+| 2026-05-17 | [tree-sitter-zsh](https://github.com/georgeharker/tree-sitter-zsh) [`86b37f8`](https://github.com/georgeharker/tree-sitter-zsh/commit/86b37f8) | 16-file | 6 | 10 |
 | 2026-06-12 | mvdan/sh v3.13.1 `LangBash`         | 19-file |      6 |     13 |
 | 2026-06-12 | mvdan/sh v3.13.1 `LangZsh`          | 19-file |     11 |      8 |
 | 2026-06-12 | mvdan/sh master `LangZsh` (preview) | 19-file |     13 |      6 |
@@ -38,9 +38,12 @@ regenerate per-file data against the then-current grammar revision.
 
 `mvdan/sh` `LangZsh` stays the front end:
 
-- **Parser fidelity.** 11/19 versus tree-sitter's 6/16 on overlapping
-  corpora; the upstream master preview reaches 13/19, and the remaining
-  gaps map to open upstream issues
+- **Parser fidelity.** On the same 2026-05-17 16-file run, `mvdan/sh`
+  led head-to-head even as `LangBash` (7/16 vs tree-sitter's 6/16). On
+  the current 19-file corpus, `LangZsh` reaches 11/19 (2026-06-12 run; a
+  larger corpus than the tree-sitter figure, so the two numbers are not
+  directly comparable). The upstream master preview reaches 13/19, and
+  the remaining gaps map to open upstream issues
   ([mvdan/sh#1211](https://github.com/mvdan/sh/issues/1211),
   [mvdan/sh#1297](https://github.com/mvdan/sh/issues/1297)).
 - **AST usefulness.** `mvdan/sh` yields a typed Go AST that the analyzer
