@@ -1,0 +1,95 @@
+name: Rule proposal
+description: Propose a new semantic-analysis rule per docs/project/rule-policy.md
+title: "Rule proposal: <category>/<rule-name>"
+labels:
+  - rule-proposal
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Proposals are evaluated against the first-wave rule policy
+        (`docs/project/rule-policy.md`). All fields below are required by
+        that policy — proposals without corpus evidence or a
+        false-positive analysis are deferred, not reviewed.
+  - type: input
+    id: rule-id
+    attributes:
+      label: Rule ID
+      description: "Stable `category/rule-name` slug (categories: quoting, security, style, compat, plugin)."
+      placeholder: quoting/unquoted-array-subscript
+    validations:
+      required: true
+  - type: input
+    id: rule-name
+    attributes:
+      label: Rule name
+      description: Human-readable name returned by `Name()`.
+      placeholder: Unquoted array subscript expansion
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence — what the rule reports.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this matters
+      description: The failure mode, with the Zsh-manual section (zshexpn, zshparam, zshmisc, zshoptions) or Plugin Standard reference that explains the behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: corpus-evidence
+    attributes:
+      label: Corpus evidence
+      description: File/line citations from the survey corpus (docs/project/corpus.md) or a linked real-world Z-Shell repository where the pattern occurs.
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Bad / Good examples
+      description: At least one minimal flagged snippet and its fix.
+      value: |
+        ```zsh
+        # Bad
+
+        # Good
+        ```
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Proposed severity
+      options:
+        - error
+        - warning
+        - info
+        - hint
+    validations:
+      required: true
+  - type: textarea
+    id: severity-justification
+    attributes:
+      label: Severity justification
+      description: One line, per the severity mapping in the rule policy. Note `error` requires zero known legitimate uses in the corpus.
+    validations:
+      required: true
+  - type: textarea
+    id: false-positives
+    attributes:
+      label: False-positive analysis
+      description: Enumerate known legitimate uses of the pattern. For each, state whether the rule stays silent, downgrades severity, or relies on suppression (#19).
+    validations:
+      required: true
+  - type: textarea
+    id: parser-dependencies
+    attributes:
+      label: Parser dependencies
+      description: Open parser gaps (#11, #12, #13, #15, #16, #53) that mask the target construct, if any. Rules blocked by a gap are deferred until the gap is resolved.
+    validations:
+      required: false
