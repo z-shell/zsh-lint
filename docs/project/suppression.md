@@ -3,8 +3,11 @@
 Tracking issue: [#19](https://github.com/z-shell/zsh-lint/issues/19).
 
 How users silence an intentional finding without weakening unrelated
-diagnostics. This is the single shared contract required by the rule policy
-(`docs/project/rule-policy.md`); rules must not invent their own escape
+diagnostics. This is the single shared contract required by the first-wave
+rule policy ([#7](https://github.com/z-shell/zsh-lint/issues/7),
+`docs/project/rule-policy.md` once
+[PR #55](https://github.com/z-shell/zsh-lint/pull/55) merges); rules must
+not invent their own escape
 hatches. This document defines the contract; the implementation is tracked
 separately and must cite this file.
 
@@ -64,16 +67,18 @@ diagnostic:
 - ID: `meta/malformed-suppression`, severity `warning`.
 - The malformed directive suppresses nothing.
 
-This guarantees a typo'd suppression surfaces as a finding rather than as
-mysteriously reappearing diagnostics.
+This guarantees a mistyped suppression surfaces as a finding rather than
+as mysteriously reappearing diagnostics.
 
 ## Stale suppressions
 
-A well-formed suppression that matches **no finding** in its scope (the
-code was fixed, the rule narrowed, or the rule ID does not exist in the
-current rule set) is reported as:
+Staleness is evaluated **per rule ID**, not per directive. Each listed ID
+that matches no finding in the directive's scope (the code was fixed, the
+rule narrowed, or the ID does not exist in the current rule set) is
+reported, even when other IDs in the same directive did suppress findings:
 
-- ID: `meta/unused-suppression`, severity `info`.
+- ID: `meta/unused-suppression`, severity `info`, one finding per unused
+  rule ID.
 - Unknown rule IDs are called out in the message so renamed/deprecated
   rules are caught.
 
