@@ -77,7 +77,8 @@ jobs:
         if: steps.app.outputs.present == 'true'
         working-directory: zsh-lint
         run: |
-          go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey
+          go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" \
+            ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
           go run ./cmd/wikidoc \
             -in "$RUNNER_TEMP/ref.md" \
             -mdx ../wiki/community/04_zsh_lint/index.mdx

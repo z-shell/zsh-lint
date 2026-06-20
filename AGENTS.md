@@ -29,7 +29,7 @@ Canonical reader docs live on the **wiki**
 reference is generated from Go doc comments and synced into the wiki — do not
 hand-edit the generated region there. Regenerate locally with:
 
-    go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey
+    go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
 
 ## Writing Lint Rules
 

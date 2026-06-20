@@ -7,7 +7,42 @@ import (
 	"github.com/z-shell/zsh-lint/internal/diag"
 )
 
-// FuncDeclStyle checks for mixing the 'function' keyword with '()' in declarations.
+// FuncDeclStyle reports function declarations that combine `function` and `()`.
+//
+// ID: `style/function-decl`
+//
+// Name: Function declaration style
+//
+// Summary: Reports declarations written as `function name()` instead of
+// choosing either `name()` or `function name`.
+//
+// Why: The Zsh manual's Complex Commands grammar documents the sh-compatible
+// `word ()` form and the Zsh `function word` form as alternatives. Combining
+// both spellings is accepted but redundant, so choosing one form communicates
+// the intended style more clearly.
+// See https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands.
+//
+// Bad:
+//
+//	function render() { print ok; }
+//
+// Good:
+//
+//	render() { print ok; }
+//
+// Severity: Hint. The mixed declaration is valid Zsh and the suggested change
+// is stylistic.
+//
+// False positives: Generated code or a project-wide convention may
+// intentionally use the mixed spelling even though Zsh does not require it.
+//
+// Suppression: Use
+// `# zsh-lint disable=style/function-decl -- <reason>` on the finding line or
+// immediately before the next non-comment, non-blank source line.
+//
+// Corpus evidence: The June 12, 2026 LangZsh clean-baseline run produced zero
+// findings from this rule across the 11 parseable corpus files. This
+// grandfathered rule therefore has no positive corpus citation yet.
 type FuncDeclStyle struct{}
 
 func (r FuncDeclStyle) ID() diag.RuleID {
