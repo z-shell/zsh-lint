@@ -145,6 +145,17 @@ func TestFunctionScopedOptionsStatementOrder(t *testing.T) {
 			wantLines: []int{1},
 		},
 		{
+			name:      "rejects inverse local options after enabling",
+			path:      "functions/handler",
+			src:       "setopt local_options no_local_options\nrehash\n",
+			wantLines: []int{1},
+		},
+		{
+			name: "accepts local options after inverse",
+			path: "functions/handler",
+			src:  "setopt no_local_options local_options\nrehash\n",
+		},
+		{
 			name:      "rejects dynamic setopt argument",
 			path:      "functions/handler",
 			src:       "setopt \"$dynamic\" local_options\nrehash\n",

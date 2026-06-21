@@ -161,14 +161,22 @@ func enablesLocalOptions(args []*syntax.Word) bool {
 		value := values[i]
 		if (value == "+o" || value == "-o") && i+1 < len(values) {
 			i++
-			if normalizeOptionName(values[i]) == "localoptions" {
+			switch normalizeOptionName(values[i]) {
+			case "localoptions":
 				enabled := value == "-o"
+				localOptionsEnabled = &enabled
+			case "nolocaloptions":
+				enabled := value == "+o"
 				localOptionsEnabled = &enabled
 			}
 			continue
 		}
-		if normalizeOptionName(value) == "localoptions" {
+		switch normalizeOptionName(value) {
+		case "localoptions":
 			enabled := true
+			localOptionsEnabled = &enabled
+		case "nolocaloptions":
+			enabled := false
 			localOptionsEnabled = &enabled
 		}
 	}
