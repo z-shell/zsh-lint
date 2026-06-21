@@ -55,7 +55,7 @@ func hasFunctionsPathSegment(path string) bool {
 }
 
 func isOptionScopingStatement(stmt *syntax.Stmt) bool {
-	if stmt == nil {
+	if stmt == nil || hasUnsafeStatementEffect(stmt) {
 		return false
 	}
 	call, ok := stmt.Cmd.(*syntax.CallExpr)
@@ -76,6 +76,14 @@ func isOptionScopingStatement(stmt *syntax.Stmt) bool {
 	default:
 		return false
 	}
+}
+
+func hasUnsafeStatementEffect(stmt *syntax.Stmt) bool {
+	return stmt.Background ||
+		stmt.Coprocess ||
+		stmt.Disown ||
+		stmt.Negated ||
+		len(stmt.Redirs) != 0
 }
 
 func literalCommand(call *syntax.CallExpr) (int, string, bool) {
@@ -119,6 +127,12 @@ func isLocalZshEmulate(args []*syntax.Word) bool {
 		values[i] = value
 	}
 
+	for _, value := range values {
+		if strings.HasPrefix(value, "-") && strings.Contains(value[1:], "c") {
+			return false
+		}
+	}
+
 	local := false
 	for _, value := range values {
 		if value == "zsh" {
@@ -144,12 +158,23 @@ func enablesLocalOptions(args []*syntax.Word) bool {
 		values[i] = value
 	}
 
-	for _, value := range values {
+	var localOptionsEnabled *bool
+	for i := 0; i < len(values); i++ {
+		value := values[i]
+		if (value == "+o" || value == "-o") && i+1 < len(values) {
+			i++
+			if normalizeOptionName(values[i]) == "localoptions" {
+				enabled := value == "-o"
+				localOptionsEnabled = &enabled
+			}
+			continue
+		}
 		if normalizeOptionName(value) == "localoptions" {
-			return true
+			enabled := true
+			localOptionsEnabled = &enabled
 		}
 	}
-	return false
+	return localOptionsEnabled != nil && *localOptionsEnabled
 }
 
 func normalizeOptionName(value string) string {
