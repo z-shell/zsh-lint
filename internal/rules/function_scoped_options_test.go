@@ -78,6 +78,11 @@ func TestFunctionScopedOptionsStatementOrder(t *testing.T) {
 			src:  "builtin emulate -LR zsh -o extended_glob\nrehash\n",
 		},
 		{
+			name: "accepts redirected emulate",
+			path: "functions/handler",
+			src:  "emulate -L zsh 2>/dev/null\nrehash\n",
+		},
+		{
 			name:      "rejects background emulate",
 			path:      "functions/handler",
 			src:       "emulate -L zsh &\nrehash\n",
@@ -116,6 +121,16 @@ func TestFunctionScopedOptionsStatementOrder(t *testing.T) {
 			name: "accepts builtin setopt and compact option name",
 			path: "functions/handler",
 			src:  "builtin setopt localoptions\nrehash\n",
+		},
+		{
+			name: "accepts redirected setopt",
+			path: "functions/handler",
+			src:  "setopt local_options >/dev/null\nrehash\n",
+		},
+		{
+			name: "accepts negated setopt",
+			path: "functions/handler",
+			src:  "! setopt local_options\nrehash\n",
 		},
 		{
 			name:      "rejects background setopt",

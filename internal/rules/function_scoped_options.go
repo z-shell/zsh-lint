@@ -81,9 +81,7 @@ func isOptionScopingStatement(stmt *syntax.Stmt) bool {
 func hasUnsafeStatementEffect(stmt *syntax.Stmt) bool {
 	return stmt.Background ||
 		stmt.Coprocess ||
-		stmt.Disown ||
-		stmt.Negated ||
-		len(stmt.Redirs) != 0
+		stmt.Disown
 }
 
 func literalCommand(call *syntax.CallExpr) (int, string, bool) {
