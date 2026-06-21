@@ -110,12 +110,17 @@ func literalWord(word *syntax.Word) (string, bool) {
 }
 
 func isLocalZshEmulate(args []*syntax.Word) bool {
-	local := false
-	for _, arg := range args {
+	values := make([]string, len(args))
+	for i, arg := range args {
 		value, ok := literalWord(arg)
 		if !ok {
 			return false
 		}
+		values[i] = value
+	}
+
+	local := false
+	for _, value := range values {
 		if value == "zsh" {
 			return local
 		}
@@ -130,9 +135,17 @@ func isLocalZshEmulate(args []*syntax.Word) bool {
 }
 
 func enablesLocalOptions(args []*syntax.Word) bool {
-	for _, arg := range args {
+	values := make([]string, len(args))
+	for i, arg := range args {
 		value, ok := literalWord(arg)
-		if ok && normalizeOptionName(value) == "localoptions" {
+		if !ok {
+			return false
+		}
+		values[i] = value
+	}
+
+	for _, value := range values {
+		if normalizeOptionName(value) == "localoptions" {
 			return true
 		}
 	}

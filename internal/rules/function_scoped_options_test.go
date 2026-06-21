@@ -78,6 +78,12 @@ func TestFunctionScopedOptionsStatementOrder(t *testing.T) {
 			src:  "builtin emulate -LR zsh -o extended_glob\nrehash\n",
 		},
 		{
+			name:      "rejects dynamic emulate trailing argument",
+			path:      "functions/handler",
+			src:       "emulate -L zsh \"$dynamic\"\nrehash\n",
+			wantLines: []int{1},
+		},
+		{
 			name:      "rejects emulate without local flag",
 			path:      "functions/handler",
 			src:       "emulate -R zsh\nrehash\n",
@@ -98,6 +104,12 @@ func TestFunctionScopedOptionsStatementOrder(t *testing.T) {
 			name: "accepts builtin setopt and compact option name",
 			path: "functions/handler",
 			src:  "builtin setopt localoptions\nrehash\n",
+		},
+		{
+			name:      "rejects dynamic setopt argument",
+			path:      "functions/handler",
+			src:       "setopt \"$dynamic\" local_options\nrehash\n",
+			wantLines: []int{1},
 		},
 		{
 			name:      "reports command before later scoping",
