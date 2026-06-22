@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: ⤵️ Check out the calling repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           path: target
           # The calling repo's contents are treated as untrusted data (only
@@ -36,7 +36,7 @@ jobs:
           persist-credentials: false
 
       - name: ⤵️ Check out zsh-lint
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: z-shell/zsh-lint
           ref: ${{ inputs['zsh-lint-ref'] }}
