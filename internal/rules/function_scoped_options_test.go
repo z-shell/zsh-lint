@@ -198,3 +198,109 @@ func TestFunctionScopedOptionsStatementOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestFunctionScopedOptionsLeadingGuards(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantLines []int
+	}{
+		{
+			name: "accepts or-return guard",
+			src:  "(( $+commands[eza] )) || return 1\nemulate -L zsh\nrehash\n",
+		},
+		{
+			name: "accepts builtin return guard",
+			src:  "(( $+commands[eza] )) || builtin return 1\nsetopt local_options\nrehash\n",
+		},
+		{
+			name: "accepts bare return guard",
+			src:  "(( $+commands[eza] )) || return\nemulate -L zsh\nrehash\n",
+		},
+		{
+			name: "accepts literal return arguments",
+			src:  "(( $+commands[eza] )) || return 1 ignored\nemulate -L zsh\nrehash\n",
+		},
+		{
+			name: "accepts negated guard condition",
+			src:  "! (( $+commands[eza] )) || return 1\nemulate -L zsh\nrehash\n",
+		},
+		{
+			name: "accepts single-return if guard",
+			src:  "if [[ $TERM == dumb ]]; then\n  return 0\nfi\nemulate -L zsh\nrehash\n",
+		},
+		{
+			name: "accepts contiguous leading guards",
+			src:  "(( $+commands[eza] )) || return 1\nif [[ $TERM == dumb ]]; then\n  builtin return 0\nfi\nemulate -L zsh\nrehash\n",
+		},
+		{
+			name:      "rejects non-return or branch",
+			src:       "(( $+commands[eza] )) || print missing\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "rejects assigned return branch",
+			src:       "(( $+commands[eza] )) || status=1 return 1\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "rejects background return branch",
+			src:       "(( $+commands[eza] )) || return 1 &\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "rejects redirected return branch",
+			src:       "(( $+commands[eza] )) || return 1 >/dev/null\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "rejects negated return branch",
+			src:       "(( $+commands[eza] )) || ! return 1\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "rejects if body with work before return",
+			src:       "if [[ $TERM == dumb ]]; then\n  print skipped\n  return 0\nfi\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "rejects if with else branch",
+			src:       "if [[ $TERM == dumb ]]; then\n  return 0\nelse\n  return 1\nfi\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "rejects if with elif branch",
+			src:       "if [[ $TERM == dumb ]]; then\n  return 0\nelif [[ $TERM == unknown ]]; then\n  return 1\nfi\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "reports first statement after accepted guard",
+			src:       "(( $+commands[eza] )) || return 1\nprint preparing\nemulate -L zsh\n",
+			wantLines: []int{2},
+		},
+		{
+			name:      "later guard does not rescue ordinary statement",
+			src:       "print preparing\n(( $+commands[eza] )) || return 1\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+		{
+			name:      "rejects dynamic return status",
+			src:       "(( $+commands[eza] )) || return \"$status\"\nemulate -L zsh\n",
+			wantLines: []int{1},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := analyzeFunctionScopedOptions(t, "functions/handler", test.src)
+			if len(got) != len(test.wantLines) {
+				t.Fatalf("diagnostic lines = %v, want %v", got, test.wantLines)
+			}
+			for i := range got {
+				if got[i] != test.wantLines[i] {
+					t.Errorf("diagnostic lines = %v, want %v", got, test.wantLines)
+				}
+			}
+		})
+	}
+}

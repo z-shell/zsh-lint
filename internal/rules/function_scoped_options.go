@@ -33,6 +33,9 @@ func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Nod
 		if isOptionScopingStatement(stmt) {
 			return
 		}
+		if isLeadingReturnGuard(stmt) {
+			continue
+		}
 		ctx.Report(
 			stmt.Pos(),
 			stmt.End(),
@@ -82,6 +85,52 @@ func hasUnsafeStatementEffect(stmt *syntax.Stmt) bool {
 	return stmt.Background ||
 		stmt.Coprocess ||
 		stmt.Disown
+}
+
+func isLeadingReturnGuard(stmt *syntax.Stmt) bool {
+	if stmt == nil || hasUnsafeGuardEffect(stmt) {
+		return false
+	}
+
+	switch command := stmt.Cmd.(type) {
+	case *syntax.BinaryCmd:
+		return command.Op == syntax.OrStmt && isLiteralReturnStatement(command.Y)
+	case *syntax.IfClause:
+		return command.Else == nil &&
+			len(command.Cond) > 0 &&
+			len(command.Then) == 1 &&
+			isLiteralReturnStatement(command.Then[0])
+	default:
+		return false
+	}
+}
+
+func isLiteralReturnStatement(stmt *syntax.Stmt) bool {
+	if stmt == nil || hasUnsafeGuardEffect(stmt) {
+		return false
+	}
+
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Assigns) != 0 {
+		return false
+	}
+
+	commandIndex, command, ok := literalCommand(call)
+	if !ok || command != "return" {
+		return false
+	}
+	for _, arg := range call.Args[commandIndex+1:] {
+		if _, ok := literalWord(arg); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func hasUnsafeGuardEffect(stmt *syntax.Stmt) bool {
+	return stmt.Negated ||
+		hasUnsafeStatementEffect(stmt) ||
+		len(stmt.Redirs) != 0
 }
 
 func literalCommand(call *syntax.CallExpr) (int, string, bool) {
