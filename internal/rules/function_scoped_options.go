@@ -10,6 +10,58 @@ import (
 
 // FunctionScopedOptions reports autoloadable function files that execute logic
 // before localizing inherited shell options.
+//
+// ID: `plugin/function-scoped-options`
+//
+// Name: Function files should scope shell options
+//
+// Summary: Reports executable files beneath a `functions` directory when
+// neither `builtin emulate -L zsh` nor `setopt local_options` appears before
+// the first non-guard top-level statement.
+//
+// Why: Zsh functions inherit the caller's option state. The Zsh manual
+// documents `LOCAL_OPTIONS` as restoring options on function return, while
+// `emulate -L` both selects Zsh emulation and makes option changes local.
+// Without either form, options such as `SH_WORD_SPLIT`, `KSH_ARRAYS`, or
+// `NO_EXTENDED_GLOB` can silently change function behavior.
+// See https://zsh.sourceforge.io/Doc/Release/Options.html#index-LOCAL_005fOPTIONS
+// and
+// https://zsh.sourceforge.io/Doc/Release/Shell-Builtin-Commands.html#index-emulate.
+//
+// Bad:
+//
+//	local -a matches
+//	matches=( $~pattern )
+//
+// Good:
+//
+//	builtin emulate -L zsh
+//	local -a matches
+//	matches=( $~pattern )
+//
+// Severity: Hint. Missing option scoping enables latent caller-dependent bugs,
+// but some helper functions intentionally inspect or mutate caller option
+// state.
+//
+// False positives: Functions that intentionally share caller option state and
+// trivial single-builtin functions remain findings by design; suppress them
+// with a reason. Files outside a complete `functions` path segment are out of
+// scope. A contiguous prefix of recognized `condition || return` or
+// single-return `if` guards is accepted before scoping.
+//
+// Suppression: Use
+// `# zsh-lint disable=plugin/function-scoped-options -- <reason>` on the
+// finding line or immediately before the next non-comment, non-blank source
+// line.
+//
+// Corpus evidence: Issue #63 reported missing scoping across z-a-meta-plugins
+// and zsh-fancy-completions function files. The analyzer currently flags
+// `zsh-fancy-completions/functions/.completion-prediction` and
+// `zsh-fancy-completions/functions/.force_rehash`. The originally cited
+// `z-a-meta-plugins/functions/.za-meta-plugins-meta-cmd-help-handler` is a
+// fully commented-out stub and is correctly silent. Compliant
+// `setopt local_options` and `builtin emulate -L zsh` examples exist in the
+// same repositories.
 type FunctionScopedOptions struct{}
 
 func (FunctionScopedOptions) ID() diag.RuleID {
