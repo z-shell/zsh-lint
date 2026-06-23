@@ -304,3 +304,18 @@ func TestFunctionScopedOptionsLeadingGuards(t *testing.T) {
 		})
 	}
 }
+
+func TestFunctionScopedOptionsSuppression(t *testing.T) {
+	src := `# zsh-lint disable=plugin/function-scoped-options -- intentionally inherits caller options
+rehash
+`
+	file, err := parse.Parse(strings.NewReader(src), "functions/handler")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	diags := analyzer.New(FunctionScopedOptions{}).Analyze(file, "functions/handler")
+	if len(diags) != 0 {
+		t.Fatalf("suppressed diagnostics = %v, want none", diags)
+	}
+}
