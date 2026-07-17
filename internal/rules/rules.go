@@ -13,5 +13,6 @@ func Default() []analyzer.Rule {
 		EvalUsage{},
 		FuncDeclStyle{},
 		FunctionScopedOptions{},
+		SpecialParamShadow{},
 	}
 }
