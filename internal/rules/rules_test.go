@@ -17,21 +17,23 @@ func TestRuleSeverities(t *testing.T) {
 	tests := []struct {
 		rule analyzer.Rule
 		src  string
+		path string
 		want diag.Severity
 	}{
-		{UnquotedVar{}, "echo $x\n", diag.Warning},
-		{EvalUsage{}, "eval $cmd\n", diag.Info},
-		{Backquotes{}, "echo `pwd`\n", diag.Hint},
-		{FuncDeclStyle{}, "function f() { :; }\n", diag.Hint},
-		{PreferDoubleBrackets{}, "if [ -f x ]; then :; fi\n", diag.Hint},
+		{UnquotedVar{}, "echo $x\n", "test.zsh", diag.Warning},
+		{EvalUsage{}, "eval $cmd\n", "test.zsh", diag.Info},
+		{Backquotes{}, "echo `pwd`\n", "test.zsh", diag.Hint},
+		{FuncDeclStyle{}, "function f() { :; }\n", "test.zsh", diag.Hint},
+		{PreferDoubleBrackets{}, "if [ -f x ]; then :; fi\n", "test.zsh", diag.Hint},
+		{FunctionScopedOptions{}, "rehash\n", "functions/handler", diag.Hint},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.rule.ID()), func(t *testing.T) {
-			f, err := parse.Parse(strings.NewReader(tt.src), "test.zsh")
+			f, err := parse.Parse(strings.NewReader(tt.src), tt.path)
 			if err != nil {
 				t.Fatalf("parse failed: %v", err)
 			}
-			diags := analyzer.New(tt.rule).Analyze(f, "test.zsh")
+			diags := analyzer.New(tt.rule).Analyze(f, tt.path)
 			if len(diags) == 0 {
 				t.Fatalf("rule %s produced no finding on %q", tt.rule.ID(), tt.src)
 			}
@@ -40,4 +42,13 @@ func TestRuleSeverities(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultIncludesFunctionScopedOptions(t *testing.T) {
+	for _, rule := range Default() {
+		if rule.ID() == "plugin/function-scoped-options" {
+			return
+		}
+	}
+	t.Fatal("Default rules do not include plugin/function-scoped-options")
 }
