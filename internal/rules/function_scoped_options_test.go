@@ -218,8 +218,13 @@ func TestFunctionScopedOptionsLeadingGuards(t *testing.T) {
 			src:  "(( $+commands[eza] )) || return\nemulate -L zsh\nrehash\n",
 		},
 		{
-			name: "accepts literal return arguments",
-			src:  "(( $+commands[eza] )) || return 1 ignored\nemulate -L zsh\nrehash\n",
+			name: "accepts option-terminated literal return status",
+			src:  "(( $+commands[eza] )) || return -- 1\nemulate -L zsh\nrehash\n",
+		},
+		{
+			name:      "rejects too many literal return arguments",
+			src:       "(( $+commands[eza] )) || return 1 ignored\nemulate -L zsh\n",
+			wantLines: []int{1},
 		},
 		{
 			name: "accepts negated guard condition",

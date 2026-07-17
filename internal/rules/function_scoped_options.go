@@ -171,7 +171,20 @@ func isLiteralReturnStatement(stmt *syntax.Stmt) bool {
 	if !ok || command != "return" {
 		return false
 	}
-	for _, arg := range call.Args[commandIndex+1:] {
+	args := call.Args[commandIndex+1:]
+	// Zsh return accepts at most one status, optionally after "--". Treating
+	// extra literal words as a guard is unsafe because return reports an error
+	// and execution continues in the function.
+	if len(args) > 2 {
+		return false
+	}
+	if len(args) == 2 {
+		optionTerminator, ok := literalWord(args[0])
+		if !ok || optionTerminator != "--" {
+			return false
+		}
+	}
+	for _, arg := range args {
 		if _, ok := literalWord(arg); !ok {
 			return false
 		}
