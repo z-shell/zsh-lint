@@ -5,6 +5,7 @@ import (
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
+	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -20,7 +21,9 @@ import (
 // `OSTYPE`, and `pipestatus`); explicit non-local `-g` declarations (including
 // `readonly -g`), the `export` builtin, and `typeset`-family
 // query/display/function modes (`-p`/`+p`, `-m`/`+m`, and `-f`/`+f`) are
-// excluded, and reads are never reported.
+// excluded. The rule also stays silent when dynamic option words or the
+// ambient `GLOBAL_EXPORT` option make declaration scope uncertain. Reads are
+// never reported.
 //
 // Why: The Zsh manual's zshparam "Parameters Set By The Shell" section
 // documents these as shell-provided state. In a function, `readonly` is
@@ -109,7 +112,7 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 	if _, ok := shadowingDecls[decl.Variant.Value]; !ok {
 		return
 	}
-	if declaresGlobal(decl.Args) || usesNonDeclarationMode(decl.Args) {
+	if declarationModeFor(decl.Variant.Value, decl.Args) != declarationModeLocal {
 		return
 	}
 	for _, assign := range decl.Args {
@@ -130,35 +133,98 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 	}
 }
 
-// declaresGlobal reports whether a declaration carries a -g switch, which makes
-// the declaration explicitly non-local and may target an enclosing binding.
-// Flag arguments are the args without a name (for example -g or -ga).
-func declaresGlobal(args []*syntax.Assign) bool {
-	return hasShortFlag(args, "-", "g")
-}
+type declarationMode uint8
 
-// usesNonDeclarationMode reports whether a typeset-family invocation selects
-// a query, pattern, or function mode instead of declaring its named arguments.
-// Zsh accepts both signs and grouped short flags for these modes.
-func usesNonDeclarationMode(args []*syntax.Assign) bool {
-	return hasShortFlag(args, "-+", "pmf")
-}
+const (
+	declarationModeUnknown declarationMode = iota
+	declarationModeLocal
+	declarationModeGlobal
+	declarationModeNonDeclaration
+)
 
-// hasShortFlag reports whether a literal flag argument starts with an allowed
-// sign and contains any requested option letter. Flag arguments are the args
-// without a name (for example -g, -ap, or +m).
-func hasShortFlag(args []*syntax.Assign, signs, letters string) bool {
+// declarationModeFor classifies the effective options after Zsh removes
+// quoting. A dynamic naked argument makes the command's declaration mode
+// unknowable, so callers must stay silent rather than guess. For typeset-family
+// declarations other than local, a final -x without an explicit g decision
+// depends on the ambient GLOBAL_EXPORT option and is likewise unknown.
+func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
+	var global, globalExplicit, exported bool
 	for _, assign := range args {
 		if assign == nil || assign.Name != nil {
 			continue
 		}
-		value, ok := literalWord(assign.Value)
-		if !ok || len(value) < 2 || !strings.ContainsRune(signs, rune(value[0])) || value[1] == value[0] {
+		value, ok := staticDeclarationWord(assign.Value)
+		if !ok {
+			return declarationModeUnknown
+		}
+		if len(value) < 2 || !strings.ContainsRune("-+", rune(value[0])) || value[1] == value[0] {
 			continue
 		}
-		if strings.ContainsAny(value[1:], letters) {
-			return true
+		if strings.ContainsAny(value[1:], "pmf") {
+			return declarationModeNonDeclaration
+		}
+
+		enabled := value[0] == '-'
+		for _, option := range value[1:] {
+			switch option {
+			case 'g':
+				globalExplicit = true
+				global = enabled
+			case 'x':
+				exported = enabled
+			}
 		}
 	}
-	return false
+
+	if globalExplicit {
+		if global {
+			return declarationModeGlobal
+		}
+		return declarationModeLocal
+	}
+	if variant != "local" && exported {
+		return declarationModeUnknown
+	}
+	return declarationModeLocal
+}
+
+// staticDeclarationWord reconstructs the limited word forms whose values are
+// known after Zsh removes quoting, including ANSI-C single-quoted escapes. Do
+// not use literalWord here: declaration options may be split across literal and
+// quoted AST parts. Any expansion makes the option dynamic and must leave
+// declaration mode unknown.
+func staticDeclarationWord(word *syntax.Word) (string, bool) {
+	if word == nil {
+		return "", false
+	}
+
+	var value strings.Builder
+	for _, part := range word.Parts {
+		switch part := part.(type) {
+		case *syntax.Lit:
+			value.WriteString(part.Value)
+		case *syntax.SglQuoted:
+			partValue := part.Value
+			if part.Dollar {
+				var err error
+				partValue, _, err = expand.Format(nil, partValue, nil)
+				if err != nil {
+					return "", false
+				}
+				partValue, _, _ = strings.Cut(partValue, "\x00")
+			}
+			value.WriteString(partValue)
+		case *syntax.DblQuoted:
+			for _, quotedPart := range part.Parts {
+				literal, ok := quotedPart.(*syntax.Lit)
+				if !ok {
+					return "", false
+				}
+				value.WriteString(literal.Value)
+			}
+		default:
+			return "", false
+		}
+	}
+	return value.String(), true
 }

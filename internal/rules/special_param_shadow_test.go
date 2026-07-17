@@ -53,6 +53,7 @@ func TestSpecialParamShadowDeclarations(t *testing.T) {
 		{name: "-h creates local status and removes shell-special behavior", src: "local -h status=7\n", wantNames: []string{"status"}},
 		{name: "-h creates local pipestatus and removes shell-special behavior", src: "local -h pipestatus=(7 8)\n", wantNames: []string{"pipestatus"}},
 		{name: "global -g excluded", src: "typeset -g ZSH_VERSION=1\n"},
+		{name: "plus g remains local", src: "typeset +g ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
 		{name: "grouped -ga excluded", src: "typeset -ga pipestatus\n"},
 		{name: "readonly -g excluded", src: "readonly -g ZSH_VERSION=1\n"},
 		{name: "export excluded", src: "export ZSH_VERSION=1\n"},
@@ -113,6 +114,60 @@ func TestSpecialParamShadowNonDeclarationModes(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), nil)
+		})
+	}
+}
+
+func TestSpecialParamShadowStaticQuotedModes(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{name: "single quoted global", src: "typeset '-g' ZSH_VERSION=1\n"},
+		{name: "single quoted query", src: "typeset '+p' ZSH_VERSION\n"},
+		{name: "double quoted global", src: "typeset \"-g\" ZSH_VERSION=1\n"},
+		{name: "double quoted query", src: "typeset \"+p\" ZSH_VERSION\n"},
+		{name: "concatenated global", src: "typeset \"-\"g ZSH_VERSION=1\n"},
+		{name: "concatenated query", src: "typeset \"+\"p ZSH_VERSION\n"},
+		{name: "double quoted grouped global", src: "typeset \"-ag\" ZSH_VERSION=1\n"},
+		{name: "single quoted grouped query", src: "typeset '+mp' ZSH_VERSION\n"},
+		{name: "ANSI-C escaped global", src: "typeset $'\\x2dg' ZSH_VERSION=1\n"},
+		{name: "ANSI-C escaped query", src: "typeset $'\\x2bp' ZSH_VERSION\n"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), nil)
+		})
+	}
+}
+
+func TestSpecialParamShadowDynamicModeIsSilent(t *testing.T) {
+	requireSpecialParamNames(t, analyzeSpecialParamShadow(t, "typeset \"$mode\" ZSH_VERSION=1\n"), nil)
+}
+
+func TestSpecialParamShadowOrderedGlobalAndExportModes(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantNames []string
+	}{
+		{name: "final plus g is local", src: "typeset -g +g ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "ANSI-C escaped plus g is local", src: "typeset $'\\x2bg' ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "final minus g is global", src: "typeset +g -g ZSH_VERSION=1\n"},
+		{name: "local export is local", src: "local -x ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "typeset export depends on ambient global export", src: "typeset -x ZSH_VERSION=1\n"},
+		{name: "declare export depends on ambient global export", src: "declare -x ZSH_VERSION=1\n"},
+		{name: "readonly export depends on ambient global export", src: "readonly -x ZSH_VERSION=1\n"},
+		{name: "export then explicit local", src: "typeset -x +g ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "explicit local then export", src: "typeset +g -x ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "final plus x is local", src: "typeset -x +x ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "final minus x depends on ambient global export", src: "typeset +x -x ZSH_VERSION=1\n"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), test.wantNames)
 		})
 	}
 }
