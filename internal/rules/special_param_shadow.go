@@ -116,18 +116,31 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 		return
 	}
 	for _, assign := range decl.Args {
-		if assign == nil || assign.Name == nil {
+		if assign == nil {
 			continue
 		}
-		if _, shadowed := shadowedSpecialParams[assign.Name.Value]; !shadowed {
+
+		var name string
+		start, end := assign.Pos(), assign.End()
+		if assign.Name != nil {
+			name = assign.Name.Value
+			start, end = assign.Name.Pos(), assign.Name.End()
+		} else if value, ok := staticDeclarationWord(assign.Value); ok {
+			var hasValue bool
+			name, _, hasValue = strings.Cut(value, "=")
+			if hasValue {
+				name = strings.TrimSuffix(name, "+")
+			}
+		}
+		if _, shadowed := shadowedSpecialParams[name]; !shadowed {
 			continue
 		}
 		ctx.Report(
-			assign.Name.Pos(),
-			assign.Name.End(),
+			start,
+			end,
 			rule.ID(),
 			diag.Warning,
-			"Declaring shell-set parameter '"+assign.Name.Value+
+			"Declaring shell-set parameter '"+name+
 				"' can override shell-managed state in this scope and nested code; use a different parameter name",
 		)
 	}
@@ -143,22 +156,35 @@ const (
 )
 
 // declarationModeFor classifies the effective options after Zsh removes
-// quoting. A dynamic naked argument makes the command's declaration mode
-// unknowable, so callers must stay silent rather than guess. For typeset-family
-// declarations other than local, a final -x without an explicit g decision
-// depends on the ambient GLOBAL_EXPORT option and is likewise unknown.
+// quoting. Option processing stops at the first operand, --, or the historical
+// single - terminator. A dynamic naked argument in the option region makes the
+// command's declaration mode unknowable, so callers must stay silent rather
+// than guess. For typeset-family declarations other than local, any observed
+// -x without an explicit g decision depends on the ambient GLOBAL_EXPORT option
+// and is likewise unknown; a later +x does not undo -x's implied -g.
 func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
-	var global, globalExplicit, exported bool
+	var global, globalExplicit, sawExport bool
 	for _, assign := range args {
-		if assign == nil || assign.Name != nil {
+		if assign == nil {
 			continue
+		}
+		if assign.Name != nil {
+			break
 		}
 		value, ok := staticDeclarationWord(assign.Value)
 		if !ok {
 			return declarationModeUnknown
 		}
+		if value == "-" || value == "--" {
+			break
+		}
 		if len(value) < 2 || !strings.ContainsRune("-+", rune(value[0])) || value[1] == value[0] {
-			continue
+			break
+		}
+		// A retained backslash denotes an invalid option character, not quoting
+		// around a later valid character. The builtin rejects such a word.
+		if strings.ContainsRune(value, '\\') {
+			return declarationModeUnknown
 		}
 		if strings.ContainsAny(value[1:], "pmf") {
 			return declarationModeNonDeclaration
@@ -171,7 +197,9 @@ func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
 				globalExplicit = true
 				global = enabled
 			case 'x':
-				exported = enabled
+				if enabled {
+					sawExport = true
+				}
 			}
 		}
 	}
@@ -182,7 +210,7 @@ func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
 		}
 		return declarationModeLocal
 	}
-	if variant != "local" && exported {
+	if variant != "local" && sawExport {
 		return declarationModeUnknown
 	}
 	return declarationModeLocal
@@ -202,7 +230,7 @@ func staticDeclarationWord(word *syntax.Word) (string, bool) {
 	for _, part := range word.Parts {
 		switch part := part.(type) {
 		case *syntax.Lit:
-			value.WriteString(part.Value)
+			value.WriteString(removeUnquotedBackslashEscapes(part.Value))
 		case *syntax.SglQuoted:
 			partValue := part.Value
 			if part.Dollar {
@@ -220,11 +248,57 @@ func staticDeclarationWord(word *syntax.Word) (string, bool) {
 				if !ok {
 					return "", false
 				}
-				value.WriteString(literal.Value)
+				value.WriteString(removeDoubleQuotedBackslashEscapes(literal.Value))
 			}
 		default:
 			return "", false
 		}
 	}
 	return value.String(), true
+}
+
+// removeUnquotedBackslashEscapes applies quote removal to static unquoted
+// literals. Outside quotes, a backslash quotes the following character; an
+// escaped newline is removed as a line continuation.
+func removeUnquotedBackslashEscapes(value string) string {
+	if !strings.ContainsRune(value, '\\') {
+		return value
+	}
+
+	var unquoted strings.Builder
+	unquoted.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		if value[i] != '\\' || i+1 == len(value) {
+			unquoted.WriteByte(value[i])
+			continue
+		}
+		i++
+		if value[i] != '\n' {
+			unquoted.WriteByte(value[i])
+		}
+	}
+	return unquoted.String()
+}
+
+// removeDoubleQuotedBackslashEscapes preserves backslashes before ordinary
+// characters. Within double quotes, only shell-special characters and newline
+// can be quoted with a backslash.
+func removeDoubleQuotedBackslashEscapes(value string) string {
+	if !strings.ContainsRune(value, '\\') {
+		return value
+	}
+
+	var unquoted strings.Builder
+	unquoted.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		if value[i] != '\\' || i+1 == len(value) || !strings.ContainsRune("$`\"\\\n", rune(value[i+1])) {
+			unquoted.WriteByte(value[i])
+			continue
+		}
+		i++
+		if value[i] != '\n' {
+			unquoted.WriteByte(value[i])
+		}
+	}
+	return unquoted.String()
 }

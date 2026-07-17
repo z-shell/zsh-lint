@@ -8,6 +8,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 func analyzeSpecialParamShadow(t *testing.T, src string) diag.Diagnostics {
@@ -120,8 +121,9 @@ func TestSpecialParamShadowNonDeclarationModes(t *testing.T) {
 
 func TestSpecialParamShadowStaticQuotedModes(t *testing.T) {
 	tests := []struct {
-		name string
-		src  string
+		name      string
+		src       string
+		wantNames []string
 	}{
 		{name: "single quoted global", src: "typeset '-g' ZSH_VERSION=1\n"},
 		{name: "single quoted query", src: "typeset '+p' ZSH_VERSION\n"},
@@ -133,11 +135,52 @@ func TestSpecialParamShadowStaticQuotedModes(t *testing.T) {
 		{name: "single quoted grouped query", src: "typeset '+mp' ZSH_VERSION\n"},
 		{name: "ANSI-C escaped global", src: "typeset $'\\x2dg' ZSH_VERSION=1\n"},
 		{name: "ANSI-C escaped query", src: "typeset $'\\x2bp' ZSH_VERSION\n"},
+		{name: "unquoted escaped global", src: "typeset \\-g ZSH_VERSION=1\n"},
+		{name: "unquoted escaped query", src: "typeset \\-p ZSH_VERSION\n"},
+		{name: "double quotes preserve backslash before ordinary character", src: `typeset "-\g" ZSH_VERSION=1`},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), nil)
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), test.wantNames)
+		})
+	}
+}
+
+func TestStaticDeclarationWordQuoteRemoval(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "unquoted backslash escapes option sign", src: "typeset \\-g ZSH_VERSION=1\n", want: "-g"},
+		{name: "ordinary single quotes preserve backslash", src: "typeset '\\-g' ZSH_VERSION=1\n", want: "\\-g"},
+		{name: "double quotes preserve backslash before ordinary character", src: `typeset "-\g" ZSH_VERSION=1`, want: "-\\g"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "test.zsh")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+
+			var decl *syntax.DeclClause
+			syntax.Walk(file.AST(), func(node syntax.Node) bool {
+				if candidate, ok := node.(*syntax.DeclClause); ok {
+					decl = candidate
+					return false
+				}
+				return true
+			})
+			if decl == nil || len(decl.Args) == 0 {
+				t.Fatalf("declaration args not found in %q", test.src)
+			}
+
+			got, ok := staticDeclarationWord(decl.Args[0].Value)
+			if !ok || got != test.want {
+				t.Fatalf("staticDeclarationWord() = %q, %v; want %q, true", got, ok, test.want)
+			}
 		})
 	}
 }
@@ -161,8 +204,53 @@ func TestSpecialParamShadowOrderedGlobalAndExportModes(t *testing.T) {
 		{name: "readonly export depends on ambient global export", src: "readonly -x ZSH_VERSION=1\n"},
 		{name: "export then explicit local", src: "typeset -x +g ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
 		{name: "explicit local then export", src: "typeset +g -x ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
-		{name: "final plus x is local", src: "typeset -x +x ZSH_VERSION=1\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "typeset export remains unknown after plus x", src: "typeset -x +x ZSH_VERSION=1\n"},
+		{name: "declare export remains unknown after plus x", src: "declare -x +x ZSH_VERSION=1\n"},
+		{name: "readonly export remains unknown after plus x", src: "readonly -x +x ZSH_VERSION=1\n"},
 		{name: "final minus x depends on ambient global export", src: "typeset +x -x ZSH_VERSION=1\n"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), test.wantNames)
+		})
+	}
+}
+
+func TestSpecialParamShadowOptionProcessingStopsAtFirstOperand(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantNames []string
+	}{
+		{name: "dynamic word before operand is unknown", src: "typeset \"$mode\" ZSH_VERSION=1\n"},
+		{name: "dynamic word after assignment does not hide declaration", src: "typeset ZSH_VERSION=1 \"$value\"\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "global-looking word after assignment is an operand", src: "typeset ZSH_VERSION=1 -g\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "query-looking word after assignment is an operand", src: "typeset ZSH_VERSION=1 -p\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "double dash terminates options", src: "typeset -- ZSH_VERSION=1 \"$value\"\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "single dash terminates options", src: "typeset - ZSH_VERSION=1 \"$value\"\n", wantNames: []string{"ZSH_VERSION"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), test.wantNames)
+		})
+	}
+}
+
+func TestSpecialParamShadowStaticDeclarationOperands(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantNames []string
+	}{
+		{name: "double quoted assignment", src: "local \"ZSH_VERSION=shadow\"\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "concatenated quoted assignment", src: "local ZSH\"_\"VERSION=shadow\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "dynamic quoted name is unknown", src: "local \"ZSH_${part}=shadow\"\n"},
+		{name: "dynamic concatenated name is unknown", src: "local ZSH_\"$part\"=shadow\n"},
+		{name: "quoted name matching is case sensitive", src: "local \"zsh_version=shadow\"\n"},
+		{name: "quoted trailing plus is not an append assignment", src: "local \"ZSH_VERSION+\"\n"},
+		{name: "ordinary assignment is not duplicated", src: "local ZSH_VERSION=shadow\n", wantNames: []string{"ZSH_VERSION"}},
 	}
 
 	for _, test := range tests {
