@@ -20,11 +20,11 @@ import (
 // of a curated set of shell-set parameters (for example `ZSH_VERSION`,
 // `OSTYPE`, and `pipestatus`); explicit non-local `-g` declarations (including
 // `readonly -g`), the `export` builtin, and `typeset`-family
-// query/display/function modes (`-p`/`+p`, `+m`, and `-f`/`+f`) are excluded.
-// Pattern declarations with `-m` are reported only when an effective `+g`
-// makes matching non-local parameters local. The rule also stays silent when
-// dynamic option words or the ambient `GLOBAL_EXPORT` option make declaration
-// scope uncertain. Reads are never reported.
+// query/display/function modes (standalone `+`, `-p`/`+p`, `+m`, and
+// `-f`/`+f`) are excluded. Pattern declarations with `-m` are reported only
+// when an effective `+g` makes matching non-local parameters local. The rule
+// also stays silent when dynamic option words or the ambient `GLOBAL_EXPORT`
+// option make declaration scope uncertain. Reads are never reported.
 //
 // Why: The Zsh manual's zshparam "Parameters Set By The Shell" section
 // documents these as shell-provided state. In a function, `readonly` is
@@ -113,10 +113,11 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 	if _, ok := shadowingDecls[decl.Variant.Value]; !ok {
 		return
 	}
-	if declarationModeFor(decl.Variant.Value, decl.Args) != declarationModeLocal {
+	optionScan := scanDeclarationOptions(decl.Variant.Value, decl.Args)
+	if optionScan.mode != declarationModeLocal {
 		return
 	}
-	tieSeparator := tiedParameterSeparator(decl.Args)
+	tieSeparator := optionScan.tiedParameterSeparator(decl.Args)
 	for _, assign := range decl.Args {
 		if assign == nil || assign == tieSeparator {
 			continue
@@ -150,46 +151,16 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 
 // tiedParameterSeparator returns the optional third operand of typeset -T.
 // Zsh declares only the first two operands as the tied scalar and array; the
-// third is separator data even when its text is a valid parameter name. The
-// option scan stops at the same boundaries as declarationModeFor so an
-// option-looking separator is never reinterpreted as an option.
-func tiedParameterSeparator(args []*syntax.Assign) *syntax.Assign {
-	tied := false
-	firstOperand := len(args)
-	for i, assign := range args {
-		if assign == nil {
-			continue
-		}
-		if assign.Name != nil {
-			firstOperand = i
-			break
-		}
-		value, ok := staticDeclarationWord(assign.Value)
-		if !ok {
-			return nil
-		}
-		if value == "-" || value == "--" {
-			firstOperand = i + 1
-			break
-		}
-		if len(value) < 2 || !strings.ContainsRune("-+", rune(value[0])) || value[1] == value[0] {
-			firstOperand = i
-			break
-		}
-
-		enabled := value[0] == '-'
-		for _, option := range value[1:] {
-			if option == 'T' {
-				tied = enabled
-			}
-		}
-	}
-	if !tied {
+// third is separator data even when its text is a valid parameter name. Its
+// operand boundary comes from the same scan that classified declaration mode,
+// so numeric option arguments cannot be miscounted as tied operands.
+func (scan declarationOptionScan) tiedParameterSeparator(args []*syntax.Assign) *syntax.Assign {
+	if !scan.tied {
 		return nil
 	}
 
 	operand := 0
-	for _, assign := range args[firstOperand:] {
+	for _, assign := range args[scan.firstOperand:] {
 		if assign == nil {
 			continue
 		}
@@ -201,6 +172,10 @@ func tiedParameterSeparator(args []*syntax.Assign) *syntax.Assign {
 	return nil
 }
 
+func tiedParameterSeparator(args []*syntax.Assign) *syntax.Assign {
+	return scanDeclarationOptions("typeset", args).tiedParameterSeparator(args)
+}
+
 type declarationMode uint8
 
 const (
@@ -210,42 +185,93 @@ const (
 	declarationModeNonDeclaration
 )
 
+type numericOptionArgument uint8
+
+const (
+	numericOptionArgumentNone numericOptionArgument = iota
+	numericOptionArgumentExpected
+	numericOptionArgumentAmbiguous
+)
+
+type declarationOptionScan struct {
+	mode         declarationMode
+	firstOperand int
+	tied         bool
+}
+
 // declarationModeFor classifies the effective options after Zsh removes
-// quoting. Option processing stops at the first operand, --, or the historical
+// quoting, including separate decimal arguments consumed by options that
+// accept n. Option processing stops at the first operand, --, or the historical
 // single - terminator. A dynamic naked argument in the option region makes the
 // command's declaration mode unknowable, so callers must stay silent rather
-// than guess. For typeset-family declarations other than local, any observed
-// -x without an explicit g decision depends on the ambient GLOBAL_EXPORT option
-// and is likewise unknown; a later +x does not undo -x's implied -g. Pattern
-// mode creates local parameters only when -m is combined with an effective
-// +g; the final explicit g state therefore controls whether it declares in the
-// current scope.
+// than guess.
 func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
+	return scanDeclarationOptions(variant, args).mode
+}
+
+// scanDeclarationOptions follows the typeset-family option boundary once so
+// declaration mode and operand roles can share the same Zsh semantics. A
+// decimal word after E, F, L, R, Z, i, or p is option data, not an operand;
+// option-looking words after it must therefore still be interpreted. If the
+// candidate is dynamic, or grouped ordering leaves it unclear which option
+// would consume a decimal, the safe static result is unknown. For declarations
+// other than local, -x without an explicit g decision also remains unknown
+// because GLOBAL_EXPORT controls its scope; a later +x does not undo that
+// uncertainty. Pattern mode declares local matches only with an effective +g.
+func scanDeclarationOptions(variant string, args []*syntax.Assign) declarationOptionScan {
+	scan := declarationOptionScan{
+		mode:         declarationModeLocal,
+		firstOperand: len(args),
+	}
 	var global, globalExplicit, pattern, patternExplicit, sawExport bool
-	for _, assign := range args {
+	var nonDeclaration bool
+	numericArgument := numericOptionArgumentNone
+	for i, assign := range args {
 		if assign == nil {
 			continue
 		}
 		if assign.Name != nil {
+			scan.firstOperand = i
 			break
 		}
 		value, ok := staticDeclarationWord(assign.Value)
 		if !ok {
-			return declarationModeUnknown
+			scan.mode = declarationModeUnknown
+			return scan
+		}
+		if numericArgument != numericOptionArgumentNone {
+			if isDecimalOptionArgument(value) {
+				if numericArgument == numericOptionArgumentAmbiguous {
+					scan.mode = declarationModeUnknown
+					return scan
+				}
+				numericArgument = numericOptionArgumentNone
+				continue
+			}
+			numericArgument = numericOptionArgumentNone
+		}
+		// Unlike the historical single '-' option terminator, standalone '+' is
+		// a typeset display control form and never introduces declarations.
+		if value == "+" {
+			scan.mode = declarationModeNonDeclaration
+			return scan
 		}
 		if value == "-" || value == "--" {
+			scan.firstOperand = i + 1
 			break
 		}
 		if len(value) < 2 || !strings.ContainsRune("-+", rune(value[0])) || value[1] == value[0] {
+			scan.firstOperand = i
 			break
 		}
 		// A retained backslash denotes an invalid option character, not quoting
 		// around a later valid character. The builtin rejects such a word.
 		if strings.ContainsRune(value, '\\') {
-			return declarationModeUnknown
+			scan.mode = declarationModeUnknown
+			return scan
 		}
 		if strings.ContainsAny(value[1:], "pf") {
-			return declarationModeNonDeclaration
+			nonDeclaration = true
 		}
 
 		enabled := value[0] == '-'
@@ -257,27 +283,67 @@ func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
 			case 'm':
 				patternExplicit = true
 				pattern = enabled
+			case 'T':
+				scan.tied = enabled
 			case 'x':
 				if enabled {
 					sawExport = true
 				}
 			}
 		}
+		numericArgument = numericOptionArgumentFor(value[1:])
 	}
 
+	if nonDeclaration {
+		scan.mode = declarationModeNonDeclaration
+		return scan
+	}
 	if patternExplicit && (!pattern || !globalExplicit || global) {
-		return declarationModeNonDeclaration
+		scan.mode = declarationModeNonDeclaration
+		return scan
 	}
 	if globalExplicit {
 		if global {
-			return declarationModeGlobal
+			scan.mode = declarationModeGlobal
+			return scan
 		}
-		return declarationModeLocal
+		return scan
 	}
 	if variant != "local" && sawExport {
-		return declarationModeUnknown
+		scan.mode = declarationModeUnknown
 	}
-	return declarationModeLocal
+	return scan
+}
+
+func numericOptionArgumentFor(options string) numericOptionArgument {
+	numericCount := 0
+	lastNumeric := false
+	for i, option := range options {
+		if !strings.ContainsRune("EFLRZip", option) {
+			continue
+		}
+		numericCount++
+		lastNumeric = i == len(options)-1
+	}
+	if numericCount == 0 {
+		return numericOptionArgumentNone
+	}
+	if numericCount == 1 && lastNumeric {
+		return numericOptionArgumentExpected
+	}
+	return numericOptionArgumentAmbiguous
+}
+
+func isDecimalOptionArgument(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // staticDeclarationWord reconstructs the limited word forms whose values are

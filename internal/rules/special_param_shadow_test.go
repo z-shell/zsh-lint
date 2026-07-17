@@ -238,6 +238,51 @@ func TestSpecialParamShadowPatternDeclarations(t *testing.T) {
 	}
 }
 
+func TestSpecialParamShadowNumericOptionArguments(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantNames []string
+	}{
+		{name: "E width permits later global", src: "typeset -E 5 -g ZSH_VERSION\n"},
+		{name: "F quoted width permits later global", src: "typeset -F '5' -g ZSH_VERSION\n"},
+		{name: "L width permits later global", src: "typeset -L 5 -g ZSH_VERSION\n"},
+		{name: "plus R width permits later global", src: "typeset +R 5 -g ZSH_VERSION\n"},
+		{name: "Z width permits later global", src: "typeset -Z 5 -g ZSH_VERSION\n"},
+		{name: "i base permits later global", src: "typeset -i 10 -g ZSH_VERSION\n"},
+		{name: "later explicit local reports", src: "typeset -L 5 +g ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "nonnumeric candidate starts operands", src: "typeset -L width -g ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "dynamic candidate is unknown", src: "typeset -L \"$width\" -g ZSH_VERSION\n"},
+		{name: "later pattern mode is processed", src: "typeset -L 5 -m ZSH_VERSION\n"},
+		{name: "later display pattern mode is processed", src: "typeset -L 5 +m ZSH_VERSION\n"},
+		{name: "later export mode is processed", src: "typeset -L 5 -x ZSH_VERSION\n"},
+		{name: "later explicit local overrides export ambiguity", src: "typeset -L 5 -x +g ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), test.wantNames)
+		})
+	}
+}
+
+func TestSpecialParamShadowStandalonePlusDisplay(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{name: "standalone plus", src: "typeset + ZSH_VERSION\n"},
+		{name: "standalone plus after option", src: "typeset -U + ZSH_VERSION\n"},
+		{name: "quoted standalone plus", src: "typeset '+' ZSH_VERSION\n"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), nil)
+		})
+	}
+}
+
 func TestSpecialParamShadowTiedParameterOperands(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -248,6 +293,12 @@ func TestSpecialParamShadowTiedParameterOperands(t *testing.T) {
 		{name: "first operand is scalar declaration", src: "typeset -T ZSH_VERSION tied_array\n", wantNames: []string{"ZSH_VERSION"}},
 		{name: "second operand is array declaration", src: "typeset -T tied_scalar ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
 		{name: "quoted third operand is separator", src: "typeset -T tied_scalar tied_array 'ZSH_VERSION'\n"},
+		{name: "numeric option after T preserves separator", src: "typeset -T -L 5 tied_scalar tied_array ZSH_VERSION\n"},
+		{name: "numeric option before T preserves separator", src: "typeset -L 5 -T tied_scalar tied_array ZSH_VERSION\n"},
+		{name: "grouped T and numeric option preserve separator", src: "typeset -TL 5 tied_scalar tied_array ZSH_VERSION\n"},
+		{name: "numeric option preserves curated scalar", src: "typeset -T -R 5 ZSH_VERSION tied_array separator\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "numeric option preserves curated array", src: "typeset -Z 5 -T tied_scalar ZSH_VERSION separator\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "ambiguous grouped numeric ordering is silent", src: "typeset -LT 5 ZSH_VERSION tied_array separator\n"},
 	}
 
 	for _, test := range tests {
