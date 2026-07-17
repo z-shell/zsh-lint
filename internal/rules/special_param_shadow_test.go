@@ -166,3 +166,16 @@ func TestSpecialParamShadowDiagnostic(t *testing.T) {
 		t.Errorf("range = %+v, want %+v", diags[0].Range, wantRange)
 	}
 }
+
+func TestSpecialParamShadowSuppression(t *testing.T) {
+	src := "local ZSH_VERSION=\"$1\" # zsh-lint disable=compat/special-param-shadow -- intentional version shim\n"
+	file, err := parse.Parse(strings.NewReader(src), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	diags := analyzer.New(SpecialParamShadow{}).Analyze(file, "test.zsh")
+	if len(diags) != 0 {
+		t.Fatalf("suppressed diagnostics = %v, want none", diags)
+	}
+}

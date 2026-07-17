@@ -26,6 +26,7 @@ func TestRuleSeverities(t *testing.T) {
 		{FuncDeclStyle{}, "function f() { :; }\n", "test.zsh", diag.Hint},
 		{PreferDoubleBrackets{}, "if [ -f x ]; then :; fi\n", "test.zsh", diag.Hint},
 		{FunctionScopedOptions{}, "rehash\n", "functions/handler", diag.Hint},
+		{SpecialParamShadow{}, "local ZSH_VERSION=1\n", "test.zsh", diag.Warning},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.rule.ID()), func(t *testing.T) {
@@ -51,4 +52,13 @@ func TestDefaultIncludesFunctionScopedOptions(t *testing.T) {
 		}
 	}
 	t.Fatal("Default rules do not include plugin/function-scoped-options")
+}
+
+func TestDefaultIncludesSpecialParamShadow(t *testing.T) {
+	for _, rule := range Default() {
+		if rule.ID() == "compat/special-param-shadow" {
+			return
+		}
+	}
+	t.Fatal("Default rules do not include compat/special-param-shadow")
 }
