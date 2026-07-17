@@ -250,6 +250,7 @@ func TestSpecialParamShadowNumericOptionArguments(t *testing.T) {
 		{name: "plus R width permits later global", src: "typeset +R 5 -g ZSH_VERSION\n"},
 		{name: "Z width permits later global", src: "typeset -Z 5 -g ZSH_VERSION\n"},
 		{name: "i base permits later global", src: "typeset -i 10 -g ZSH_VERSION\n"},
+		{name: "p numeric argument remains query mode", src: "typeset -p 1 ZSH_VERSION\n"},
 		{name: "later explicit local reports", src: "typeset -L 5 +g ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
 		{name: "nonnumeric candidate starts operands", src: "typeset -L width -g ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
 		{name: "dynamic candidate is unknown", src: "typeset -L \"$width\" -g ZSH_VERSION\n"},
