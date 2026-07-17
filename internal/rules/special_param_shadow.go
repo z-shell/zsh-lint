@@ -10,6 +10,63 @@ import (
 
 // SpecialParamShadow reports declarations that shadow parameters set by the
 // shell.
+//
+// ID: `compat/special-param-shadow`
+//
+// Name: Shadowing special shell parameters
+//
+// Summary: Reports `local`, `typeset`, `declare`, or `readonly` declarations
+// of a curated set of shell-set parameters (for example `ZSH_VERSION`,
+// `OSTYPE`, and `pipestatus`); explicit non-local `-g` declarations (including
+// `readonly -g`), the `export` builtin, and `typeset`-family
+// query/display/function modes (`-p`/`+p`, `-m`/`+m`, and `-f`/`+f`) are
+// excluded, and reads are never reported.
+//
+// Why: The Zsh manual's zshparam "Parameters Set By The Shell" section
+// documents these as shell-provided state. In a function, `readonly` is
+// `typeset -r` and creates a local binding unless `-g` explicitly selects
+// non-local behavior. Version probes such as `is-at-least $ZSH_VERSION` are
+// pervasive in plugin code, so a `local ZSH_VERSION=...` in a caller silently
+// feeds the override to all nested code for the lifetime of the scope. At top
+// level, the same declaration form clobbers the shell-managed outer binding
+// instead of creating a temporary local. Unlike ordinary shadowing, the reader
+// has no declaration of the original to look up -- the shell set it. See
+// https://zsh.sourceforge.io/Doc/Release/Parameters.html#Parameters-Set-By-The-Shell.
+//
+// Bad:
+//
+//	compile_zsh() {
+//	  local ZSH_VERSION="$1"
+//	}
+//
+// Good:
+//
+//	compile_zsh() {
+//	  local target_zsh_version="$1"
+//	}
+//
+// Severity: Warning. The pattern is functional but misleading and can change
+// what nested code observes; deliberate compatibility shims are realistic, so
+// it is suppressible rather than an error.
+//
+// False positives: Deliberate compatibility shims or test harnesses that fake
+// `ZSH_VERSION` or `OSTYPE` for downstream code are the rule's target behavior
+// made intentional; suppress them with a reason. The rule flags only a curated
+// allowlist of read-mostly shell-set parameters and stays silent for reads and
+// the conventionally mutated `path`, `fpath`, `PATH`, `REPLY`, and `match`.
+// The shell-special `status` and `pipestatus` cases remain included because
+// `local -h status=...` and `local -h pipestatus=(...)` can replace their
+// special behavior with ordinary local bindings.
+//
+// Suppression: Use
+// `# zsh-lint disable=compat/special-param-shadow -- <reason>` on the finding
+// line or immediately before the next non-comment, non-blank source line.
+//
+// Corpus evidence: Issue #64 records `zd/docker/utils.zsh:78`:
+// `local ZSH_VERSION="$1"` inside a helper that takes a target version as its
+// first argument. Deferred issue #72 tracks bare assignments in function scope
+// and `integer`/`float` declarations; both are out of scope for this rule
+// version.
 type SpecialParamShadow struct{}
 
 func (SpecialParamShadow) ID() diag.RuleID {
