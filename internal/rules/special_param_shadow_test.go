@@ -217,6 +217,46 @@ func TestSpecialParamShadowOrderedGlobalAndExportModes(t *testing.T) {
 	}
 }
 
+func TestSpecialParamShadowPatternDeclarations(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantNames []string
+	}{
+		{name: "plus g before minus m creates locals", src: "typeset +g -m ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "plus g after minus m creates locals", src: "typeset -m +g ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "final minus g keeps matches non-local", src: "typeset +g -m -g ZSH_VERSION\n"},
+		{name: "final plus g restores local creation", src: "typeset -m -g +g ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "plus m remains display mode", src: "typeset +g +m ZSH_VERSION\n"},
+		{name: "assignment to exact curated name creates local", src: "typeset +g -m ZSH_VERSION=shadow\n", wantNames: []string{"ZSH_VERSION"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), test.wantNames)
+		})
+	}
+}
+
+func TestSpecialParamShadowTiedParameterOperands(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantNames []string
+	}{
+		{name: "static third operand is separator", src: "typeset -T tied_scalar tied_array ZSH_VERSION\n"},
+		{name: "first operand is scalar declaration", src: "typeset -T ZSH_VERSION tied_array\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "second operand is array declaration", src: "typeset -T tied_scalar ZSH_VERSION\n", wantNames: []string{"ZSH_VERSION"}},
+		{name: "quoted third operand is separator", src: "typeset -T tied_scalar tied_array 'ZSH_VERSION'\n"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireSpecialParamNames(t, analyzeSpecialParamShadow(t, test.src), test.wantNames)
+		})
+	}
+}
+
 func TestSpecialParamShadowOptionProcessingStopsAtFirstOperand(t *testing.T) {
 	tests := []struct {
 		name      string

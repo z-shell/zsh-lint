@@ -20,10 +20,11 @@ import (
 // of a curated set of shell-set parameters (for example `ZSH_VERSION`,
 // `OSTYPE`, and `pipestatus`); explicit non-local `-g` declarations (including
 // `readonly -g`), the `export` builtin, and `typeset`-family
-// query/display/function modes (`-p`/`+p`, `-m`/`+m`, and `-f`/`+f`) are
-// excluded. The rule also stays silent when dynamic option words or the
-// ambient `GLOBAL_EXPORT` option make declaration scope uncertain. Reads are
-// never reported.
+// query/display/function modes (`-p`/`+p`, `+m`, and `-f`/`+f`) are excluded.
+// Pattern declarations with `-m` are reported only when an effective `+g`
+// makes matching non-local parameters local. The rule also stays silent when
+// dynamic option words or the ambient `GLOBAL_EXPORT` option make declaration
+// scope uncertain. Reads are never reported.
 //
 // Why: The Zsh manual's zshparam "Parameters Set By The Shell" section
 // documents these as shell-provided state. In a function, `readonly` is
@@ -115,8 +116,9 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 	if declarationModeFor(decl.Variant.Value, decl.Args) != declarationModeLocal {
 		return
 	}
+	tieSeparator := tiedParameterSeparator(decl.Args)
 	for _, assign := range decl.Args {
-		if assign == nil {
+		if assign == nil || assign == tieSeparator {
 			continue
 		}
 
@@ -146,6 +148,59 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 	}
 }
 
+// tiedParameterSeparator returns the optional third operand of typeset -T.
+// Zsh declares only the first two operands as the tied scalar and array; the
+// third is separator data even when its text is a valid parameter name. The
+// option scan stops at the same boundaries as declarationModeFor so an
+// option-looking separator is never reinterpreted as an option.
+func tiedParameterSeparator(args []*syntax.Assign) *syntax.Assign {
+	tied := false
+	firstOperand := len(args)
+	for i, assign := range args {
+		if assign == nil {
+			continue
+		}
+		if assign.Name != nil {
+			firstOperand = i
+			break
+		}
+		value, ok := staticDeclarationWord(assign.Value)
+		if !ok {
+			return nil
+		}
+		if value == "-" || value == "--" {
+			firstOperand = i + 1
+			break
+		}
+		if len(value) < 2 || !strings.ContainsRune("-+", rune(value[0])) || value[1] == value[0] {
+			firstOperand = i
+			break
+		}
+
+		enabled := value[0] == '-'
+		for _, option := range value[1:] {
+			if option == 'T' {
+				tied = enabled
+			}
+		}
+	}
+	if !tied {
+		return nil
+	}
+
+	operand := 0
+	for _, assign := range args[firstOperand:] {
+		if assign == nil {
+			continue
+		}
+		operand++
+		if operand == 3 {
+			return assign
+		}
+	}
+	return nil
+}
+
 type declarationMode uint8
 
 const (
@@ -161,9 +216,12 @@ const (
 // command's declaration mode unknowable, so callers must stay silent rather
 // than guess. For typeset-family declarations other than local, any observed
 // -x without an explicit g decision depends on the ambient GLOBAL_EXPORT option
-// and is likewise unknown; a later +x does not undo -x's implied -g.
+// and is likewise unknown; a later +x does not undo -x's implied -g. Pattern
+// mode creates local parameters only when -m is combined with an effective
+// +g; the final explicit g state therefore controls whether it declares in the
+// current scope.
 func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
-	var global, globalExplicit, sawExport bool
+	var global, globalExplicit, pattern, patternExplicit, sawExport bool
 	for _, assign := range args {
 		if assign == nil {
 			continue
@@ -186,7 +244,7 @@ func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
 		if strings.ContainsRune(value, '\\') {
 			return declarationModeUnknown
 		}
-		if strings.ContainsAny(value[1:], "pmf") {
+		if strings.ContainsAny(value[1:], "pf") {
 			return declarationModeNonDeclaration
 		}
 
@@ -196,6 +254,9 @@ func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
 			case 'g':
 				globalExplicit = true
 				global = enabled
+			case 'm':
+				patternExplicit = true
+				pattern = enabled
 			case 'x':
 				if enabled {
 					sawExport = true
@@ -204,6 +265,9 @@ func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
 		}
 	}
 
+	if patternExplicit && (!pattern || !globalExplicit || global) {
+		return declarationModeNonDeclaration
+	}
 	if globalExplicit {
 		if global {
 			return declarationModeGlobal
