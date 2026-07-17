@@ -172,10 +172,6 @@ func (scan declarationOptionScan) tiedParameterSeparator(args []*syntax.Assign) 
 	return nil
 }
 
-func tiedParameterSeparator(args []*syntax.Assign) *syntax.Assign {
-	return scanDeclarationOptions("typeset", args).tiedParameterSeparator(args)
-}
-
 type declarationMode uint8
 
 const (
@@ -197,16 +193,6 @@ type declarationOptionScan struct {
 	mode         declarationMode
 	firstOperand int
 	tied         bool
-}
-
-// declarationModeFor classifies the effective options after Zsh removes
-// quoting, including separate decimal arguments consumed by options that
-// accept n. Option processing stops at the first operand, --, or the historical
-// single - terminator. A dynamic naked argument in the option region makes the
-// command's declaration mode unknowable, so callers must stay silent rather
-// than guess.
-func declarationModeFor(variant string, args []*syntax.Assign) declarationMode {
-	return scanDeclarationOptions(variant, args).mode
 }
 
 // scanDeclarationOptions follows the typeset-family option boundary once so
