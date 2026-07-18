@@ -12,5 +12,7 @@ func Default() []analyzer.Rule {
 		PreferDoubleBrackets{},
 		EvalUsage{},
 		FuncDeclStyle{},
+		FunctionScopedOptions{},
+		SpecialParamShadow{},
 	}
 }

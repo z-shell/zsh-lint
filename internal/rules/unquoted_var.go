@@ -7,9 +7,45 @@ import (
 	"github.com/z-shell/zsh-lint/internal/diag"
 )
 
-// UnquotedVar checks for variable expansions that are not enclosed in double quotes.
-// Zsh does not perform word splitting by default, but quoting is still recommended
-// for safety and portability (e.g. against empty values).
+// UnquotedVar reports direct, unquoted parameter expansions in command words.
+//
+// ID: `quoting/unquoted-var`
+//
+// Name: Unquoted variable expansion
+//
+// Summary: Reports parameter expansions in command names or arguments that are
+// not enclosed in double quotes.
+//
+// Why: The Zsh manual's Parameter Expansion section explains that unquoted
+// parameters are not split on whitespace by default, unlike in sh, but null
+// words are still elided; enabling `SH_WORD_SPLIT` also makes unquoted values
+// subject to field splitting. Double quotes preserve an empty scalar as an
+// argument and keep the expansion single-word under either option state.
+// See https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion.
+//
+// Bad:
+//
+//	print -r -- $value
+//
+// Good:
+//
+//	print -r -- "$value"
+//
+// Severity: Warning. Losing an empty argument or inheriting `SH_WORD_SPLIT`
+// can change command behavior, while intentional elision remains realistic.
+//
+// False positives: Code may intentionally omit an empty argument, deliberately
+// rely on `SH_WORD_SPLIT`, or expand a value guaranteed to be non-empty. Those
+// cases should use a reasoned suppression rather than weakening unrelated
+// diagnostics.
+//
+// Suppression: Use
+// `# zsh-lint disable=quoting/unquoted-var -- <reason>` on the finding line or
+// immediately before the next non-comment, non-blank source line.
+//
+// Corpus evidence: The June 12, 2026 LangZsh clean-baseline run produced zero
+// findings from this rule across the 11 parseable corpus files. This
+// grandfathered rule therefore has no positive corpus citation yet.
 type UnquotedVar struct{}
 
 func (r UnquotedVar) ID() diag.RuleID {
@@ -21,10 +57,11 @@ func (r UnquotedVar) Name() string {
 }
 
 func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
-	// Only inspect command words: the command name and its arguments. An
-	// unquoted expansion there is subject to word splitting and globbing. This
-	// deliberately excludes assignment right-hand sides (e.g. A=$BAZ), where
-	// expansion is safe in both Zsh and Bash.
+	// Only inspect command words: the command name and its arguments. Empty
+	// unquoted expansions can be elided there, and SH_WORD_SPLIT can split
+	// their values into multiple arguments. This deliberately excludes
+	// assignment right-hand sides (e.g. A=$BAZ), where the rule's
+	// argument-vector preservation rationale does not apply.
 	call, ok := node.(*syntax.CallExpr)
 	if !ok {
 		return

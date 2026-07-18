@@ -26,6 +26,8 @@ jobs:
         with:
           go-version: "1.25"
       - name: 📝 Generate reference Markdown
-        run: go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey
+        run: >-
+          go tool gomarkdoc --output "$RUNNER_TEMP/ref.md"
+          ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
       - name: ✅ Verify generation is non-empty
         run: test -s "$RUNNER_TEMP/ref.md"

@@ -23,7 +23,8 @@ by hand on the wiki.
 
 ```sh
 go build ./... && go vet ./... && go test ./...
-go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey   # regenerate reference
+go tool gomarkdoc --output ref.md \
+  ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
 ```
 
 The legacy interactive Zi/`.zshrc` plugin is archived under [`../legacy/`](../legacy/).
