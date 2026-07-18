@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "**/*.go"
+      - "go.mod"
+      - "go.sum"
       - ".gomarkdoc.yml"
       - "internal/wikidoc/**"
       - "cmd/wikidoc/**"
@@ -22,42 +24,28 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    environment: wiki-sync
     steps:
-      # The wiki's next branch enforces required signed commits, so the sync
-      # must commit as a GitHub App bot (PAT-authored commits cannot be signed
-      # by create-pull-request). Provision a GitHub App with Contents:write +
-      # Pull requests:write on z-shell/wiki, install it there, and set the
-      # WIKI_SYNC_APP_ID and WIKI_SYNC_APP_PRIVATE_KEY repository secrets.
-      - name: 🔑 Check for sync app credentials
-        id: app
-        env:
-          WIKI_SYNC_APP_ID: ${{ secrets.WIKI_SYNC_APP_ID }}
-        run: |
-          if [ -n "$WIKI_SYNC_APP_ID" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::WIKI_SYNC_APP_ID not set; skipping wiki docs sync."
-          fi
-
-      - name: 🪪 Mint wiki app token
+      # This outbound-only integration intentionally has no webhook or OAuth
+      # flow. The environment admits main only, while each installation token
+      # is restricted to z-shell/wiki and the two permissions used below.
+      - name: Mint wiki app token
         id: app-token
-        if: steps.app.outputs.present == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.WIKI_SYNC_APP_ID }}
+          client-id: ${{ vars.WIKI_SYNC_APP_CLIENT_ID }}
           private-key: ${{ secrets.WIKI_SYNC_APP_PRIVATE_KEY }}
           owner: z-shell
           repositories: wiki
+          permission-contents: write
+          permission-pull-requests: write
 
-      - name: ⤵️ Check out zsh-lint
-        if: steps.app.outputs.present == 'true'
+      - name: Check out zsh-lint
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           path: zsh-lint
 
-      - name: ⤵️ Check out wiki (next)
-        if: steps.app.outputs.present == 'true'
+      - name: Check out wiki (next)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: z-shell/wiki
@@ -66,15 +54,13 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
-      - name: ⎔ Set up Go
-        if: steps.app.outputs.present == 'true'
+      - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.25"
           cache-dependency-path: zsh-lint/go.sum
 
-      - name: 📝 Generate and inject reference
-        if: steps.app.outputs.present == 'true'
+      - name: Generate and inject reference
         working-directory: zsh-lint
         run: |
           go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" \
@@ -83,15 +69,16 @@ jobs:
             -in "$RUNNER_TEMP/ref.md" \
             -mdx ../wiki/community/04_zsh_lint/index.mdx
 
-      - name: 🔀 Open or update sync PR
-        if: steps.app.outputs.present == 'true'
+      - name: Open or update sync PR
+        id: sync-pr
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ steps.app-token.outputs.token }}
           path: wiki
-          # The app token lets create-pull-request sign commits as the app bot
-          # (commit signature verification for bots), satisfying the wiki next
-          # branch's required-signatures rule.
+          # docs-sync/zsh-lint is a fixed automation-branch exception to the
+          # wiki's human feature-ID naming convention. A fixed branch lets a
+          # later run update the existing PR rather than open a duplicate.
+          add-paths: community/04_zsh_lint/index.mdx
           sign-commits: true
           base: next
           branch: docs-sync/zsh-lint
@@ -102,3 +89,20 @@ jobs:
             Generated from Go doc comments — do not hand-edit the marked region.
             Source commit: ${{ github.sha }}
           delete-branch: true
+
+      - name: Report sync PR operation
+        env:
+          PR_OPERATION: ${{ steps.sync-pr.outputs.pull-request-operation }}
+        run: echo "::notice::sync-pr-operation=${PR_OPERATION:-none}"
+
+      - name: Verify signed sync commits
+        if: >-
+          steps.sync-pr.outputs.pull-request-operation == 'created' ||
+          steps.sync-pr.outputs.pull-request-operation == 'updated'
+        env:
+          COMMITS_VERIFIED: ${{ steps.sync-pr.outputs.pull-request-commits-verified }}
+        run: |
+          if [ "$COMMITS_VERIFIED" != "true" ]; then
+            echo "::error::The created or updated sync PR contains an unverified commit."
+            exit 1
+          fi
