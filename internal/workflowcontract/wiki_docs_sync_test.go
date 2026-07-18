@@ -180,6 +180,45 @@ func exactWorkflowLineViolations(label, block, line string) []string {
 	return nil
 }
 
+func exactWorkflowBlockViolations(label, block, expected string) []string {
+	if block != expected {
+		return []string{fmt.Sprintf("%s must match the hardened block exactly; got %q", label, block)}
+	}
+	return nil
+}
+
+func workflowTerminalStep(t *testing.T, workflow, name string) string {
+	t.Helper()
+
+	startLines := exactWorkflowLineSpans(workflow, "      - name: "+name)
+	if len(startLines) != 1 {
+		t.Fatalf("terminal workflow step %q must occur exactly once; got %d", name, len(startLines))
+	}
+	for _, line := range workflowLines(workflow) {
+		if line.start <= startLines[0].start {
+			continue
+		}
+		if strings.HasPrefix(line.text, "      - name: ") {
+			t.Fatalf("workflow step %q must be terminal; found later step %q", name, line.text)
+		}
+	}
+
+	return workflow[startLines[0].start:]
+}
+
+func exactActionUsesViolations(workflow string, expected []string) []string {
+	var actual []string
+	for _, line := range workflowLines(workflow) {
+		if strings.HasPrefix(line.text, "        uses: ") {
+			actual = append(actual, line.text)
+		}
+	}
+	if strings.Join(actual, "\n") != strings.Join(expected, "\n") {
+		return []string{fmt.Sprintf("action uses must match the five scoped pins exactly; got %q", actual)}
+	}
+	return nil
+}
+
 func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 	t.Helper()
 
@@ -223,12 +262,56 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		}
 	}
 
+	onBlock := workflowBlock(t, workflow, "on:", 0)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"top-level triggers",
+		onBlock,
+		2,
+		[]workflowMappingField{
+			{name: "push", value: ""},
+			{name: "workflow_dispatch", value: "{}"},
+		},
+	)...)
+	pushBlock := workflowBlock(t, onBlock, "push:", 2)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"push trigger",
+		pushBlock,
+		4,
+		[]workflowMappingField{
+			{name: "branches", value: "[main]"},
+			{name: "paths", value: ""},
+		},
+	)...)
+	pathsBlock := workflowBlock(t, pushBlock, "paths:", 4)
+	violations = append(violations, exactWorkflowBlockViolations(
+		"push paths",
+		pathsBlock,
+		"    paths:\n"+
+			"      - \"**/*.go\"\n"+
+			"      - \"go.mod\"\n"+
+			"      - \"go.sum\"\n"+
+			"      - \".gomarkdoc.yml\"\n"+
+			"      - \"internal/wikidoc/**\"\n"+
+			"      - \"cmd/wikidoc/**\"\n"+
+			"      - \".github/workflows/wiki-docs-sync.yml\"\n",
+	)...)
+
 	permissionsBlock := workflowBlock(t, workflow, "permissions:", 0)
 	violations = append(violations, exactWorkflowMappingViolations(
 		"top-level permissions",
 		permissionsBlock,
 		2,
 		[]workflowMappingField{{name: "contents", value: "read"}},
+	)...)
+	concurrencyBlock := workflowBlock(t, workflow, "concurrency:", 0)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"concurrency",
+		concurrencyBlock,
+		2,
+		[]workflowMappingField{
+			{name: "group", value: "wiki-docs-sync"},
+			{name: "cancel-in-progress", value: "false"},
+		},
 	)...)
 	jobsBlock := workflowBlock(t, workflow, "jobs:", 0)
 	syncJobBlock := workflowBlock(t, jobsBlock, "sync:", 2)
@@ -242,6 +325,16 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			{name: "steps", value: ""},
 		},
 	)...)
+	violations = append(violations, exactActionUsesViolations(
+		workflow,
+		[]string{
+			"        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
+			"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+			"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+			"        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0",
+			"        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1",
+		},
+	)...)
 
 	if got := strings.Count(workflow, "secrets.WIKI_SYNC_APP_PRIVATE_KEY"); got != 1 {
 		violations = append(violations, fmt.Sprintf(
@@ -250,6 +343,16 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 	}
 
 	tokenStep := workflowStep(t, workflow, "Mint wiki app token", "Check out zsh-lint")
+	violations = append(violations, exactWorkflowMappingViolations(
+		"token minting step fields",
+		tokenStep,
+		8,
+		[]workflowMappingField{
+			{name: "id", value: "app-token"},
+			{name: "uses", value: "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0"},
+			{name: "with", value: ""},
+		},
+	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"token minting step",
 		tokenStep,
@@ -275,7 +378,39 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		}
 	}
 
+	sourceCheckoutStep := workflowStep(t, workflow, "Check out zsh-lint", "Check out wiki (next)")
+	violations = append(violations, exactWorkflowMappingViolations(
+		"source checkout step fields",
+		sourceCheckoutStep,
+		8,
+		[]workflowMappingField{
+			{name: "uses", value: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0"},
+			{name: "with", value: ""},
+		},
+	)...)
+	violations = append(violations, exactWorkflowLineViolations(
+		"source checkout step",
+		sourceCheckoutStep,
+		"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+	)...)
+	sourceCheckoutInputs := workflowBlock(t, sourceCheckoutStep, "with:", 8)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"source checkout inputs",
+		sourceCheckoutInputs,
+		10,
+		[]workflowMappingField{{name: "path", value: "zsh-lint"}},
+	)...)
+
 	wikiCheckoutStep := workflowStep(t, workflow, "Check out wiki (next)", "Set up Go")
+	violations = append(violations, exactWorkflowMappingViolations(
+		"wiki checkout step fields",
+		wikiCheckoutStep,
+		8,
+		[]workflowMappingField{
+			{name: "uses", value: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0"},
+			{name: "with", value: ""},
+		},
+	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"wiki checkout step",
 		wikiCheckoutStep,
@@ -295,7 +430,43 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		},
 	)...)
 
+	setupGoStep := workflowStep(t, workflow, "Set up Go", "Generate and inject reference")
+	violations = append(violations, exactWorkflowMappingViolations(
+		"setup Go step fields",
+		setupGoStep,
+		8,
+		[]workflowMappingField{
+			{name: "uses", value: "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0"},
+			{name: "with", value: ""},
+		},
+	)...)
+	violations = append(violations, exactWorkflowLineViolations(
+		"setup Go step",
+		setupGoStep,
+		"        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0",
+	)...)
+	setupGoInputs := workflowBlock(t, setupGoStep, "with:", 8)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"setup Go inputs",
+		setupGoInputs,
+		10,
+		[]workflowMappingField{
+			{name: "go-version", value: `"1.25"`},
+			{name: "cache-dependency-path", value: "zsh-lint/go.sum"},
+		},
+	)...)
+
 	pullRequestStep := workflowStep(t, workflow, "Open or update sync PR", "Report sync PR operation")
+	violations = append(violations, exactWorkflowMappingViolations(
+		"pull request step fields",
+		pullRequestStep,
+		8,
+		[]workflowMappingField{
+			{name: "id", value: "sync-pr"},
+			{name: "uses", value: "peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1"},
+			{name: "with", value: ""},
+		},
+	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"pull request step",
 		pullRequestStep,
@@ -335,6 +506,45 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			violations = append(violations, fmt.Sprintf("operation report is missing %q", snippet))
 		}
 	}
+
+	verificationStep := workflowTerminalStep(t, syncJobBlock, "Verify signed sync commits")
+	violations = append(violations, exactWorkflowMappingViolations(
+		"signed verification step fields",
+		verificationStep,
+		8,
+		[]workflowMappingField{
+			{name: "if", value: ">-"},
+			{name: "env", value: ""},
+			{name: "run", value: "|"},
+		},
+	)...)
+	verificationIfBlock := workflowBlock(t, verificationStep, "if: >-", 8)
+	violations = append(violations, exactWorkflowBlockViolations(
+		"signed verification condition",
+		verificationIfBlock,
+		"        if: >-\n"+
+			"          steps.sync-pr.outputs.pull-request-operation == 'created' ||\n"+
+			"          steps.sync-pr.outputs.pull-request-operation == 'updated'\n",
+	)...)
+	verificationEnvBlock := workflowBlock(t, verificationStep, "env:", 8)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"signed verification environment",
+		verificationEnvBlock,
+		10,
+		[]workflowMappingField{
+			{name: "COMMITS_VERIFIED", value: "${{ steps.sync-pr.outputs.pull-request-commits-verified }}"},
+		},
+	)...)
+	verificationRunBlock := workflowBlock(t, verificationStep, "run: |", 8)
+	violations = append(violations, exactWorkflowBlockViolations(
+		"signed verification run",
+		verificationRunBlock,
+		"        run: |\n"+
+			"          if [ \"$COMMITS_VERIFIED\" != \"true\" ]; then\n"+
+			"            echo \"::error::The created or updated sync PR contains an unverified commit.\"\n"+
+			"            exit 1\n"+
+			"          fi\n",
+	)...)
 
 	return violations
 }
@@ -395,6 +605,89 @@ func TestWikiDocsSyncRejectsPrivilegeAndTokenMutations(t *testing.T) {
 				"          path: wiki",
 			replacement: "          token: ${{ github.token }}\n" +
 				"          path: wiki",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mutated := mutateWorkflow(t, workflow, tt.old, tt.replacement)
+			if violations := wikiDocsSyncContractViolations(t, mutated); len(violations) == 0 {
+				t.Error("mutated workflow unexpectedly satisfies the hardened contract")
+			}
+		})
+	}
+}
+
+func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *testing.T) {
+	workflow := wikiDocsSyncWorkflow(t)
+	tests := []struct {
+		name        string
+		old         string
+		replacement string
+	}{
+		{
+			name:        "signed verification accepts false",
+			old:         `if [ "$COMMITS_VERIFIED" != "true" ]; then`,
+			replacement: `if [ "$COMMITS_VERIFIED" == "true" ]; then`,
+		},
+		{
+			name:        "token action mutable ref",
+			old:         "        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
+			replacement: "        uses: actions/create-github-app-token@v3",
+		},
+		{
+			name: "source checkout mutable ref",
+			old: "      - name: Check out zsh-lint\n" +
+				"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+			replacement: "      - name: Check out zsh-lint\n" +
+				"        uses: actions/checkout@v7",
+		},
+		{
+			name: "wiki checkout mutable ref",
+			old: "      - name: Check out wiki (next)\n" +
+				"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+			replacement: "      - name: Check out wiki (next)\n" +
+				"        uses: actions/checkout@v7",
+		},
+		{
+			name:        "setup Go action mutable ref",
+			old:         "        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0",
+			replacement: "        uses: actions/setup-go@v6",
+		},
+		{
+			name:        "pull request action mutable ref",
+			old:         "        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1",
+			replacement: "        uses: peter-evans/create-pull-request@v8",
+		},
+		{
+			name:        "broken app token step ID",
+			old:         "        id: app-token",
+			replacement: "        id: app-token-broken",
+		},
+		{
+			name:        "prefix-spoofed pull request step ID",
+			old:         "        id: sync-pr",
+			replacement: "        id: sync-pr-broken",
+		},
+		{
+			name:        "push includes next",
+			old:         "    branches: [main]",
+			replacement: "    branches: [main, next]",
+		},
+		{
+			name:        "pull request trigger added",
+			old:         "  workflow_dispatch: {}",
+			replacement: "  workflow_dispatch: {}\n  pull_request: {}",
+		},
+		{
+			name:        "concurrency group broadened by suffix",
+			old:         "  group: wiki-docs-sync",
+			replacement: "  group: wiki-docs-sync-${{ github.ref }}",
+		},
+		{
+			name:        "in-progress runs cancelled",
+			old:         "  cancel-in-progress: false",
+			replacement: "  cancel-in-progress: true",
 		},
 	}
 
