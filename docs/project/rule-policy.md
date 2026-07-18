@@ -75,8 +75,9 @@ reference docs (Go doc comment on the rule type):
 - **Bad / Good** — at least one minimal flagged snippet and its fix.
 - **Severity** — with a one-line justification per the mapping above.
 - **False positives** — known legitimate uses and how the rule treats them.
-- **Suppression** — how to silence an intentional finding. Until #19 lands,
-  write `pending #19`; rules may not document ad-hoc escape hatches.
+- **Suppression** — how to silence an intentional finding with the shared
+  `# zsh-lint disable=<rule-id>[,...] [-- reason]` directive; rules may not
+  document ad-hoc escape hatches.
 - **Corpus evidence** — file/line citations from the survey corpus.
 
 ## Shipping checklist

@@ -55,11 +55,11 @@ func surveyFile(name string) error {
 }
 
 // formatErr renders a parser/IO error as a greppable `path:line:col: message`
-// line. The mvdan/sh front end reports syntax errors as syntax.ParseError and
-// zsh-only constructs (the parser runs in bash mode) as syntax.LangError. Both
-// embed their own filename in Error(); since errors.As yields a copy, the
-// filename is blanked so the path can be controlled by the caller. Anything
-// else (e.g. an IO error) falls back to `path: message`.
+// line. The parser uses mvdan/sh's LangZsh variant and can return either
+// syntax.ParseError or syntax.LangError. Both embed their own filename in
+// Error(); errors.As yields a copy, so the filename is blanked and the caller
+// controls the path. Other errors (for example, IO failures) fall back to
+// `path: message`.
 func formatErr(name string, err error) string {
 	var perr syntax.ParseError
 	if errors.As(err, &perr) {

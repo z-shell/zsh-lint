@@ -5,11 +5,10 @@ Tracking issue: [#19](https://github.com/z-shell/zsh-lint/issues/19).
 How users silence an intentional finding without weakening unrelated
 diagnostics. This is the single shared contract required by the first-wave
 rule policy ([#7](https://github.com/z-shell/zsh-lint/issues/7),
-`docs/project/rule-policy.md` once
-[PR #55](https://github.com/z-shell/zsh-lint/pull/55) merges); rules must
-not invent their own escape
-hatches. This document defines the contract; the implementation is tracked
-separately and must cite this file.
+`docs/project/rule-policy.md`); rules must not invent their own escape
+hatches. The implementation lives in `internal/suppress` and is applied by
+`internal/analyzer` ([#65](https://github.com/z-shell/zsh-lint/issues/65),
+[PR #67](https://github.com/z-shell/zsh-lint/pull/67)).
 
 ## Syntax
 
@@ -88,12 +87,11 @@ listed.
 
 ## Interaction with machine-readable output (#20)
 
-Suppressed findings are dropped from default human output. The
-machine-readable contract (#20) must represent suppression explicitly —
-either by omitting suppressed findings or by tagging them
-(`"suppressed": true`) — and must include `meta/*` diagnostics, so editor
-and CI integrations can audit suppression usage. The choice is deferred to
-#20 and must reference this section.
+Suppressed findings are omitted from both default human output and the JSON
+`diagnostics` array. Malformed- and unused-suppression `meta/*` diagnostics
+remain included so editor and CI integrations can audit suppression usage.
+See `docs/project/output-contract.md` for the settled machine-readable
+contract.
 
 ## Out of scope (first wave)
 
