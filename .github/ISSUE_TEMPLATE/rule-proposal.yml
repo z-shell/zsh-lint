@@ -97,7 +97,7 @@ body:
     id: suppression
     attributes:
       label: Suppression
-      description: How an intentional finding is silenced, per the shared suppression contract (#19). Until that contract lands, write `pending #19` — rules may not document ad-hoc escape hatches.
-      value: pending #19
+      description: Document how an intentional finding is silenced with the shared `# zsh-lint disable=<rule-id>[,...] [-- reason]` directive. Rules may not define ad-hoc escape hatches.
+      value: "# zsh-lint disable=<rule-id>[,...] [-- reason]"
     validations:
       required: true
