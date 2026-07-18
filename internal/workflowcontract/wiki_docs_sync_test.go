@@ -222,7 +222,10 @@ func exactActionUsesViolations(workflow string, expected []string) []string {
 func exactWorkflowStepSequenceViolations(stepsBlock string, expected []string) []string {
 	var actual []string
 	for _, line := range workflowLines(stepsBlock) {
-		if strings.HasPrefix(line.text, "      - ") {
+		switch {
+		case line.text == "      -":
+			actual = append(actual, "<bare sequence entry>")
+		case strings.HasPrefix(line.text, "      - "):
 			actual = append(actual, strings.TrimPrefix(line.text, "      - "))
 		}
 	}
@@ -274,6 +277,28 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			violations = append(violations, fmt.Sprintf("%s: workflow is missing %q", item.name, item.snippet))
 		}
 	}
+
+	documentBody := workflow
+	documentMarkers := exactWorkflowLineSpans(workflow, "---")
+	if len(documentMarkers) != 1 || documentMarkers[0].start != 0 {
+		violations = append(violations, fmt.Sprintf(
+			"workflow must begin with exactly one YAML document marker; got %d exact markers", len(documentMarkers),
+		))
+	} else {
+		documentBody = workflow[documentMarkers[0].end:]
+	}
+	violations = append(violations, exactWorkflowMappingViolations(
+		"workflow root",
+		documentBody,
+		0,
+		[]workflowMappingField{
+			{name: "name", value: "Wiki Docs Sync"},
+			{name: "on", value: ""},
+			{name: "permissions", value: ""},
+			{name: "concurrency", value: ""},
+			{name: "jobs", value: ""},
+		},
+	)...)
 
 	onBlock := workflowBlock(t, workflow, "on:", 0)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -327,6 +352,12 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		},
 	)...)
 	jobsBlock := workflowBlock(t, workflow, "jobs:", 0)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"jobs",
+		jobsBlock,
+		2,
+		[]workflowMappingField{{name: "sync", value: ""}},
+	)...)
 	syncJobBlock := workflowBlock(t, jobsBlock, "sync:", 2)
 	violations = append(violations, exactWorkflowMappingViolations(
 		"sync job",
@@ -483,6 +514,30 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		},
 	)...)
 
+	generateStep := workflowStep(t, workflow, "Generate and inject reference", "Open or update sync PR")
+	violations = append(violations, exactWorkflowMappingViolations(
+		"generate step fields",
+		generateStep,
+		8,
+		[]workflowMappingField{
+			{name: "working-directory", value: "zsh-lint"},
+			{name: "run", value: "|"},
+		},
+	)...)
+	generateRunBlock := workflowBlock(t, generateStep, "run: |", 8)
+	violations = append(violations, exactWorkflowBlockViolations(
+		"generate step run",
+		generateRunBlock,
+		`        run: |
+          go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" \
+            ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
+          go run ./cmd/wikidoc \
+            -in "$RUNNER_TEMP/ref.md" \
+            -mdx ../wiki/community/04_zsh_lint/index.mdx
+
+`,
+	)...)
+
 	pullRequestStep := workflowStep(t, workflow, "Open or update sync PR", "Report sync PR operation")
 	violations = append(violations, exactWorkflowMappingViolations(
 		"pull request step fields",
@@ -517,6 +572,15 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			{name: "delete-branch", value: "true"},
 		},
 	)...)
+	pullRequestBodyBlock := workflowBlock(t, pullRequestInputs, "body: |", 10)
+	violations = append(violations, exactWorkflowBlockViolations(
+		"pull request body",
+		pullRequestBodyBlock,
+		"          body: |\n"+
+			"            Automated reference sync from `z-shell/zsh-lint`.\n"+
+			"            Generated from Go doc comments — do not hand-edit the marked region.\n"+
+			"            Source commit: ${{ github.sha }}\n",
+	)...)
 
 	if got := strings.Count(workflow, "${{ steps.app-token.outputs.token }}"); got != 2 {
 		violations = append(violations, fmt.Sprintf(
@@ -525,6 +589,24 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 	}
 
 	reportStep := workflowStep(t, workflow, "Report sync PR operation", "Verify signed sync commits")
+	violations = append(violations, exactWorkflowMappingViolations(
+		"operation report step fields",
+		reportStep,
+		8,
+		[]workflowMappingField{
+			{name: "env", value: ""},
+			{name: "run", value: `echo "::notice::sync-pr-operation=${PR_OPERATION:-none}"`},
+		},
+	)...)
+	reportEnvBlock := workflowBlock(t, reportStep, "env:", 8)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"operation report environment",
+		reportEnvBlock,
+		10,
+		[]workflowMappingField{
+			{name: "PR_OPERATION", value: "${{ steps.sync-pr.outputs.pull-request-operation }}"},
+		},
+	)...)
 	for _, snippet := range []string{
 		"PR_OPERATION: ${{ steps.sync-pr.outputs.pull-request-operation }}",
 		"sync-pr-operation=${PR_OPERATION:-none}",
@@ -728,6 +810,67 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 			name:        "unnamed terminal run step appended",
 			old:         "          fi\n",
 			replacement: "          fi\n      - run: echo attacker\n",
+		},
+		{
+			name: "bare unnamed run step inserted",
+			old: "            -mdx ../wiki/community/04_zsh_lint/index.mdx\n\n" +
+				"      - name: Open or update sync PR",
+			replacement: "            -mdx ../wiki/community/04_zsh_lint/index.mdx\n\n" +
+				"      -\n" +
+				"        run: echo attacker\n\n" +
+				"      - name: Open or update sync PR",
+		},
+		{
+			name: "extra exfiltration job",
+			old:  "jobs:\n  sync:",
+			replacement: "jobs:\n" +
+				"  exfil:\n" +
+				"    runs-on: ubuntu-latest\n" +
+				"    environment: wiki-sync\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"    steps:\n" +
+				"      - run: echo \"${{ secrets['WIKI_SYNC_APP_PRIVATE_KEY'] }}\"\n" +
+				"  sync:",
+		},
+		{
+			name: "top-level default shell override",
+			old:  "  cancel-in-progress: false\n\njobs:",
+			replacement: "  cancel-in-progress: false\n\n" +
+				"defaults:\n" +
+				"  run:\n" +
+				"    shell: bash\n\n" +
+				"jobs:",
+		},
+		{
+			name: "top-level private key environment",
+			old:  "  cancel-in-progress: false\n\njobs:",
+			replacement: "  cancel-in-progress: false\n\n" +
+				"env:\n" +
+				"  EXFIL: ${{ secrets['WIKI_SYNC_APP_PRIVATE_KEY'] }}\n\n" +
+				"jobs:",
+		},
+		{
+			name: "generate step private key environment",
+			old:  "        working-directory: zsh-lint\n        run: |",
+			replacement: "        working-directory: zsh-lint\n" +
+				"        env:\n" +
+				"          EXFIL: ${{ secrets['WIKI_SYNC_APP_PRIVATE_KEY'] }}\n" +
+				"        run: |",
+		},
+		{
+			name: "report step app token environment",
+			old:  "          PR_OPERATION: ${{ steps.sync-pr.outputs.pull-request-operation }}\n        run:",
+			replacement: "          PR_OPERATION: ${{ steps.sync-pr.outputs.pull-request-operation }}\n" +
+				"          APP_TOKEN: ${{ steps['app-token'].outputs.token }}\n" +
+				"        run:",
+		},
+		{
+			name: "pull request body private key interpolation",
+			old:  "            Source commit: ${{ github.sha }}\n          delete-branch: true",
+			replacement: "            Source commit: ${{ github.sha }}\n" +
+				"            Private key: ${{ secrets['WIKI_SYNC_APP_PRIVATE_KEY'] }}\n" +
+				"          delete-branch: true",
 		},
 	}
 
