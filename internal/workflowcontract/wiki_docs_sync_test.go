@@ -219,6 +219,19 @@ func exactActionUsesViolations(workflow string, expected []string) []string {
 	return nil
 }
 
+func exactWorkflowStepSequenceViolations(stepsBlock string, expected []string) []string {
+	var actual []string
+	for _, line := range workflowLines(stepsBlock) {
+		if strings.HasPrefix(line.text, "      - ") {
+			actual = append(actual, strings.TrimPrefix(line.text, "      - "))
+		}
+	}
+	if strings.Join(actual, "\n") != strings.Join(expected, "\n") {
+		return []string{fmt.Sprintf("workflow steps must match the eight named entries exactly; got %q", actual)}
+	}
+	return nil
+}
+
 func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 	t.Helper()
 
@@ -323,6 +336,20 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			{name: "runs-on", value: "ubuntu-latest"},
 			{name: "environment", value: "wiki-sync"},
 			{name: "steps", value: ""},
+		},
+	)...)
+	stepsBlock := workflowBlock(t, syncJobBlock, "steps:", 4)
+	violations = append(violations, exactWorkflowStepSequenceViolations(
+		stepsBlock,
+		[]string{
+			"name: Mint wiki app token",
+			"name: Check out zsh-lint",
+			"name: Check out wiki (next)",
+			"name: Set up Go",
+			"name: Generate and inject reference",
+			"name: Open or update sync PR",
+			"name: Report sync PR operation",
+			"name: Verify signed sync commits",
 		},
 	)...)
 	violations = append(violations, exactActionUsesViolations(
@@ -688,6 +715,19 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 			name:        "in-progress runs cancelled",
 			old:         "  cancel-in-progress: false",
 			replacement: "  cancel-in-progress: true",
+		},
+		{
+			name: "unnamed action step inserted",
+			old: "          path: zsh-lint\n\n" +
+				"      - name: Check out wiki (next)",
+			replacement: "          path: zsh-lint\n\n" +
+				"      - uses: attacker/action@1111111111111111111111111111111111111111\n\n" +
+				"      - name: Check out wiki (next)",
+		},
+		{
+			name:        "unnamed terminal run step appended",
+			old:         "          fi\n",
+			replacement: "          fi\n      - run: echo attacker\n",
 		},
 	}
 
