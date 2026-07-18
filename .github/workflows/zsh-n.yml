@@ -1,5 +1,5 @@
 ---
-name: "✅ Zsh"
+name: Zsh Syntax Check
 on:
   push:
     tags: ["v*.*.*"]
@@ -7,18 +7,14 @@ on:
       - main
       - next
     paths:
-      - "*.zsh"
-      - "functions/**"
+      - "**/*.zsh"
+      - "legacy/functions/**"
+      - ".github/workflows/zsh-n.yml"
   pull_request:
     paths:
-      - "*.zsh"
-      - "functions/**"
-  workflow_run:
-    workflows:
-      - "⭕ Trunk"
-    types:
-      - completed
-    branches: [main]
+      - "**/*.zsh"
+      - "legacy/functions/**"
+      - ".github/workflows/zsh-n.yml"
   workflow_dispatch: {}
 
 permissions:
