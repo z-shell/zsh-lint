@@ -256,7 +256,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		{"repository scope", "repositories: wiki"},
 		{"app token action pin", "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"},
 		{"checkout action pin", "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"},
-		{"setup Go action pin", "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16"},
+		{"setup Go action pin", "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"},
 		{"pull request action pin", "peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1"},
 		{"pull request step ID", "id: sync-pr"},
 		{"generated path scope", "add-paths: community/04_zsh_lint/index.mdx"},
@@ -389,7 +389,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			"        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
 			"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
 			"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
-			"        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0",
+			"        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0",
 			"        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1",
 		},
 	)...)
@@ -494,14 +494,14 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		setupGoStep,
 		8,
 		[]workflowMappingField{
-			{name: "uses", value: "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0"},
+			{name: "uses", value: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0"},
 			{name: "with", value: ""},
 		},
 	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"setup Go step",
 		setupGoStep,
-		"        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0",
+		"        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0",
 	)...)
 	setupGoInputs := workflowBlock(t, setupGoStep, "with:", 8)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -760,8 +760,8 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name:        "setup Go action mutable ref",
-			old:         "        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0",
-			replacement: "        uses: actions/setup-go@v6",
+			old:         "        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0",
+			replacement: "        uses: actions/setup-go@v7",
 		},
 		{
 			name:        "pull request action mutable ref",
