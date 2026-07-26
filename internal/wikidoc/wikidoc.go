@@ -1,29 +1,24 @@
 // Package wikidoc transforms gomarkdoc-generated Markdown into MDX-safe content
 // and injects it into a marked region of a Docusaurus .mdx page. It is dev/CI
 // tooling, not product code.
-//
-// # Known limitations
-//
-// Step 4 (bare-character escaping) operates line-by-line and does NOT exempt
-// inline code spans (single-backtick runs) on prose lines. Characters inside
-// `backtick spans` on prose lines will be escaped along with the surrounding
-// text. This is acceptable for the current gomarkdoc output, which uses only
-// indented blocks and fenced blocks for code samples, not inline spans
-// containing angle brackets or braces.
 package wikidoc
 
 import (
 	"fmt"
+	"html"
 	"regexp"
 	"strings"
 )
 
 var (
-	reHTMLComment = regexp.MustCompile(`(?s)<!--.*?-->`)
-	reHTMLAnchor  = regexp.MustCompile(`</?a\b[^>]*>`)
-	reAngleLink   = regexp.MustCompile(`\]\(<([^>\s]*)>\)`)
-	reHeading     = regexp.MustCompile(`(?m)^(#{1,6})([ \t]+)`)
-	reAPIHeading  = regexp.MustCompile(`(?m)^#{2,} (func|type|var|const) ([A-Za-z_][A-Za-z0-9_]*)\b.*$`)
+	reHTMLComment      = regexp.MustCompile(`(?s)<!--.*?-->`)
+	reHTMLAnchor       = regexp.MustCompile(`</?a\b[^>]*>`)
+	reAngleLink        = regexp.MustCompile(`\]\(<([^>\s]*)>\)`)
+	reHeading          = regexp.MustCompile(`(?m)^(#{1,6})([ \t]+)`)
+	reAPIHeading       = regexp.MustCompile(`(?m)^#{2,} (func|type|var|const) ([A-Za-z_][A-Za-z0-9_]*)\b.*$`)
+	reAPIMethodHeading = regexp.MustCompile(
+		`(?m)^#{2,} func \\\(([A-Za-z_][A-Za-z0-9_]*)\\\) ([A-Za-z_][A-Za-z0-9_]*)\b.*$`,
+	)
 )
 
 // Sanitize transforms a gomarkdoc Markdown string into MDX-safe content by
@@ -35,11 +30,14 @@ var (
 //     and closing <a> tags are stripped (inner text, if any, is preserved).
 //  3. Unwrap angle-bracketed link destinations (](<#Run>) → ](#Run)).
 //  4. Normalize leading tabs to four spaces for Markdown indentation.
-//  5. Escape bare <, >, {, } on prose lines (not inside fenced or indented code).
-//  6. Demote generated headings by three levels so they nest under the wiki
+//  5. Convert indented code blocks to fenced blocks that MDX parses as code.
+//  6. Escape bare <, >, {, } on prose lines (not inside fenced code).
+//  7. Restore gomarkdoc's escaped inline-code spans, removing Markdown
+//     punctuation escapes and decoding entities only inside paired spans.
+//  8. Demote generated headings by three levels so they nest under the wiki
 //     page's "### Reference" section.
-//  7. Rewrite top-level Go declaration fragment links to Docusaurus slugs, so
-//     gomarkdoc fragment links like #Run resolve as #func-run.
+//  9. Rewrite Go declaration fragment links to Docusaurus slugs, so gomarkdoc
+//     fragments like #Run and #Backquotes.Analyze resolve to their headings.
 func Sanitize(md string) string {
 	// Step 1: remove HTML comments.
 	out := reHTMLComment.ReplaceAllString(md, "")
@@ -53,13 +51,21 @@ func Sanitize(md string) string {
 	// Step 4: use spaces for Markdown indentation and repository whitespace.
 	out = normalizeIndent(out)
 
-	// Step 5: escape bare MDX special chars on prose lines only.
+	// Step 5: MDX does not recognize Markdown-indented code blocks. Fence them
+	// so braces in generated examples are not parsed as JSX expressions.
+	out = fenceIndentedCodeBlocks(out)
+
+	// Step 6: escape bare MDX special chars on prose lines only.
 	out = escapeProse(out)
 
-	// Step 6: nest generated headings under the page's Reference section.
+	// Step 7: restore inline code after prose escaping so code contents remain
+	// literal, including angle brackets and braces.
+	out = normalizeEscapedInlineCode(out)
+
+	// Step 8: nest generated headings under the page's Reference section.
 	out = demoteHeadings(out)
 
-	// Step 7: target the slugs Docusaurus derives from declaration headings.
+	// Step 9: target the slugs Docusaurus derives from declaration headings.
 	out = rewriteAPIFragmentLinks(out)
 
 	return out
@@ -78,6 +84,49 @@ func normalizeIndent(s string) string {
 	return strings.Join(lines, "\n")
 }
 
+// fenceIndentedCodeBlocks converts Markdown-indented code into fenced blocks.
+// MDX v3 treats four-space indentation as ordinary text, so raw braces in such
+// blocks are otherwise parsed as expressions instead of rendered as code.
+func fenceIndentedCodeBlocks(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	inFenced := false
+
+	for i := 0; i < len(lines); {
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, "```") {
+			inFenced = !inFenced
+			out = append(out, lines[i])
+			i++
+			continue
+		}
+		if inFenced || !strings.HasPrefix(lines[i], "    ") {
+			out = append(out, lines[i])
+			i++
+			continue
+		}
+
+		block := make([]string, 0, 1)
+		for i < len(lines) && strings.HasPrefix(lines[i], "    ") {
+			block = append(block, strings.TrimPrefix(lines[i], "    "))
+			i++
+		}
+		for len(block) > 0 && strings.TrimSpace(block[len(block)-1]) == "" {
+			block = block[:len(block)-1]
+		}
+		if len(block) == 0 {
+			out = append(out, "")
+			continue
+		}
+
+		out = append(out, "```")
+		out = append(out, block...)
+		out = append(out, "```")
+	}
+
+	return strings.Join(out, "\n")
+}
+
 // demoteHeadings shifts generated Markdown headings down three levels. Markdown
 // has only six heading levels, so deeper input is clamped at h6.
 func demoteHeadings(s string) string {
@@ -88,22 +137,81 @@ func demoteHeadings(s string) string {
 	})
 }
 
-// rewriteAPIFragmentLinks rewrites gomarkdoc's top-level declaration links to
-// the slugs Docusaurus derives from headings such as "## func Run".
+// rewriteAPIFragmentLinks rewrites gomarkdoc declaration links to the slugs
+// Docusaurus derives from headings such as "## func Run" and
+// "### func \(Backquotes\) Analyze".
 func rewriteAPIFragmentLinks(s string) string {
 	for _, match := range reAPIHeading.FindAllStringSubmatch(s, -1) {
 		name := match[2]
 		slug := strings.ToLower(match[1] + "-" + name)
 		s = strings.ReplaceAll(s, "](#"+name+")", "](#"+slug+")")
 	}
+	for _, match := range reAPIMethodHeading.FindAllStringSubmatch(s, -1) {
+		receiver := match[1]
+		method := match[2]
+		slug := strings.ToLower("func-" + receiver + "-" + method)
+		s = strings.ReplaceAll(s, "](#"+receiver+"."+method+")", "](#"+slug+")")
+	}
 	return s
 }
 
-// escapeProse escapes bare <, >, {, } on non-code lines.
-// Code lines are:
-//   - lines inside a fenced block (toggled by lines whose trimmed text starts
-//     with three backticks), or
-//   - indented lines (start with a tab or 4+ spaces).
+// normalizeEscapedInlineCode restores paired inline-code spans emitted by
+// gomarkdoc's plain formatter. Unmatched delimiters are left unchanged.
+func normalizeEscapedInlineCode(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = normalizeEscapedInlineCodeLine(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeEscapedInlineCodeLine(line string) string {
+	const delimiter = "\\`"
+
+	var out strings.Builder
+	for {
+		start := strings.Index(line, delimiter)
+		if start < 0 {
+			out.WriteString(line)
+			break
+		}
+		afterStart := start + len(delimiter)
+		endOffset := strings.Index(line[afterStart:], delimiter)
+		if endOffset < 0 {
+			out.WriteString(line)
+			break
+		}
+		end := afterStart + endOffset
+
+		out.WriteString(line[:start])
+		out.WriteByte('`')
+		out.WriteString(html.UnescapeString(unescapeMarkdownPunctuation(line[afterStart:end])))
+		out.WriteByte('`')
+		line = line[end+len(delimiter):]
+	}
+	return out.String()
+}
+
+func unescapeMarkdownPunctuation(s string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) && isASCIIPunctuation(s[i+1]) {
+			i++
+		}
+		out.WriteByte(s[i])
+	}
+	return out.String()
+}
+
+func isASCIIPunctuation(b byte) bool {
+	return (b >= '!' && b <= '/') ||
+		(b >= ':' && b <= '@') ||
+		(b >= '[' && b <= '`') ||
+		(b >= '{' && b <= '~')
+}
+
+// escapeProse escapes bare <, >, {, } on non-code lines. Fenced code content
+// is left verbatim.
 func escapeProse(s string) string {
 	lines := strings.Split(s, "\n")
 	inFenced := false
@@ -116,10 +224,6 @@ func escapeProse(s string) string {
 			continue
 		}
 		if inFenced {
-			continue
-		}
-		// Indented code line: starts with a tab or 4+ spaces.
-		if strings.HasPrefix(line, "\t") || strings.HasPrefix(line, "    ") {
 			continue
 		}
 		// Prose line — escape MDX special characters.
