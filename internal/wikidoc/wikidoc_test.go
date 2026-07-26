@@ -200,6 +200,56 @@ func TestSanitize_RewriteDocusaurusHeadingID(t *testing.T) {
 	}
 }
 
+// TestSanitize_RewriteDocusaurusMethodHeadingID verifies receiver-method links
+// target the slug Docusaurus derives from the corresponding generated heading.
+func TestSanitize_RewriteDocusaurusMethodHeadingID(t *testing.T) {
+	input := "[func \\(r Backquotes\\) Analyze\\(ctx \\*analyzer.Context\\)](#Backquotes.Analyze)\n\n" +
+		"### func \\(Backquotes\\) Analyze"
+	got := wikidoc.Sanitize(input)
+	want := "[func \\(r Backquotes\\) Analyze\\(ctx \\*analyzer.Context\\)](#func-backquotes-analyze)\n\n" +
+		"###### func \\(Backquotes\\) Analyze"
+	if got != want {
+		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
+	}
+}
+
+// TestSanitize_EscapedInlineCode verifies gomarkdoc's plain-format escapes are
+// removed only inside complete inline-code spans.
+func TestSanitize_EscapedInlineCode(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name: "punctuation and entities",
+			input: "ID: \\`style/backquotes\\`\n" +
+				"Suppression: \\`\\# zsh\\-lint disable=style/backquotes \\-\\- \\&lt;reason\\&gt;\\`",
+			want: "ID: `style/backquotes`\n" +
+				"Suppression: `# zsh-lint disable=style/backquotes -- <reason>`",
+		},
+		{
+			name:  "unmatched delimiter",
+			input: "Prefix \\`unterminated",
+			want:  "Prefix \\`unterminated",
+		},
+		{
+			name:  "non punctuation backslashes",
+			input: "Path: \\`C:\\temp\\name\\`",
+			want:  "Path: `C:\\temp\\name`",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := wikidoc.Sanitize(tc.input)
+			if got != tc.want {
+				t.Errorf("Sanitize(%q) = %q; want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestSanitize_DemoteHeadings verifies generated headings nest beneath the
 // wiki page's h3 Reference section without producing invalid h7 headings.
 func TestSanitize_DemoteHeadings(t *testing.T) {
@@ -211,12 +261,23 @@ func TestSanitize_DemoteHeadings(t *testing.T) {
 	}
 }
 
-// TestSanitize_NormalizeIndent verifies generated Markdown code indentation
-// uses spaces so wiki whitespace checks accept newly generated lines.
-func TestSanitize_NormalizeIndent(t *testing.T) {
-	input := "\timport \"example.test/pkg\"\n\t\tdeep"
+// TestSanitize_FenceIndentedCode verifies gomarkdoc's tab-indented code is
+// converted to fenced code that MDX both parses and renders as code.
+func TestSanitize_FenceIndentedCode(t *testing.T) {
+	input := "\tfunc render() { print ok; }\n\t  print done\n\t\n\nProse"
 	got := wikidoc.Sanitize(input)
-	want := "    import \"example.test/pkg\"\n        deep"
+	want := "```\nfunc render() { print ok; }\n  print done\n```\n\nProse"
+	if got != want {
+		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
+	}
+}
+
+// TestSanitize_WhitespaceOnlyIndent verifies a tab-only separator is cleaned
+// without producing an empty fenced block.
+func TestSanitize_WhitespaceOnlyIndent(t *testing.T) {
+	input := "\t\n\nProse"
+	got := wikidoc.Sanitize(input)
+	want := "\n\nProse"
 	if got != want {
 		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
 	}
@@ -232,14 +293,14 @@ func TestSanitize_EscapeProseChars(t *testing.T) {
 	}
 }
 
-// TestSanitize_IndentedCodeNotEscaped verifies tab-indented code lines are
-// normalized to spaces without escaping their code contents.
-func TestSanitize_IndentedCodeNotEscaped(t *testing.T) {
+// TestSanitize_IndentedCodePreservesContent verifies fenced conversion leaves
+// code contents untouched.
+func TestSanitize_IndentedCodePreservesContent(t *testing.T) {
 	input := "\tfunc F(a <T>) {}"
 	got := wikidoc.Sanitize(input)
-	want := "    func F(a <T>) {}"
+	want := "```\nfunc F(a <T>) {}\n```"
 	if got != want {
-		t.Errorf("Sanitize should normalize but not escape tab-indented code; got: %q, want: %q", got, want)
+		t.Errorf("Sanitize should fence tab-indented code without escaping it; got: %q, want: %q", got, want)
 	}
 }
 
@@ -252,11 +313,13 @@ func TestSanitize_FencedCodeNotEscaped(t *testing.T) {
 	}
 }
 
-// TestSanitize_FourSpaceIndentNotEscaped verifies 4-space-indented code lines are left verbatim.
-func TestSanitize_FourSpaceIndentNotEscaped(t *testing.T) {
+// TestSanitize_FourSpaceIndentFenced verifies existing Markdown-indented code
+// is converted to MDX-compatible fenced code.
+func TestSanitize_FourSpaceIndentFenced(t *testing.T) {
 	input := "    func F(a <T>) {}"
 	got := wikidoc.Sanitize(input)
-	if got != input {
-		t.Errorf("Sanitize should not escape 4-space-indented code; got: %q, want: %q", got, input)
+	want := "```\nfunc F(a <T>) {}\n```"
+	if got != want {
+		t.Errorf("Sanitize should fence 4-space-indented code; got: %q, want: %q", got, want)
 	}
 }
