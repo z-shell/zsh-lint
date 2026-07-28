@@ -230,7 +230,7 @@ func exactWorkflowStepSequenceViolations(stepsBlock string, expected []string) [
 		}
 	}
 	if strings.Join(actual, "\n") != strings.Join(expected, "\n") {
-		return []string{fmt.Sprintf("workflow steps must match the eight named entries exactly; got %q", actual)}
+		return []string{fmt.Sprintf("workflow steps must match the expected entries exactly; got %q", actual)}
 	}
 	return nil
 }
@@ -255,7 +255,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		{"organization scope", "owner: z-shell"},
 		{"repository scope", "repositories: wiki"},
 		{"app token action pin", "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"},
-		{"checkout action pin", "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"},
+		{"checkout action pin", "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"},
 		{"setup Go action pin", "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"},
 		{"pull request action pin", "peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1"},
 		{"pull request step ID", "id: sync-pr"},
@@ -387,8 +387,8 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		workflow,
 		[]string{
 			"        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
-			"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
-			"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+			"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+			"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
 			"        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0",
 			"        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1",
 		},
@@ -442,14 +442,14 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		sourceCheckoutStep,
 		8,
 		[]workflowMappingField{
-			{name: "uses", value: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0"},
+			{name: "uses", value: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"},
 			{name: "with", value: ""},
 		},
 	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"source checkout step",
 		sourceCheckoutStep,
-		"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+		"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
 	)...)
 	sourceCheckoutInputs := workflowBlock(t, sourceCheckoutStep, "with:", 8)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -465,14 +465,14 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		wikiCheckoutStep,
 		8,
 		[]workflowMappingField{
-			{name: "uses", value: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0"},
+			{name: "uses", value: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"},
 			{name: "with", value: ""},
 		},
 	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"wiki checkout step",
 		wikiCheckoutStep,
-		"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+		"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
 	)...)
 	wikiCheckoutInputs := workflowBlock(t, wikiCheckoutStep, "with:", 8)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -747,14 +747,14 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		{
 			name: "source checkout mutable ref",
 			old: "      - name: Check out zsh-lint\n" +
-				"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+				"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
 			replacement: "      - name: Check out zsh-lint\n" +
 				"        uses: actions/checkout@v7",
 		},
 		{
 			name: "wiki checkout mutable ref",
 			old: "      - name: Check out wiki (next)\n" +
-				"        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+				"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
 			replacement: "      - name: Check out wiki (next)\n" +
 				"        uses: actions/checkout@v7",
 		},
