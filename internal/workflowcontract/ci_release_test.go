@@ -268,6 +268,38 @@ func TestZshSyntaxCheckoutsDoNotPersistCredentials(t *testing.T) {
 	}
 }
 
+func TestPullRequestValidationCheckoutsDoNotPersistCredentials(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		jobName string
+	}{
+		{name: "Go CI", path: "go-ci.yml", jobName: "build-test"},
+		{name: "Docs Generate Check", path: "docs-generate.yml", jobName: "generate"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflow := readRepositoryFile(t, ".github", "workflows", tt.path)
+			var checkoutSteps []string
+			for _, step := range workflowJobSteps(t, workflow, tt.jobName) {
+				uses := directWorkflowMapping(step, 8)["uses"]
+				if len(uses) == 1 && strings.HasPrefix(uses[0], "actions/checkout@") {
+					checkoutSteps = append(checkoutSteps, step)
+				}
+			}
+			if len(checkoutSteps) != 1 {
+				t.Fatalf("job %q must contain exactly one checkout step; got %d", tt.jobName, len(checkoutSteps))
+			}
+			withBlock := workflowBlock(t, checkoutSteps[0], "with:", 8)
+			values := directWorkflowMapping(withBlock, 10)["persist-credentials"]
+			if len(values) != 1 || values[0] != "false" {
+				t.Fatalf("job %q checkout must disable persisted credentials; got %q", tt.jobName, values)
+			}
+		})
+	}
+}
+
 func workflowPushBranches(t *testing.T, workflow string) []string {
 	t.Helper()
 
