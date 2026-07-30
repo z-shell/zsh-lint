@@ -18,7 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Verify semantic tag
         run: |
           tag="${GITHUB_REF_NAME}"
@@ -26,11 +30,29 @@ jobs:
             echo "::error::Expected a semantic version tag like v1.2.3, got '${tag}'"
             exit 1
           fi
+          tag_ref="refs/tags/${tag}"
+          tag_type="$(git cat-file -t "$tag_ref" 2>/dev/null || true)"
+          if [[ "$tag_type" != "tag" ]]; then
+            echo "::error::Expected '${tag}' to be an annotated tag."
+            exit 1
+          fi
+          tag_commit="$(git rev-list -n 1 "$tag_ref")"
+          head_commit="$(git rev-parse HEAD)"
+          if [[ "$tag_commit" != "${GITHUB_SHA}" || "$head_commit" != "${GITHUB_SHA}" ]]; then
+            echo "::error::Tag '${tag}' and the checked-out commit must both resolve to event commit '${GITHUB_SHA}'."
+            exit 1
+          fi
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.25"
+      - name: Test tagged commit
+        run: go test -count=1 ./...
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF_NAME}"
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "$tag" --generate-notes
+            gh release create "$tag" --verify-tag --title "$tag" --generate-notes
           fi
