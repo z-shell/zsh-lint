@@ -234,7 +234,6 @@ func scanDeclarationOptions(variant string, args []*syntax.Assign) declarationOp
 				numericArgument = numericOptionArgumentNone
 				continue
 			}
-			numericArgument = numericOptionArgumentNone
 		}
 		// Unlike the historical single '-' option terminator, standalone '+' is
 		// a typeset display control form and never introduces declarations.
