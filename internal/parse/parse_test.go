@@ -43,7 +43,7 @@ func TestParseFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := Parse(f, "sample.zsh"); err != nil {
 		t.Fatalf("expected fixture to parse, got error: %v", err)
 	}

@@ -31,13 +31,13 @@ func Run(names []string, w io.Writer) int {
 			// The diagnostic is emitted on its own line starting at column 0
 			// (no indent) so it begins with `path:line:col:` and stays
 			// greppable / consumable by editor problem matchers.
-			fmt.Fprintf(w, "FAIL %s\n%s\n", name, formatErr(name, err))
+			_, _ = fmt.Fprintf(w, "FAIL %s\n%s\n", name, formatErr(name, err))
 			continue
 		}
-		fmt.Fprintf(w, "OK   %s\n", name)
+		_, _ = fmt.Fprintf(w, "OK   %s\n", name)
 	}
 	total := len(names)
-	fmt.Fprintf(w, "\n%d file(s) surveyed, %d ok, %d failed\n", total, total-failed, failed)
+	_, _ = fmt.Fprintf(w, "\n%d file(s) surveyed, %d ok, %d failed\n", total, total-failed, failed)
 	if failed > 0 {
 		return 1
 	}
@@ -49,7 +49,7 @@ func surveyFile(name string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, err = parse.Parse(f, name)
 	return err
 }

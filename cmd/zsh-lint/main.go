@@ -39,7 +39,7 @@ func main() {
 		}
 
 		file, err := parse.Parse(f, name)
-		f.Close()
+		_ = f.Close()
 
 		if err != nil {
 			exitNonZero = true

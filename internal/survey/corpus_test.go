@@ -53,7 +53,7 @@ func TestMinimizedCorpus(t *testing.T) {
 			t.Fatalf("opening %s: %v", path, err)
 		}
 		_, perr := parse.Parse(f, path)
-		f.Close()
+		_ = f.Close()
 		switch {
 		case gapName.MatchString(name):
 			if perr == nil {
