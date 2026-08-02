@@ -1,7 +1,11 @@
+# out/ dirs capture subprocess stdout/stderr and may contain env vars or other
+# secret values — never commit or share .trunk/out/ contents.
 *out
 *logs
 *actions
 *notifications
+*tools
 plugins
 user_trunk.yaml
 user.yaml
+tmp

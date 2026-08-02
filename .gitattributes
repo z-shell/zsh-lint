@@ -1,0 +1,4 @@
+# Go source is gofmt-formatted and always tab-indented; don't let a
+# contributor's core.whitespace=tab-in-indent flag that as an error in
+# git-diff-check.
+*.go whitespace=-tab-in-indent

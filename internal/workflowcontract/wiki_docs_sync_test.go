@@ -230,7 +230,7 @@ func exactWorkflowStepSequenceViolations(stepsBlock string, expected []string) [
 		}
 	}
 	if strings.Join(actual, "\n") != strings.Join(expected, "\n") {
-		return []string{fmt.Sprintf("workflow steps must match the eight named entries exactly; got %q", actual)}
+		return []string{fmt.Sprintf("workflow steps must match the expected entries exactly; got %q", actual)}
 	}
 	return nil
 }
