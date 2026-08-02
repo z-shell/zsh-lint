@@ -10,11 +10,11 @@ on:
       - "**/*.zsh"
       - "legacy/functions/**"
       - ".github/workflows/zsh-n.yml"
-  pull_request:
-    paths:
-      - "**/*.zsh"
-      - "legacy/functions/**"
-      - ".github/workflows/zsh-n.yml"
+  # Deliberately unfiltered. A path-filtered pull_request trigger never reports
+  # on a pull request that touches no Zsh, and a required check that never
+  # reports leaves such pull requests permanently pending. Keeping this
+  # unfiltered is what makes the zsh-n-complete context safe to require.
+  pull_request: {}
   workflow_dispatch: {}
 
 permissions:
