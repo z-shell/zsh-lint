@@ -64,3 +64,28 @@ jobs:
         run: |
           zsh -fc 'zcompile -- "$1"' zsh "$ZSH_FILE"; rc=$?
           ls -al -- "${ZSH_FILE}.zwc"; exit "$rc"
+  # The zsh-n job is a matrix over discovered files, so each leg reports as
+  # "zsh-n (<path>)". Those context names change whenever a Zsh file is added,
+  # renamed, or removed, which makes them unusable in a ruleset's
+  # required_status_checks list. This job collapses the matrix into one stable
+  # context name that a ruleset can require.
+  zsh-n-complete:
+    name: Zsh Syntax Check Complete
+    runs-on: ubuntu-latest
+    needs: [zsh-matrix, zsh-n]
+    if: always()
+    steps:
+      - name: Verify every syntax check succeeded
+        env:
+          MATRIX_RESULT: ${{ needs.zsh-matrix.result }}
+          SYNTAX_RESULT: ${{ needs.zsh-n.result }}
+        run: |
+          if [[ "${MATRIX_RESULT}" != "success" ]]; then
+            echo "::error::Matrix construction did not succeed (${MATRIX_RESULT})."
+            exit 1
+          fi
+          if [[ "${SYNTAX_RESULT}" != "success" ]]; then
+            echo "::error::At least one zsh -n or zcompile leg did not succeed (${SYNTAX_RESULT})."
+            exit 1
+          fi
+          echo "Every zsh -n and zcompile leg succeeded."
