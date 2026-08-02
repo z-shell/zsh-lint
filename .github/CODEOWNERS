@@ -1,0 +1,11 @@
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners#example-of-a-codeowners-file
+#
+# The reference `main` ruleset in z-shell/.github runbooks/branch-protection.md
+# requires code-owner review. That rule needs a CODEOWNERS file to resolve an
+# owner; without one it can never be satisfied.
+#
+# The sole entry is also the usual author of promotions, so the self-review
+# deadlock the runbook describes is expected here: the ruleset grants
+# OrganizationAdmin and the admin/maintain/write roles `bypass_mode: always`,
+# and `gh pr merge --admin` is the normal promotion path, not an escape hatch.
+* @ss-o

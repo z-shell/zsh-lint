@@ -391,6 +391,36 @@ func TestGoCIBuildTestReportsOnEveryPullRequest(t *testing.T) {
 	}
 }
 
+// A matrix job reports one check run per leg, so zsh-n's contexts are named
+// after the discovered file paths ("zsh-n (./path/to/file.zsh)") and change
+// whenever a Zsh file is added, renamed, or removed. A ruleset's
+// required_status_checks list cannot reference a moving name, so the workflow
+// must keep one aggregating job whose context name is stable. The `if:
+// always()` guard matters as much as the job itself: without it the aggregate
+// is skipped when a leg fails, and a skipped required check never reports.
+func TestZshSyntaxExposesStableAggregateContext(t *testing.T) {
+	workflow := zshSyntaxWorkflow(t)
+
+	if got := len(exactWorkflowLineSpans(workflow, "  zsh-n-complete:")); got != 1 {
+		t.Fatalf("zsh-n.yml must retain the stable zsh-n-complete job ID exactly once; got %d", got)
+	}
+
+	fields := directWorkflowMapping(workflowBlock(t, workflow, "zsh-n-complete:", 2), 4)
+	for _, expected := range []workflowMappingField{
+		{name: "name", value: "Zsh Syntax Check Complete"},
+		{name: "needs", value: "[zsh-matrix, zsh-n]"},
+		{name: "if", value: "always()"},
+	} {
+		values := fields[expected.name]
+		if len(values) != 1 || values[0] != expected.value {
+			t.Errorf(
+				"zsh-n-complete %s must be %q so the aggregate context always reports; got %q",
+				expected.name, expected.value, values,
+			)
+		}
+	}
+}
+
 const mainBranchGuardScript = `if [[ "${HEAD_REPOSITORY}" != "${REPOSITORY}" ]]; then
   echo "::error::Pull requests into main must come from this repository (got '${HEAD_REPOSITORY}')."
   exit 1
