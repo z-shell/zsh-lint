@@ -405,6 +405,15 @@ func TestZshSyntaxExposesStableAggregateContext(t *testing.T) {
 		t.Fatalf("zsh-n.yml must retain the stable zsh-n-complete job ID exactly once; got %d", got)
 	}
 
+	// The aggregate is only safe to require if it reports on every pull
+	// request. A pull_request.paths filter would silence it on a pull request
+	// touching no Zsh, leaving that pull request permanently pending against a
+	// required check.
+	onBlock := workflowBlock(t, workflow, "on:", 0)
+	if values := directWorkflowMapping(onBlock, 2)["pull_request"]; len(values) != 1 || values[0] != "{}" {
+		t.Fatalf("zsh-n pull_request trigger must be unfiltered so the aggregate always reports; got %q", values)
+	}
+
 	fields := directWorkflowMapping(workflowBlock(t, workflow, "zsh-n-complete:", 2), 4)
 	for _, expected := range []workflowMappingField{
 		{name: "name", value: "Zsh Syntax Check Complete"},
