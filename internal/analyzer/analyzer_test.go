@@ -78,6 +78,38 @@ func TestAnalyzerIndexesScopeForOptInRule(t *testing.T) {
 	}
 }
 
+func TestAnalyzerPositionsAfterNestedConditionalAlternation(t *testing.T) {
+	const code = "badcmd before\nline=foo\n[[ $line == ((a|b)|c) ]]\nbadcmd after\n"
+	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	diags := analyzer.New(&dummyRule{}).Analyze(file, "test.zsh")
+	if len(diags) != 2 {
+		t.Fatalf("diagnostic count = %d, want 2: %+v", len(diags), diags)
+	}
+	want := []struct {
+		line   int
+		column int
+		offset int
+	}{
+		{line: 1, column: 1, offset: 0},
+		{line: 4, column: 1, offset: 48},
+	}
+	if offset := strings.Index(code, "badcmd after"); offset != want[1].offset {
+		t.Fatalf("badcmd after offset = %d, want %d", offset, want[1].offset)
+	}
+	for i, diagnostic := range diags {
+		if diagnostic.Range.Start.Line != want[i].line ||
+			diagnostic.Range.Start.Column != want[i].column ||
+			diagnostic.Range.Start.Offset != want[i].offset {
+			t.Errorf("diagnostic[%d] start = %+v, want line=%d column=%d offset=%d",
+				i, diagnostic.Range.Start, want[i].line, want[i].column, want[i].offset)
+		}
+	}
+}
+
 func findByID(ds diag.Diagnostics, id diag.RuleID) []diag.Diagnostic {
 	var out []diag.Diagnostic
 	for _, d := range ds {
@@ -86,6 +118,90 @@ func findByID(ds diag.Diagnostics, id diag.RuleID) []diag.Diagnostic {
 		}
 	}
 	return out
+}
+
+func TestAnalyzerSuppressionAfterNestedConditionalAlternation(t *testing.T) {
+	const code = "line=foo\n[[ $line == ((a|b)|c) ]]\neval $x # zsh-lint disable=security/eval -- static table\n"
+	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	diags := analyzer.New(rules.Default()...).Analyze(file, "test.zsh")
+	if got := findByID(diags, "security/eval"); len(got) != 0 {
+		t.Errorf("security/eval finding survived suppression: %+v", got)
+	}
+	if got := findByID(diags, "quoting/unquoted-var"); len(got) != 1 {
+		t.Errorf("quoting/unquoted-var count = %d, want 1: %+v", len(got), got)
+	}
+	if got := findByID(diags, "meta/unused-suppression"); len(got) != 0 {
+		t.Errorf("used suppression reported stale: %+v", got)
+	}
+}
+
+func TestAnalyzerDiagnosticsAfterLegacyBacktickIsland(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want []struct {
+			ruleID diag.RuleID
+			offset int
+			line   int
+			column int
+		}
+	}{
+		{
+			name: "suppression on next line",
+			code: "print `[[ $line == ((a|b)|c) ]]`\n" +
+				"eval $x # zsh-lint disable=security/eval -- static table\n",
+			want: []struct {
+				ruleID diag.RuleID
+				offset int
+				line   int
+				column int
+			}{
+				{ruleID: "style/backquotes", offset: 6, line: 1, column: 7},
+				{ruleID: "quoting/unquoted-var", offset: 38, line: 2, column: 6},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.code), "legacy-analyzer.zsh")
+			if err != nil {
+				t.Fatalf("parse failed: %v", err)
+			}
+			diagnostics := analyzer.New(rules.Default()...).Analyze(file, "legacy-analyzer.zsh")
+			if got := findByID(diagnostics, "security/eval"); len(got) != 0 {
+				t.Errorf("security/eval finding survived suppression: %+v", got)
+			}
+			if got := findByID(diagnostics, "meta/unused-suppression"); len(got) != 0 {
+				t.Errorf("used suppression reported stale: %+v", got)
+			}
+			if len(diagnostics) != len(test.want) {
+				t.Fatalf("diagnostic count = %d, want %d: %+v", len(diagnostics), len(test.want), diagnostics)
+			}
+			for index, want := range test.want {
+				got := diagnostics[index]
+				if got.RuleID != want.ruleID || got.Range.Start.Offset != want.offset ||
+					got.Range.Start.Line != want.line || got.Range.Start.Column != want.column {
+					t.Errorf(
+						"diagnostic[%d] = rule %q offset %d line %d column %d, want %q/%d/%d/%d",
+						index,
+						got.RuleID,
+						got.Range.Start.Offset,
+						got.Range.Start.Line,
+						got.Range.Start.Column,
+						want.ruleID,
+						want.offset,
+						want.line,
+						want.column,
+					)
+				}
+			}
+		})
+	}
 }
 
 func TestAnalyzerAppliesSuppression(t *testing.T) {
