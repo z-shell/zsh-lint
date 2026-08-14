@@ -60,3 +60,26 @@ fixture parse, the test fails loudly. Rename the fixture to `ok-<slug>.zsh`
 so it becomes permanent regression coverage, update `requiredFixtures`, and
 close the issue with a link to the survey run confirming the originating
 real file now parses.
+
+### Local compatibility adapters
+
+A narrowly scoped adapter in `internal/parse` may close a proven valid-Zsh gap
+without changing the selected parser dependency only when all of these hold:
+
+- the released Zsh manual and `zsh -f -n` establish the construct's validity;
+- the adapter activates for one exact parser error and one language construct;
+- the full-file retry has the same byte length as the original source;
+- every transformed byte is restored in the typed AST before analysis;
+- regression tests prove original AST text, diagnostic positions, suppression
+  behavior, and invalid-syntax rejection; and
+- the minimized fixture is `ok-*` only after the normal analyzer path passes.
+
+If recognition or restoration is uncertain, return the parser error. Do not
+use generic error suppression, recovery ASTs, or a compatibility adapter to
+absorb a second untracked language feature.
+
+A bounded local island may use source-mapped synthetic terminators only when
+the adapter verifies the original AST structure, invalid-syntax behavior, and
+every source position before returning the complete tree. This exception does
+not permit general source rewriting or consuming separators from the
+full-file retry.
