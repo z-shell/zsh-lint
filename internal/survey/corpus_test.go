@@ -23,6 +23,7 @@ var requiredFixtures = []string{
 	"ok-nested-conditional-alternation.zsh",
 	"ok-nested-param-expansion.zsh",
 	"ok-param-expansion-flags.zsh",
+	"ok-try-always.zsh",
 }
 
 // Fixture naming contract from docs/project/parser-gap-workflow.md:
