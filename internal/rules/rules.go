@@ -14,5 +14,7 @@ func Default() []analyzer.Rule {
 		FuncDeclStyle{},
 		FunctionScopedOptions{},
 		SpecialParamShadow{},
+		ZeroHandling{},
+		UnloadFunction{},
 	}
 }

@@ -27,6 +27,8 @@ func TestRuleSeverities(t *testing.T) {
 		{PreferDoubleBrackets{}, "if [ -f x ]; then :; fi\n", "test.zsh", diag.Hint},
 		{FunctionScopedOptions{}, "rehash\n", "functions/handler", diag.Hint},
 		{SpecialParamShadow{}, "local ZSH_VERSION=1\n", "test.zsh", diag.Warning},
+		{ZeroHandling{}, "fpath+=( \"${0:h}/functions\" )\n", "plugin.zsh", diag.Warning},
+		{UnloadFunction{}, "add-zsh-hook precmd _hook\n", "plugin.zsh", diag.Hint},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.rule.ID()), func(t *testing.T) {
@@ -61,4 +63,22 @@ func TestDefaultIncludesSpecialParamShadow(t *testing.T) {
 		}
 	}
 	t.Fatal("Default rules do not include compat/special-param-shadow")
+}
+
+func TestDefaultIncludesZeroHandling(t *testing.T) {
+	for _, rule := range Default() {
+		if rule.ID() == "plugin/zero-handling" {
+			return
+		}
+	}
+	t.Fatal("Default rules do not include plugin/zero-handling")
+}
+
+func TestDefaultIncludesUnloadFunction(t *testing.T) {
+	for _, rule := range Default() {
+		if rule.ID() == "plugin/unload-function" {
+			return
+		}
+	}
+	t.Fatal("Default rules do not include plugin/unload-function")
 }
