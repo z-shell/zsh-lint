@@ -40,6 +40,26 @@ func TestParseNativeParameterExpansionCompatibility(t *testing.T) {
 			src:  "print -r -- ${_comps[(r)-value-*]}\n",
 			want: "[(r)-value-*]",
 		},
+		{
+			name: "param glob toggle simple",
+			src:  "print -r -- ${~pattern}\n",
+			want: "${~pattern}",
+		},
+		{
+			name: "param glob toggle in conditional",
+			src:  "[[ \"$str\" == ${~pattern} ]] && print matched\n",
+			want: "${~pattern}",
+		},
+		{
+			name: "param glob toggle with flags",
+			src:  "print -r -- ${(e)~pattern}\n",
+			want: "${(e)~pattern}",
+		},
+		{
+			name: "param glob toggle with modifiers",
+			src:  "print -r -- ${~=pattern}\n",
+			want: "${~=pattern}",
+		},
 	}
 
 	for _, test := range tests {
@@ -63,6 +83,7 @@ func TestParameterCompatibilityPreservesLaterErrorPosition(t *testing.T) {
 	for _, src := range []string{
 		"print -r -- ${^manpath}\n)\n",
 		"print -r -- ${_comps[(I)-value-*]}\n)\n",
+		"print -r -- ${~pattern}\n)\n",
 	} {
 		_, err := Parse(strings.NewReader(src), "later-error.zsh")
 		if err == nil {
@@ -82,6 +103,7 @@ func TestParameterCompatibilityRejectsMalformedForms(t *testing.T) {
 	for _, src := range []string{
 		"print -r -- ${^manpath\n",
 		"print -r -- ${_comps[(I)-value-*}\n",
+		"print -r -- ${~pattern\n",
 	} {
 		if _, err := Parse(strings.NewReader(src), "malformed.zsh"); err == nil {
 			t.Fatalf("Parse(%q) unexpectedly succeeded", src)
