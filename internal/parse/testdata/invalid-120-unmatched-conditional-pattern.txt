@@ -1,0 +1,2 @@
+print before
+[[ $line == ((a|b) ]]

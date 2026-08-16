@@ -200,20 +200,20 @@ func TestNestedPatternBatchUsesConstantLegacyDelimiterLookups(t *testing.T) {
 			t.Fatalf("parseTree() error = %v, want %q", firstErr, invalidAlternationOperator)
 		}
 		lookups := 0
-		candidates, islands, ok := collectNestedPatternCandidates(
+		scan, ok := scanConditionalPatterns(
 			original,
 			int(parseErr.Pos.Offset()),
 			nil,
 			func() { lookups++ },
 		)
 		if !ok {
-			t.Fatal("collectNestedPatternCandidates() rejected native-valid legacy substitutions")
+			t.Fatal("scanConditionalPatterns() rejected native-valid legacy substitutions")
 		}
-		if len(candidates) != scale {
-			t.Fatalf("candidate count = %d, want %d", len(candidates), scale)
+		if len(scan.candidates) != scale {
+			t.Fatalf("candidate count = %d, want %d", len(scan.candidates), scale)
 		}
-		if len(islands) != scale {
-			t.Fatalf("legacy island count = %d, want %d", len(islands), scale)
+		if len(scan.backtickIslands) != scale {
+			t.Fatalf("legacy island count = %d, want %d", len(scan.backtickIslands), scale)
 		}
 		if lookups == 0 {
 			t.Fatal("legacy delimiter lookups = 0, want production observations")
