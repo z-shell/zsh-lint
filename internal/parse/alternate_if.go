@@ -123,18 +123,20 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			continue
 		}
 		if inANSICQuote {
-			if b == '\\' {
+			switch b {
+			case '\\':
 				escaped = true
-			} else if b == '\'' {
+			case '\'':
 				inANSICQuote = false
 			}
 			i++
 			continue
 		}
 		if inDoubleQuote {
-			if b == '\\' {
+			switch b {
+			case '\\':
 				escaped = true
-			} else if b == '"' {
+			case '"':
 				inDoubleQuote = false
 			}
 			i++
@@ -340,17 +342,18 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			continue
 		}
 
-		if b == ' ' || b == '\t' || b == '\n' {
+		switch b {
+		case ' ', '\t', '\n':
 			atWordStart = true
 			if b == '\n' {
 				atCommandStart = true
 				currentIf = ifNone
 			}
-		} else if b == ';' || b == '&' || b == '|' {
+		case ';', '&', '|':
 			atWordStart = true
 			atCommandStart = true
 			currentIf = ifNone
-		} else {
+		default:
 			atWordStart = false
 			atCommandStart = false
 		}
@@ -372,7 +375,7 @@ func matchSourceWord(src []byte, i int, word string) bool {
 	}
 	if i+len(word) < len(src) {
 		next := src[i+len(word)]
-		if !(next == ' ' || next == '\t' || next == '\n' || next == ';' || next == '&' || next == '|' || next == '(' || next == '{') {
+		if next != ' ' && next != '\t' && next != '\n' && next != ';' && next != '&' && next != '|' && next != '(' && next != '{' {
 			return false
 		}
 	}
@@ -434,9 +437,10 @@ func scanClosingBrace(src []byte, start int) int {
 	i := start + 1
 	depth := 1
 	for i < len(src) {
-		if src[i] == '{' {
+		switch src[i] {
+		case '{':
 			depth++
-		} else if src[i] == '}' {
+		case '}':
 			depth--
 			if depth == 0 {
 				return i + 1

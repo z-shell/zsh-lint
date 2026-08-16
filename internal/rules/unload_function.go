@@ -141,24 +141,18 @@ func checkUnloadFunctionHygiene(ctx *analyzer.Context, fn *syntax.FuncDecl, rule
 		cmdName := getWordLiteral(call.Args[0])
 		if cmdName == "unfunction" {
 			for _, arg := range call.Args[1:] {
-				argLit := getWordLiteral(arg)
-				if argLit == fnName || argLit == "$0" || strings.Contains(argLit, fnName) {
+				if isSelfUnfunctionArg(arg, fnName) {
 					selfUnfunctionFound = true
 				}
-				syntax.Walk(arg, func(an syntax.Node) bool {
-					if pe, ok := an.(*syntax.ParamExp); ok && pe.Param != nil {
-						if pe.Param.Value == "functions" {
-							ctx.Report(
-								call.Pos(),
-								call.End(),
-								ruleID,
-								diag.Warning,
-								"Do not wipe global functions indiscriminately; remove only plugin-owned functions explicitly",
-							)
-						}
-					}
-					return true
-				})
+				if isIndiscriminateFunctionsWipe(arg) {
+					ctx.Report(
+						call.Pos(),
+						call.End(),
+						ruleID,
+						diag.Warning,
+						"Do not wipe global functions indiscriminately; remove only plugin-owned functions explicitly",
+					)
+				}
 			}
 		}
 		return true
