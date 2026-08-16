@@ -453,7 +453,7 @@ func scanAlternateConditionBrace(src []byte, i int) int {
 		if i < len(src) && src[i] == '{' {
 			return i
 		}
-		if i+1 >= len(src) || !((src[i] == '&' && src[i+1] == '&') || (src[i] == '|' && src[i+1] == '|')) {
+		if i+1 >= len(src) || (src[i] != '&' || src[i+1] != '&') && (src[i] != '|' || src[i+1] != '|') {
 			return i
 		}
 		i = skipAlternateConditionSpaces(src, i+2)
