@@ -37,7 +37,7 @@ both directions:
     zsh -n <file>                         # must pass — the gap is real Zsh
 
 A fixture that `zsh -n` rejects is a broken script, not a parser gap; never
-commit one.
+commit one to the native-valid survey corpus.
 
 ## 4. Promote to fixture
 
@@ -51,6 +51,20 @@ any other name is rejected. There is no fixture
 count assertion — adding fixtures never requires test edits
 ([#14](https://github.com/z-shell/zsh-lint/issues/14)); only the small
 `requiredFixtures` baseline list is asserted by name.
+
+### Native-invalid regression sources
+
+False acceptance defects need the opposite contract: native Zsh rejects the
+source and zsh-lint must also reject it. Store a minimized source as
+`internal/parse/testdata/invalid-<issue>-<slug>.txt` and exercise it from a
+focused parser test. Use `.txt` deliberately so the repository-wide native Zsh
+syntax gate continues to require every tracked `.zsh` corpus source to be
+valid.
+
+Record the native decision with `zsh -f -n`, but never execute an invalid test
+source. Parser tests read its bytes and assert the error family and original
+source position. Do not add exceptions to the native Zsh syntax gate for
+ordinary `.zsh` files.
 
 ## 5. Close the loop
 

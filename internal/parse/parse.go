@@ -72,6 +72,9 @@ func Parse(r io.Reader, name string) (*File, error) {
 			}
 		}
 	}
+	if err := validateConditionalPatterns(src, name); err != nil {
+		return nil, err
+	}
 	text := strings.TrimSuffix(string(src), "\n")
 	return &File{tree: tree, lines: strings.Split(text, "\n")}, nil
 }

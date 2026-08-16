@@ -102,6 +102,17 @@ type patternCandidate struct {
 	seed             bool
 }
 
+type conditionalPatternFinding struct {
+	offset int
+	text   string
+}
+
+type conditionalPatternScan struct {
+	candidates      []patternCandidate
+	backtickIslands []legacyBacktickIsland
+	finding         *conditionalPatternFinding
+}
+
 type activeConditionalContext struct {
 	start   int
 	pattern *activePatternState
@@ -211,13 +222,13 @@ func nestedPatternBatch(
 	if len(probes) > 0 {
 		inspect = probes[0]
 	}
-	candidates, backtickIslands, ok := collectNestedPatternCandidates(src, seedOffset, inspect)
+	scan, ok := scanConditionalPatterns(src, seedOffset, inspect)
 	if !ok {
 		return nestedPatternCompatibilityBatch{}, false
 	}
 	seedRecognized := false
 	editCount := 0
-	for _, candidate := range candidates {
+	for _, candidate := range scan.candidates {
 		if inspect != nil {
 			inspect()
 		}
@@ -232,7 +243,7 @@ func nestedPatternBatch(
 
 	edits := make([]patternEdit, 0, editCount)
 	seenOffsets := make(map[int]bool, editCount)
-	for _, candidate := range candidates {
+	for _, candidate := range scan.candidates {
 		for _, edit := range candidate.edits {
 			if seenOffsets[edit.offset] {
 				return nestedPatternCompatibilityBatch{}, false
@@ -243,18 +254,19 @@ func nestedPatternBatch(
 	}
 	return nestedPatternCompatibilityBatch{
 		edits:           edits,
-		backtickIslands: backtickIslands,
+		backtickIslands: scan.backtickIslands,
 	}, true
 }
 
-func collectNestedPatternCandidates(
+func scanConditionalPatterns(
 	src []byte,
 	seedOffset int,
 	inspect patternBatchProbe,
 	legacyLookupProbes ...activeLegacyLookupProbe,
-) ([]patternCandidate, []legacyBacktickIsland, bool) {
+) (conditionalPatternScan, bool) {
 	var candidates []patternCandidate
 	var backtickRoots []*legacyBacktickSpan
+	var finding *conditionalPatternFinding
 	var inspectLegacyLookup activeLegacyLookupProbe
 	if len(legacyLookupProbes) > 0 {
 		inspectLegacyLookup = legacyLookupProbes[0]
@@ -316,7 +328,7 @@ func collectNestedPatternCandidates(
 		if b == '\n' && frame.arithmeticDepth == 0 && len(frame.heredocs) > 0 {
 			next, ok := consumeHeredocBodies(src, i+1, frame.heredocs)
 			if !ok {
-				return nil, nil, false
+				return conditionalPatternScan{}, false
 			}
 			frame.heredocs = nil
 			frame.inComment = false
@@ -379,10 +391,10 @@ func collectNestedPatternCandidates(
 				continue
 			}
 			if escapeDepth != depth-1 {
-				return nil, nil, false
+				return conditionalPatternScan{}, false
 			}
 			if !activeSourceFrameCanClose(frame) {
-				return nil, nil, false
+				return conditionalPatternScan{}, false
 			}
 			frame.legacyBacktick.closeStart = i - delimiterEscapes
 			frame.legacyBacktick.closeOffset = i
@@ -463,7 +475,7 @@ func collectNestedPatternCandidates(
 			}
 		}
 		if frame.conditional != nil && frame.conditional.pattern != nil {
-			if activePatternByteConsumed(frame, src, i, seedOffset, &candidates) {
+			if activePatternByteConsumed(frame, src, i, seedOffset, &candidates, &finding) {
 				frame.atWordStart = false
 				frame.atCommandStart = false
 				continue
@@ -600,7 +612,7 @@ func collectNestedPatternCandidates(
 				continue
 			}
 			if !activeSourceFrameCanClose(frame) {
-				return nil, nil, false
+				return conditionalPatternScan{}, false
 			}
 			adaptedPattern := frame.adaptedPattern
 			frames = frames[:len(frames)-1]
@@ -626,7 +638,7 @@ func collectNestedPatternCandidates(
 			}
 			delimiter, end, ok := parseHeredocDelimiter(src, delimiterStart)
 			if !ok {
-				return nil, nil, false
+				return conditionalPatternScan{}, false
 			}
 			frame.heredocs = append(frame.heredocs, pendingHeredoc{
 				delimiter: delimiter,
@@ -644,7 +656,7 @@ func collectNestedPatternCandidates(
 			continue
 		}
 		if frame.conditional != nil && b == ']' && i+1 < len(src) && src[i+1] == ']' {
-			finalizeActivePattern(frame, i, &candidates)
+			finalizeActivePattern(frame, i, &candidates, &finding)
 			frame.conditional = nil
 			i++
 			frame.atWordStart = false
@@ -669,16 +681,20 @@ func collectNestedPatternCandidates(
 	}
 
 	if len(frames) == 1 && frames[0].conditional != nil {
-		finalizeActivePattern(&frames[0], len(src), &candidates)
+		finalizeActivePattern(&frames[0], len(src), &candidates, &finding)
 	}
 	if len(frames) != 1 || !activeSourceRootFrameComplete(&frames[0]) {
-		return nil, nil, false
+		return conditionalPatternScan{}, false
 	}
 	islands, ok := affectedLegacyBacktickIslands(backtickRoots)
 	if !ok {
-		return nil, nil, false
+		return conditionalPatternScan{}, false
 	}
-	return candidates, islands, true
+	return conditionalPatternScan{
+		candidates:      candidates,
+		backtickIslands: islands,
+		finding:         finding,
+	}, true
 }
 
 func activePatternOperatorEnd(src []byte, start int) (int, bool) {
@@ -704,6 +720,7 @@ func activePatternByteConsumed(
 	offset int,
 	seedOffset int,
 	candidates *[]patternCandidate,
+	finding **conditionalPatternFinding,
 ) bool {
 	pattern := frame.conditional.pattern
 	b := src[offset]
@@ -725,7 +742,7 @@ func activePatternByteConsumed(
 				(string(src[offset:offset+2]) == "&&" ||
 					string(src[offset:offset+2]) == "||" ||
 					string(src[offset:offset+2]) == "]]")) {
-			finalizeActivePattern(frame, offset, candidates)
+			finalizeActivePattern(frame, offset, candidates, finding)
 			return false
 		}
 	}
@@ -798,14 +815,26 @@ func finalizeActivePattern(
 	frame *activeSourceFrame,
 	rhsEnd int,
 	candidates *[]patternCandidate,
+	finding **conditionalPatternFinding,
 ) {
 	if frame.conditional == nil || frame.conditional.pattern == nil {
 		return
 	}
 	pattern := frame.conditional.pattern
 	frame.conditional.pattern = nil
-	if pattern.invalid || pattern.rhsStart < 0 || pattern.inBracketExpression ||
-		len(pattern.openings) != 0 || !pattern.nestedAlternation || len(pattern.pairs) == 0 {
+	if pattern.invalid || pattern.rhsStart < 0 || pattern.inBracketExpression {
+		return
+	}
+	if len(pattern.openings) != 0 {
+		if *finding == nil {
+			*finding = &conditionalPatternFinding{
+				offset: pattern.openings[0],
+				text:   "unmatched `(` in conditional pattern",
+			}
+		}
+		return
+	}
+	if !pattern.nestedAlternation || len(pattern.pairs) == 0 {
 		return
 	}
 	edits := make([]patternEdit, 0, len(pattern.pairs)*2)
