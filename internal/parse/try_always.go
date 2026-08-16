@@ -72,17 +72,19 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 			continue
 		}
 		if inDoubleQuote {
-			if b == '\\' {
+			switch b {
+			case '\\':
 				escaped = true
-			} else if b == '"' {
+			case '"':
 				inDoubleQuote = false
 			}
 			continue
 		}
 		if inANSICQuote {
-			if b == '\\' {
+			switch b {
+			case '\\':
 				escaped = true
-			} else if b == '\'' {
+			case '\'':
 				inANSICQuote = false
 			}
 			continue
