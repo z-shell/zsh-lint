@@ -31,6 +31,14 @@ func TestParseAlternateIfBrace(t *testing.T) {
 			wantStmts: 1,
 		},
 		{
+			name: "alternate while with arithmetic condition",
+			src: `while (( count < 3 )) {
+  (( count++ ))
+}
+`,
+			wantStmts: 1,
+		},
+		{
 			name: "brace condition",
 			src: `if { true } {
   print "brace"
@@ -46,6 +54,15 @@ func TestParseAlternateIfBrace(t *testing.T) {
   print "two"
 } else {
   print "three"
+}
+`,
+			wantStmts: 1,
+		},
+		{
+			name: "alternate if with compound conditions",
+			src: `if (( first )) && \
+  [[ -n $second ]] || [[ $third == yes ]] {
+  print -r -- matched
 }
 `,
 			wantStmts: 1,

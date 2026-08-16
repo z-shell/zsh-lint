@@ -62,13 +62,22 @@ func Parse(r io.Reader, name string) (*File, error) {
 		if err != nil {
 			tree, err = parseAlternateIfBrace(src, name, err)
 			if err != nil {
-				tree, err = parseMultiNameFor(src, name, err)
+				tree, err = parseAssociativeSubscript(src, name, err)
 				if err != nil {
-					tree, err = parseTryAlways(src, name, err)
+					tree, err = parseRCExpandCaret(src, name, err)
 					if err != nil {
-						tree, err = parseGroupedCasePattern(src, name, err)
+						tree, err = parseReverseSubscript(src, name, err)
 						if err != nil {
-							return nil, err
+							tree, err = parseMultiNameFor(src, name, err)
+							if err != nil {
+								tree, err = parseTryAlways(src, name, err)
+								if err != nil {
+									tree, err = parseGroupedCasePattern(src, name, err)
+									if err != nil {
+										return nil, err
+									}
+								}
+							}
 						}
 					}
 				}
