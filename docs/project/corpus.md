@@ -17,14 +17,14 @@ survey command shown below.
 
 ## Inventory
 
-| Repository                      | Files                                                                        | Rationale                                                                        |
-| ------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `z-shell/src`                   | `public/zsh/init.zsh`                                                        | Zi loader; heaviest real-world Zsh (parameter-expansion flags, `always` blocks). |
-| `z-shell/zd`                    | `docker/utils.zsh`, `docker/zshrc`, `docker/zshenv`                          | CI bootstrap Zsh; mixes POSIX-ish and Zsh-native style.                          |
-| `z-shell/zunit`                 | `build.zsh`                                                                  | Build script; representative tooling Zsh.                                        |
-| `z-shell/z-a-meta-plugins`      | `z-a-meta-plugins.plugin.zsh`, `functions/` (dot-prefixed handler functions) | Annex entry plus handler functions using the strict-emulation pattern.           |
-| `z-shell/zsh-fancy-completions` | `zsh-fancy-completions.plugin.zsh`, `functions/`, `lib/`                     | Completion-style plugin; globbing, zstyle, and completion-discovery heavy.       |
-| `z-shell/zsh-eza`               | `zsh-eza.plugin.zsh`                                                         | Small, typical plugin entry file.                                                |
+| Repository                      | Files                                                                        | Rationale                                                                                                                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `z-shell/src`                   | `public/zsh/init.zsh`                                                        | Zi loader; heaviest real-world Zsh (parameter-expansion flags, `always` blocks).                                                                                               |
+| `z-shell/zd`                    | `docker/utils.zsh`, `docker/zshrc`, `docker/zshenv`                          | CI bootstrap Zsh; mixes POSIX-ish and Zsh-native style.                                                                                                                        |
+| `z-shell/zunit`                 | `build.zsh`                                                                  | Build script; representative tooling Zsh.                                                                                                                                      |
+| `z-shell/z-a-meta-plugins`      | `z-a-meta-plugins.plugin.zsh`, `functions/` (dot-prefixed handler functions) | Annex entry plus handler functions using the strict-emulation pattern.                                                                                                         |
+| `z-shell/zsh-fancy-completions` | `zsh-fancy-completions.plugin.zsh`, `functions/`, `lib/`                     | Completion-style plugin; globbing, zstyle, and completion-discovery heavy.                                                                                                     |
+| `z-shell/zsh-eza`               | `zsh-eza.plugin.zsh`, `functions/` (dot-prefixed handler function)           | Small, typical plugin entry file plus a strict-emulation handler function, the same pattern `z-a-meta-plugins` was included for; omitted from the initial corpus by oversight. |
 
 Inclusion rationale, per family: the corpus deliberately spans the loader
 (`src`), the CI environment (`zd`), test tooling (`zunit`), an annex
@@ -46,6 +46,7 @@ Run from `$CORPUS_ROOT`, pointing `go run` at a local `zsh-lint` checkout
          zsh-fancy-completions/functions \
          zsh-fancy-completions/lib \
          zsh-eza/zsh-eza.plugin.zsh \
+         zsh-eza/functions \
          -type f | sort | xargs go run <path-to-zsh-lint>/cmd/zsh-lint-survey
 
 Directory entries are passed through `find -type f`, which also picks up
