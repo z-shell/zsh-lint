@@ -20,6 +20,8 @@ const (
 	editElse
 	editChain
 	editFi
+	editWhileDo
+	editDone
 )
 
 type alternateIfEdit struct {
@@ -33,7 +35,21 @@ type alternateIfSourceMap struct {
 }
 
 func parseAlternateIfBrace(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseAlternateIfBraceWithParser(src, name, firstErr, parseTree)
+	return parseAlternateIfBraceWithParser(src, name, firstErr, parseAfterAlternateIf)
+}
+
+// parseAfterAlternateIf lets independently gated, same-boundary adapters
+// compose when one real file contains more than one unsupported Zsh form.
+// Each adapter still activates only from its own concrete parser error.
+func parseAfterAlternateIf(src []byte, name string) (*syntax.File, error) {
+	tree, err := parseTree(src, name)
+	if err != nil {
+		tree, err = parseAssociativeSubscriptWithParser(src, name, err, parseAfterAlternateIf)
+		if err != nil {
+			tree, err = parseMultiNameForWithParser(src, name, err, parseAfterAlternateIf)
+		}
+	}
+	return tree, err
 }
 
 func parseAlternateIfBraceWithParser(
@@ -85,6 +101,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		kindIfThen
 		kindElifThen
 		kindElse
+		kindWhileDo
 	)
 	type blockFrame struct {
 		kind       blockKind
@@ -98,6 +115,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		ifSawIf
 		ifSawElif
 		ifSawElse
+		ifSawWhile
 	)
 	currentIf := ifNone
 
@@ -210,14 +228,21 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 				atCommandStart = false
 				continue
 			}
+			if matchSourceWord(src, i, "while") {
+				currentIf = ifSawWhile
+				i += 5
+				atWordStart = false
+				atCommandStart = false
+				continue
+			}
 		}
 
-		if currentIf == ifSawIf || currentIf == ifSawElif {
+		if currentIf == ifSawIf || currentIf == ifSawElif || currentIf == ifSawWhile {
 			if b == '[' && i+1 < len(src) && src[i+1] == '[' {
 				end := scanClosingDoubleBracket(src, i)
 				if end > i {
 					i = end
-					braceOffset := skipSpacesAndComments(src, i)
+					braceOffset := scanAlternateConditionBrace(src, i)
 					if braceOffset < len(src) && src[braceOffset] == '{' {
 						if braceOffset == seedOffset {
 							seedRecognized = true
@@ -225,11 +250,15 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 						kind := editIfThen
 						if currentIf == ifSawElif {
 							kind = editElifThen
+						} else if currentIf == ifSawWhile {
+							kind = editWhileDo
 						}
 						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
 						bk := kindIfThen
 						if currentIf == ifSawElif {
 							bk = kindElifThen
+						} else if currentIf == ifSawWhile {
+							bk = kindWhileDo
 						}
 						blockStack = append(blockStack, blockFrame{kind: bk, openOffset: braceOffset})
 						currentIf = ifNone
@@ -244,7 +273,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 				end := scanClosingDoubleParen(src, i)
 				if end > i {
 					i = end
-					braceOffset := skipSpacesAndComments(src, i)
+					braceOffset := scanAlternateConditionBrace(src, i)
 					if braceOffset < len(src) && src[braceOffset] == '{' {
 						if braceOffset == seedOffset {
 							seedRecognized = true
@@ -252,11 +281,15 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 						kind := editIfThen
 						if currentIf == ifSawElif {
 							kind = editElifThen
+						} else if currentIf == ifSawWhile {
+							kind = editWhileDo
 						}
 						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
 						bk := kindIfThen
 						if currentIf == ifSawElif {
 							bk = kindElifThen
+						} else if currentIf == ifSawWhile {
+							bk = kindWhileDo
 						}
 						blockStack = append(blockStack, blockFrame{kind: bk, openOffset: braceOffset})
 						currentIf = ifNone
@@ -323,13 +356,27 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			if len(blockStack) > 0 {
 				top := blockStack[len(blockStack)-1]
 				blockStack = blockStack[:len(blockStack)-1]
+				nextWordOffset := skipSpacesAndComments(src, i+1)
+				if top.kind == kindWhileDo {
+					edits = append(edits, alternateIfEdit{offset: i, kind: editDone})
+					i++
+					atWordStart = true
+					atCommandStart = true
+					continue
+				}
 				if top.kind == kindIfThen || top.kind == kindElifThen || top.kind == kindElse {
-					nextWordOffset := skipSpacesAndComments(src, i+1)
 					if nextWordOffset < len(src) && (matchSourceWord(src, nextWordOffset, "elif") || matchSourceWord(src, nextWordOffset, "else")) {
 						edits = append(edits, alternateIfEdit{offset: i, kind: editChain})
 					} else {
 						edits = append(edits, alternateIfEdit{offset: i, kind: editFi})
 					}
+					i++
+					atWordStart = true
+					atCommandStart = true
+					continue
+				}
+				if nextWordOffset < len(src) && (matchSourceWord(src, nextWordOffset, "elif") || matchSourceWord(src, nextWordOffset, "else")) {
+					edits = append(edits, alternateIfEdit{offset: i, kind: editChain})
 					i++
 					atWordStart = true
 					atCommandStart = true
@@ -398,6 +445,44 @@ func skipSpacesAndComments(src []byte, i int) int {
 		break
 	}
 	return i
+}
+
+func scanAlternateConditionBrace(src []byte, i int) int {
+	for {
+		i = skipAlternateConditionSpaces(src, i)
+		if i < len(src) && src[i] == '{' {
+			return i
+		}
+		if i+1 >= len(src) || (src[i] != '&' || src[i+1] != '&') && (src[i] != '|' || src[i+1] != '|') {
+			return i
+		}
+		i = skipAlternateConditionSpaces(src, i+2)
+		for i < len(src) && src[i] == '!' {
+			i = skipAlternateConditionSpaces(src, i+1)
+		}
+		switch {
+		case i+1 < len(src) && src[i] == '[' && src[i+1] == '[':
+			i = scanClosingDoubleBracket(src, i)
+		case i+1 < len(src) && src[i] == '(' && src[i+1] == '(':
+			i = scanClosingDoubleParen(src, i)
+		default:
+			return i
+		}
+		if i < 0 {
+			return len(src)
+		}
+	}
+}
+
+func skipAlternateConditionSpaces(src []byte, i int) int {
+	for {
+		next := skipSpacesAndComments(src, i)
+		if next < len(src) && src[next] == '\\' && next+1 < len(src) && src[next+1] == '\n' {
+			i = next + 2
+			continue
+		}
+		return next
+	}
 }
 
 func scanClosingDoubleBracket(src []byte, start int) int {
@@ -485,12 +570,16 @@ func applyAlternateIfEdits(src []byte, edits []alternateIfEdit) ([]byte, alterna
 			switch edit.kind {
 			case editIfThen, editElifThen:
 				appendSynthetic("; then\n", i)
+			case editWhileDo:
+				appendSynthetic("; do\n", i)
 			case editElse:
 				appendSynthetic("\n", i)
 			case editChain:
 				appendSynthetic("\n", i)
 			case editFi:
 				appendSynthetic("\nfi\n", i)
+			case editDone:
+				appendSynthetic("\ndone\n", i)
 			}
 			continue
 		}
