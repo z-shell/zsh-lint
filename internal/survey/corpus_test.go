@@ -16,6 +16,7 @@ import (
 var requiredFixtures = []string{
 	"gap-13-multi-name-loop.zsh",
 	"gap-15-reverse-subscript.zsh",
+	"ok-alternate-if-brace.zsh",
 	"ok-baseline.zsh",
 	"ok-brace-termination.zsh",
 	"ok-glob-patterns.zsh",

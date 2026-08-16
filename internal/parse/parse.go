@@ -60,7 +60,10 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err != nil {
 		tree, err = parseNestedConditionalAlternation(src, name, err)
 		if err != nil {
-			return nil, err
+			tree, err = parseAlternateIfBrace(src, name, err)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	text := strings.TrimSuffix(string(src), "\n")
