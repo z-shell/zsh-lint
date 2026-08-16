@@ -14,12 +14,12 @@ import (
 // against accidental deletion without asserting a brittle total count
 // (issue #14): new fixtures can be added freely without touching this test.
 var requiredFixtures = []string{
-	"gap-13-multi-name-loop.zsh",
 	"gap-15-reverse-subscript.zsh",
 	"ok-alternate-if-brace.zsh",
 	"ok-baseline.zsh",
 	"ok-brace-termination.zsh",
 	"ok-glob-patterns.zsh",
+	"ok-multi-name-loop.zsh",
 	"ok-nested-conditional-alternation.zsh",
 	"ok-nested-param-expansion.zsh",
 	"ok-param-expansion-flags.zsh",

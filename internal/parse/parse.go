@@ -62,7 +62,10 @@ func Parse(r io.Reader, name string) (*File, error) {
 		if err != nil {
 			tree, err = parseAlternateIfBrace(src, name, err)
 			if err != nil {
-				return nil, err
+				tree, err = parseMultiNameFor(src, name, err)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
