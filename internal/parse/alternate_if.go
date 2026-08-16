@@ -247,19 +247,20 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 						if braceOffset == seedOffset {
 							seedRecognized = true
 						}
-						kind := editIfThen
-						if currentIf == ifSawElif {
+						var kind alternateIfEditKind
+						var bk blockKind
+						switch currentIf {
+						case ifSawElif:
 							kind = editElifThen
-						} else if currentIf == ifSawWhile {
+							bk = kindElifThen
+						case ifSawWhile:
 							kind = editWhileDo
+							bk = kindWhileDo
+						default:
+							kind = editIfThen
+							bk = kindIfThen
 						}
 						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
-						bk := kindIfThen
-						if currentIf == ifSawElif {
-							bk = kindElifThen
-						} else if currentIf == ifSawWhile {
-							bk = kindWhileDo
-						}
 						blockStack = append(blockStack, blockFrame{kind: bk, openOffset: braceOffset})
 						currentIf = ifNone
 						i = braceOffset + 1
@@ -278,19 +279,20 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 						if braceOffset == seedOffset {
 							seedRecognized = true
 						}
-						kind := editIfThen
-						if currentIf == ifSawElif {
+						var kind alternateIfEditKind
+						var bk blockKind
+						switch currentIf {
+						case ifSawElif:
 							kind = editElifThen
-						} else if currentIf == ifSawWhile {
+							bk = kindElifThen
+						case ifSawWhile:
 							kind = editWhileDo
+							bk = kindWhileDo
+						default:
+							kind = editIfThen
+							bk = kindIfThen
 						}
 						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
-						bk := kindIfThen
-						if currentIf == ifSawElif {
-							bk = kindElifThen
-						} else if currentIf == ifSawWhile {
-							bk = kindWhileDo
-						}
 						blockStack = append(blockStack, blockFrame{kind: bk, openOffset: braceOffset})
 						currentIf = ifNone
 						i = braceOffset + 1
@@ -308,15 +310,16 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 						if braceOffset == seedOffset {
 							seedRecognized = true
 						}
-						kind := editIfThen
+						var kind alternateIfEditKind
+						var bk blockKind
 						if currentIf == ifSawElif {
 							kind = editElifThen
+							bk = kindElifThen
+						} else {
+							kind = editIfThen
+							bk = kindIfThen
 						}
 						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
-						bk := kindIfThen
-						if currentIf == ifSawElif {
-							bk = kindElifThen
-						}
 						blockStack = append(blockStack, blockFrame{kind: bk, openOffset: braceOffset})
 						currentIf = ifNone
 						i = braceOffset + 1
