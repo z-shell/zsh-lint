@@ -59,8 +59,15 @@ const (
 
 type activeCaseContext struct {
 	phase             activeCasePhase
+	start             int
 	patternParenDepth int
 	inBracketPattern  bool
+	edits             []patternEdit
+}
+
+type groupedCasePatternCandidate struct {
+	edits []patternEdit
+	seed  bool
 }
 
 type pendingHeredoc struct {
@@ -108,9 +115,10 @@ type conditionalPatternFinding struct {
 }
 
 type conditionalPatternScan struct {
-	candidates      []patternCandidate
-	backtickIslands []legacyBacktickIsland
-	finding         *conditionalPatternFinding
+	candidates          []patternCandidate
+	groupedCasePatterns []groupedCasePatternCandidate
+	backtickIslands     []legacyBacktickIsland
+	finding             *conditionalPatternFinding
 }
 
 type activeConditionalContext struct {
@@ -265,6 +273,7 @@ func scanConditionalPatterns(
 	legacyLookupProbes ...activeLegacyLookupProbe,
 ) (conditionalPatternScan, bool) {
 	var candidates []patternCandidate
+	var groupedCasePatterns []groupedCasePatternCandidate
 	var backtickRoots []*legacyBacktickSpan
 	var finding *conditionalPatternFinding
 	var inspectLegacyLookup activeLegacyLookupProbe
@@ -414,7 +423,10 @@ func scanConditionalPatterns(
 		if frame.conditional == nil && frame.atWordStart && frame.atCommandStart &&
 			(currentCase == nil || currentCase.phase == activeCaseBody) &&
 			activeSourceWordAt(src, i, "case") {
-			frame.caseContexts = append(frame.caseContexts, activeCaseContext{phase: activeCaseSubject})
+			frame.caseContexts = append(frame.caseContexts, activeCaseContext{
+				phase: activeCaseSubject,
+				start: i,
+			})
 			i += len("case") - 1
 			frame.atWordStart = false
 			frame.atCommandStart = false
@@ -561,16 +573,34 @@ func scanConditionalPatterns(
 				frame.atCommandStart = false
 				continue
 			case '(':
+				if currentCase.patternParenDepth > 0 {
+					currentCase.edits = append(currentCase.edits, patternEdit{
+						offset:      i,
+						original:    '(',
+						replacement: nestedPatternMask,
+					})
+				}
 				currentCase.patternParenDepth++
 				frame.atWordStart = false
 				frame.atCommandStart = false
 				continue
 			case ')':
 				if currentCase.patternParenDepth > 0 {
+					currentCase.edits = append(currentCase.edits, patternEdit{
+						offset:      i,
+						original:    ')',
+						replacement: nestedPatternMask,
+					})
 					currentCase.patternParenDepth--
 					frame.atWordStart = false
 					frame.atCommandStart = false
 				} else {
+					if len(currentCase.edits) > 0 {
+						groupedCasePatterns = append(groupedCasePatterns, groupedCasePatternCandidate{
+							edits: append([]patternEdit(nil), currentCase.edits...),
+							seed:  currentCase.start <= seedOffset && seedOffset <= i,
+						})
+					}
 					currentCase.phase = activeCaseBody
 					frame.atWordStart = true
 					frame.atCommandStart = true
@@ -691,9 +721,10 @@ func scanConditionalPatterns(
 		return conditionalPatternScan{}, false
 	}
 	return conditionalPatternScan{
-		candidates:      candidates,
-		backtickIslands: islands,
-		finding:         finding,
+		candidates:          candidates,
+		groupedCasePatterns: groupedCasePatterns,
+		backtickIslands:     islands,
+		finding:             finding,
 	}, true
 }
 

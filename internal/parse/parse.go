@@ -66,7 +66,10 @@ func Parse(r io.Reader, name string) (*File, error) {
 				if err != nil {
 					tree, err = parseTryAlways(src, name, err)
 					if err != nil {
-						return nil, err
+						tree, err = parseGroupedCasePattern(src, name, err)
+						if err != nil {
+							return nil, err
+						}
 					}
 				}
 			}
