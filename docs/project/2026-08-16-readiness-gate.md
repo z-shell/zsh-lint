@@ -19,7 +19,7 @@ change is reviewed and published.
 
 | Repository                      | Local branch                    | Base revision | Candidate commit |
 | ------------------------------- | ------------------------------- | ------------- | ---------------- |
-| `z-shell/zsh-lint`              | `feature-129-rollout-readiness` | `8facdaf`     | pending          |
+| `z-shell/zsh-lint`              | `feature-129-rollout-readiness` | `8facdaf`     | `e58316f`        |
 | `z-shell/src`                   | `feature-180-zsh-lint-warnings` | `9633151`     | `baa5268`        |
 | `z-shell/zd`                    | `feature-97-zsh-lint-warning`   | `626f0cb`     | `29a6e85`        |
 | `z-shell/z-a-meta-plugins`      | `feature-41-zsh-lint-findings`  | `c88d62a`     | `dabbc80`        |
