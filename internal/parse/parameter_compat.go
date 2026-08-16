@@ -7,7 +7,50 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-const invalidReverseGlob = "`*` must follow an expression"
+const (
+	invalidReverseGlob     = "`*` must follow an expression"
+	invalidParamGlobToggle = "not a valid parameter expansion operator: `~`"
+)
+
+func parseParamGlobToggle(src []byte, name string, firstErr error) (*syntax.File, error) {
+	return parseParamGlobToggleWithParser(src, name, firstErr, parseParamGlobToggles)
+}
+
+func parseParamGlobToggles(src []byte, name string) (*syntax.File, error) {
+	tree, err := parseTree(src, name)
+	if err != nil {
+		return parseParamGlobToggleWithParser(src, name, err, parseParamGlobToggles)
+	}
+	return tree, nil
+}
+
+func parseParamGlobToggleWithParser(
+	src []byte,
+	name string,
+	firstErr error,
+	parse func([]byte, string) (*syntax.File, error),
+) (*syntax.File, error) {
+	var parseErr syntax.ParseError
+	if !errors.As(firstErr, &parseErr) || parseErr.Text != invalidParamGlobToggle {
+		return nil, firstErr
+	}
+	seed := int(parseErr.Pos.Offset())
+	if seed < 0 || seed >= len(src) || src[seed] != '~' {
+		return nil, firstErr
+	}
+
+	masked := bytes.Clone(src)
+	masked[seed] = 'x'
+	edit := patternEdit{offset: seed, original: '~', replacement: 'x'}
+	tree, err := parse(masked, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := restorePatternEdits(tree, src, []patternEdit{edit}); err != nil {
+		return nil, err
+	}
+	return tree, nil
+}
 
 func parseRCExpandCaret(src []byte, name string, firstErr error) (*syntax.File, error) {
 	return parseRCExpandCaretWithParser(src, name, firstErr, parseRCExpandCarets)
