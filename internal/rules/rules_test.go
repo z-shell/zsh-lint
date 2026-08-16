@@ -29,6 +29,7 @@ func TestRuleSeverities(t *testing.T) {
 		{SpecialParamShadow{}, "local ZSH_VERSION=1\n", "test.zsh", diag.Warning},
 		{ZeroHandling{}, "fpath+=( \"${0:h}/functions\" )\n", "plugin.zsh", diag.Warning},
 		{UnloadFunction{}, "add-zsh-hook precmd _hook\n", "plugin.zsh", diag.Hint},
+		{FpathHygiene{}, "fpath=( \"${0:h}/functions\" )\n", "plugin.zsh", diag.Warning},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.rule.ID()), func(t *testing.T) {
@@ -81,4 +82,13 @@ func TestDefaultIncludesUnloadFunction(t *testing.T) {
 		}
 	}
 	t.Fatal("Default rules do not include plugin/unload-function")
+}
+
+func TestDefaultIncludesFpathHygiene(t *testing.T) {
+	for _, rule := range Default() {
+		if rule.ID() == "plugin/fpath-hygiene" {
+			return
+		}
+	}
+	t.Fatal("Default rules do not include plugin/fpath-hygiene")
 }

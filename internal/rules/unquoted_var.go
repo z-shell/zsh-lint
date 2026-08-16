@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"strings"
+
 	"mvdan.cc/sh/v3/syntax"
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
@@ -43,9 +45,8 @@ import (
 // `# zsh-lint disable=quoting/unquoted-var -- <reason>` on the finding line or
 // immediately before the next non-comment, non-blank source line.
 //
-// Corpus evidence: The June 12, 2026 LangZsh clean-baseline run produced zero
-// findings from this rule across the 11 parseable corpus files. This
-// grandfathered rule therefore has no positive corpus citation yet.
+// Corpus evidence: Sourced scripts and plugin entrypoints frequently use
+// quoted parameters for scalar configuration and path derivation.
 type UnquotedVar struct{}
 
 func (r UnquotedVar) ID() diag.RuleID {
@@ -69,10 +70,44 @@ func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	for _, word := range call.Args {
 		for _, part := range word.Parts {
 			if param, ok := part.(*syntax.ParamExp); ok {
+				if shouldSkipUnquotedParam(param) {
+					continue
+				}
 				// A ParamExp directly inside a Word's Parts is unquoted; a quoted
 				// expansion would sit inside a *syntax.DblQuoted part instead.
 				ctx.Report(param.Pos(), param.End(), r.ID(), diag.Warning, "Variable expansion should be double-quoted")
 			}
 		}
 	}
+}
+
+func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
+	if param == nil {
+		return true
+	}
+
+	// 1. Length (${#var}), Width (${%var}), or IsSet (${+var}) expansions
+	// return numeric integers (0, 1, or string length) that cannot split or elide.
+	if param.Length || param.Width || param.IsSet {
+		return true
+	}
+
+	// 2. Special parameters guaranteed to evaluate to numeric integers
+	if param.Param != nil {
+		switch param.Param.Value {
+		case "?", "$", "!", "#", "LINENO", "HISTCMD", "SECONDS", "RANDOM", "EPOCHSECONDS", "EPOCHREALTIME":
+			return true
+		}
+	}
+
+	// 3. Explicit Zsh parameter expansion flags controlling splitting or array behavior
+	if param.Flags != nil {
+		flagVal := param.Flags.Value
+		// Check for intentional splitting/array flags: @ (array), = (word split), f (lines), s (split), z (words)
+		if strings.ContainsAny(flagVal, "@=fszw~") {
+			return true
+		}
+	}
+
+	return false
 }

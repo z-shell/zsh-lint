@@ -13,6 +13,13 @@ func TestUnquotedVar(t *testing.T) {
 echo $foo
 echo "$bar"
 A=$BAZ
+echo ${#foo}
+echo ${+bar}
+echo $?
+echo $$
+echo $#
+echo ${(f)lines}
+echo ${(@)array}
 `
 	f, err := parse.Parse(strings.NewReader(src), "test.zsh")
 	if err != nil {
@@ -24,8 +31,9 @@ A=$BAZ
 	diags := analyzerInst.Analyze(f, "test.zsh")
 
 	// Only the unquoted command argument `$foo` (line 2) is flagged. The quoted
-	// `"$bar"` is safe, and the assignment RHS `A=$BAZ` is safe (no word
-	// splitting on assignment values), so neither is reported.
+	// `"$bar"`, assignment RHS `A=$BAZ`, numeric expansions (`${#foo}`, `${+bar}`,
+	// `$?`, `$$`, `$#`), and flag-guided expansions (`${(f)lines}`, `${(@)array}`)
+	// are not reported.
 	if len(diags) != 1 {
 		t.Fatalf("expected 1 diagnostic, got %d: %v", len(diags), diags)
 	}

@@ -16,5 +16,6 @@ func Default() []analyzer.Rule {
 		SpecialParamShadow{},
 		ZeroHandling{},
 		UnloadFunction{},
+		FpathHygiene{},
 	}
 }
