@@ -19,6 +19,7 @@ var requiredFixtures = []string{
 	"ok-baseline.zsh",
 	"ok-brace-termination.zsh",
 	"ok-glob-patterns.zsh",
+	"ok-grouped-case-pattern.zsh",
 	"ok-multi-name-loop.zsh",
 	"ok-nested-conditional-alternation.zsh",
 	"ok-nested-param-expansion.zsh",
