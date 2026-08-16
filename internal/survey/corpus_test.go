@@ -14,13 +14,22 @@ import (
 // against accidental deletion without asserting a brittle total count
 // (issue #14): new fixtures can be added freely without touching this test.
 var requiredFixtures = []string{
-	"gap-13-multi-name-loop.zsh",
-	"gap-15-reverse-subscript.zsh",
+	"ok-alternate-if-brace.zsh",
+	"ok-ansic-heredoc.zsh",
+	"ok-assoc-subscript-keys.zsh",
 	"ok-baseline.zsh",
 	"ok-brace-termination.zsh",
+	"ok-fd-var-redirect.zsh",
 	"ok-glob-patterns.zsh",
+	"ok-grouped-case-pattern.zsh",
+	"ok-multi-name-loop.zsh",
+	"ok-nested-conditional-alternation.zsh",
 	"ok-nested-param-expansion.zsh",
 	"ok-param-expansion-flags.zsh",
+	"ok-param-glob-toggle.zsh",
+	"ok-rc-expand-caret.zsh",
+	"ok-reverse-subscript.zsh",
+	"ok-try-always.zsh",
 }
 
 // Fixture naming contract from docs/project/parser-gap-workflow.md:
