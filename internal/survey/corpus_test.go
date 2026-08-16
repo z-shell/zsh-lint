@@ -15,6 +15,7 @@ import (
 // (issue #14): new fixtures can be added freely without touching this test.
 var requiredFixtures = []string{
 	"ok-alternate-if-brace.zsh",
+	"ok-ansic-heredoc.zsh",
 	"ok-assoc-subscript-keys.zsh",
 	"ok-baseline.zsh",
 	"ok-brace-termination.zsh",

@@ -78,7 +78,10 @@ func Parse(r io.Reader, name string) (*File, error) {
 										if err != nil {
 											tree, err = parseGroupedCasePattern(src, name, err)
 											if err != nil {
-												return nil, err
+												tree, err = parseANSICHeredocDelimiter(src, name, err)
+												if err != nil {
+													return nil, err
+												}
 											}
 										}
 									}
