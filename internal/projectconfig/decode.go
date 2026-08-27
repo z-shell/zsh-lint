@@ -19,7 +19,7 @@ func Load(filename string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %q: %w", filename, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(file, maxConfigBytes+1))
 	if err != nil {

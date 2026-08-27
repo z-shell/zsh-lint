@@ -30,14 +30,14 @@ sources with explicit function namespaces.
     "function_namespaces": ["example"]
   },
   "sources": [
-    {"root": ".", "profile": "sourced-library"},
-    {"root": "functions", "profile": "autoload-function"},
+    { "root": ".", "profile": "sourced-library" },
+    { "root": "functions", "profile": "autoload-function" },
     {
       "root": "completions",
       "profile": "autoload-function",
       "role": "completion"
     },
-    {"root": "tests", "profile": "test-fixture"}
+    { "root": "tests", "profile": "test-fixture" }
   ]
 }
 ```

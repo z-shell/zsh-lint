@@ -34,20 +34,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.Var(&formatFlag, "format", "output format (json)")
 	flags.Var(&configFlag, "config", "explicit project configuration path")
 	if err := flags.Parse(args); err != nil {
-		fmt.Fprintf(stderr, "zsh-lint: %v\n%s\n", err, usage)
+		_, _ = fmt.Fprintf(stderr, "zsh-lint: %v\n%s\n", err, usage)
 		return 2
 	}
 	if formatFlag.set && formatFlag.value != "json" {
-		fmt.Fprintf(stderr, "zsh-lint: unsupported output format %q\n%s\n", formatFlag.value, usage)
+		_, _ = fmt.Fprintf(stderr, "zsh-lint: unsupported output format %q\n%s\n", formatFlag.value, usage)
 		return 2
 	}
 	if configFlag.set && configFlag.value == "" {
-		fmt.Fprintf(stderr, "zsh-lint: --config requires a non-empty path\n%s\n", usage)
+		_, _ = fmt.Fprintf(stderr, "zsh-lint: --config requires a non-empty path\n%s\n", usage)
 		return 2
 	}
 	names := flags.Args()
 	if len(names) == 0 {
-		fmt.Fprintln(stderr, usage)
+		_, _ = fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	jsonOut := formatFlag.value == "json"
@@ -57,7 +57,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if configFlag.set {
 		config, err := projectconfig.Load(configFlag.value)
 		if err != nil {
-			fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
 			return 2
 		}
 		activeRules = append(activeRules, rules.ProjectProfile(config.Version)...)
@@ -65,7 +65,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		for index, name := range names {
 			context, err := config.Resolve(name)
 			if err != nil {
-				fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
+				_, _ = fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
 				return 2
 			}
 			sourceContexts[index] = context
@@ -79,7 +79,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	for index, name := range names {
 		f, err := os.Open(name)
 		if err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", name, err)
+			_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
 			exitNonZero = true
 			continue
 		}
@@ -95,7 +95,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				// (docs/project/output-contract.md).
 				all = append(all, parseErrDiag(name, err))
 			} else {
-				fmt.Fprintln(stdout, formatErr(name, err))
+				_, _ = fmt.Fprintln(stdout, formatErr(name, err))
 			}
 			continue
 		}
@@ -117,9 +117,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			// Format similar to gcc/clang
 			if d.Range.IsValid() {
-				fmt.Fprintf(stdout, "%s:%d:%d: [%s] %s\n", d.File, d.Range.Start.Line, d.Range.Start.Column, d.RuleID, d.Message)
+				_, _ = fmt.Fprintf(stdout, "%s:%d:%d: [%s] %s\n", d.File, d.Range.Start.Line, d.Range.Start.Column, d.RuleID, d.Message)
 			} else {
-				fmt.Fprintf(stdout, "%s: [%s] %s\n", d.File, d.RuleID, d.Message)
+				_, _ = fmt.Fprintf(stdout, "%s: [%s] %s\n", d.File, d.RuleID, d.Message)
 			}
 		}
 		if jsonOut {
@@ -130,7 +130,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if jsonOut {
 		all.Sort()
 		if err := diag.WriteJSON(stdout, len(names), all); err != nil {
-			fmt.Fprintf(stderr, "zsh-lint: encoding JSON: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "zsh-lint: encoding JSON: %v\n", err)
 			return 2
 		}
 	}
