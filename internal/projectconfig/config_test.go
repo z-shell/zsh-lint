@@ -74,6 +74,7 @@ func TestLoadRejectsInvalidConfiguration(t *testing.T) {
 		{name: "duplicate source root", data: strings.Replace(validConfig, `"root": "functions"`, `"root": "."`, 1), want: "duplicate source root"},
 		{name: "unknown profile", data: strings.Replace(validConfig, `"profile": "sourced-library"`, `"profile": "library"`, 1), want: `unknown execution profile "library"`},
 		{name: "unknown role", data: strings.Replace(validConfig, `"role": "completion"`, `"role": "generated"`, 1), want: `unknown source role "generated"`},
+		{name: "null role", data: strings.Replace(validConfig, `"role": "completion"`, `"role": null`, 1), want: "role: must be a string"},
 		{name: "completion role mismatch", data: strings.Replace(validConfig, `"profile": "autoload-function", "role": "completion"`, `"profile": "sourced-library", "role": "completion"`, 1), want: "completion requires profile"},
 	}
 

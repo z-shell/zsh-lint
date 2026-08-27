@@ -107,4 +107,4 @@ contract.
 - File-wide suppression of positioned diagnostics and block-level scopes.
 - Severity overrides via comments (use configuration, not inline
   directives).
-- Enabling rules inline (`enable=`) — configuration owns rule activation.
+- Enabling rules inline (`enable=`): configuration owns rule activation.

@@ -191,6 +191,9 @@ func decodeSource(data []byte, index int) (Source, error) {
 		return Source{}, fmt.Errorf("%s.profile: %w", location, err)
 	}
 	if raw, ok := object["role"]; ok {
+		if isJSONNull(raw) {
+			return Source{}, fmt.Errorf("%s.role: must be a string", location)
+		}
 		if err := json.Unmarshal(raw, &source.Role); err != nil {
 			return Source{}, fmt.Errorf("%s.role: %w", location, err)
 		}
