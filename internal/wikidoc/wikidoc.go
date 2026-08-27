@@ -30,7 +30,8 @@ var (
 //     and closing <a> tags are stripped (inner text, if any, is preserved).
 //  3. Unwrap angle-bracketed link destinations (](<#Run>) → ](#Run)).
 //  4. Normalize leading tabs to four spaces for Markdown indentation.
-//  5. Convert indented code blocks to fenced blocks that MDX parses as code.
+//  5. Convert indented code blocks to language-tagged fenced blocks that MDX
+//     parses as code and the wiki accepts.
 //  6. Escape bare <, >, {, } on prose lines (not inside fenced code).
 //  7. Restore gomarkdoc's escaped inline-code spans, removing Markdown
 //     punctuation escapes and decoding entities only inside paired spans.
@@ -106,6 +107,7 @@ func fenceIndentedCodeBlocks(s string) string {
 			continue
 		}
 
+		blockStart := i
 		block := make([]string, 0, 1)
 		for i < len(lines) && strings.HasPrefix(lines[i], "    ") {
 			block = append(block, strings.TrimPrefix(lines[i], "    "))
@@ -119,12 +121,30 @@ func fenceIndentedCodeBlocks(s string) string {
 			continue
 		}
 
-		out = append(out, "```")
+		out = append(out, "```"+indentedCodeLanguage(lines, blockStart))
 		out = append(out, block...)
 		out = append(out, "```")
 	}
 
 	return strings.Join(out, "\n")
+}
+
+// indentedCodeLanguage classifies gomarkdoc's generated blocks. Rule examples
+// immediately follow the fixed Bad:/Good: schema and contain Zsh. Package
+// imports and Go declarations use Go, which is also the safe default for new
+// gomarkdoc sections that do not use the rule-example schema.
+func indentedCodeLanguage(lines []string, blockStart int) string {
+	for i := blockStart - 1; i >= 0; i-- {
+		switch strings.TrimSpace(lines[i]) {
+		case "":
+			continue
+		case "Bad:", "Good:":
+			return "zsh"
+		default:
+			return "go"
+		}
+	}
+	return "go"
 }
 
 // demoteHeadings shifts generated Markdown headings down three levels. Markdown
