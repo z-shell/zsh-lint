@@ -36,10 +36,11 @@ import (
 // Severity: Warning. Losing an empty argument or inheriting `SH_WORD_SPLIT`
 // can change command behavior, while intentional elision remains realistic.
 //
-// False positives: Code may intentionally omit an empty argument, deliberately
-// rely on `SH_WORD_SPLIT`, or expand a value guaranteed to be non-empty. Those
-// cases should use a reasoned suppression rather than weakening unrelated
-// diagnostics.
+// False positives: Explicit native-Zsh splitting forms such as `${=words}` and
+// flag-guided array or field splitting are excluded. Other code may
+// intentionally omit an empty argument, rely on `SH_WORD_SPLIT`, or expand a
+// value guaranteed to be non-empty. Those cases should use a reasoned
+// suppression rather than weakening unrelated diagnostics.
 //
 // Suppression: Use
 // `# zsh-lint disable=quoting/unquoted-var -- <reason>` on the finding line or
@@ -109,5 +110,25 @@ func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 		}
 	}
 
+	// 4. ${=spec} explicitly requests SH_WORD_SPLIT behavior in native Zsh.
+	// mvdan/sh represents the leading split toggle as an omitted parameter name
+	// plus AssignUnset. A second leading '=' in the expansion word represents
+	// ${==spec}, which disables splitting and therefore retains the ordinary
+	// unquoted-empty-elision risk covered by this rule.
+	if isExplicitZshWordSplit(param) {
+		return true
+	}
+
 	return false
+}
+
+func isExplicitZshWordSplit(param *syntax.ParamExp) bool {
+	if param.Param != nil || param.NestedParam != nil || param.Exp == nil || param.Exp.Op != syntax.AssignUnset {
+		return false
+	}
+	if param.Exp.Word == nil || len(param.Exp.Word.Parts) == 0 {
+		return true
+	}
+	first, ok := param.Exp.Word.Parts[0].(*syntax.Lit)
+	return !ok || !strings.HasPrefix(first.Value, "=")
 }
