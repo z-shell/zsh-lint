@@ -1,0 +1,12 @@
+src/public/zsh/init.zsh
+zd/docker/utils.zsh
+zd/docker/zshrc
+zd/docker/zshenv
+zunit/build.zsh
+z-a-meta-plugins/z-a-meta-plugins.plugin.zsh
+z-a-meta-plugins/functions
+zsh-fancy-completions/zsh-fancy-completions.plugin.zsh
+zsh-fancy-completions/functions
+zsh-fancy-completions/lib
+zsh-eza/zsh-eza.plugin.zsh
+zsh-eza/functions

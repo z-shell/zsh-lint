@@ -1,0 +1,159 @@
+---
+name: Corpus Gate
+
+on:
+  push:
+    branches: [main, next]
+    paths:
+      - ".github/workflows/corpus-gate.yml"
+      - "cmd/**"
+      - "docs/project/corpus.md"
+      - "docs/project/corpus-paths.txt"
+      - "go.mod"
+      - "go.sum"
+      - "internal/**"
+  pull_request:
+    paths:
+      - ".github/workflows/corpus-gate.yml"
+      - "cmd/**"
+      - "docs/project/corpus.md"
+      - "docs/project/corpus-paths.txt"
+      - "go.mod"
+      - "go.sum"
+      - "internal/**"
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  corpus:
+    name: Reference corpus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out zsh-lint
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: zsh-lint
+          persist-credentials: false
+
+      - name: Check out src
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/src
+          ref: main
+          path: corpus/src
+          persist-credentials: false
+
+      - name: Check out zd
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zd
+          ref: main
+          path: corpus/zd
+          persist-credentials: false
+
+      - name: Check out zunit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zunit
+          ref: main
+          path: corpus/zunit
+          persist-credentials: false
+
+      - name: Check out z-a-meta-plugins
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/z-a-meta-plugins
+          ref: main
+          path: corpus/z-a-meta-plugins
+          persist-credentials: false
+
+      - name: Check out zsh-fancy-completions
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zsh-fancy-completions
+          ref: main
+          path: corpus/zsh-fancy-completions
+          persist-credentials: false
+
+      - name: Check out zsh-eza
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zsh-eza
+          ref: main
+          path: corpus/zsh-eza
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.25"
+          cache-dependency-path: zsh-lint/go.sum
+
+      - name: Set up Zsh
+        uses: z-shell/.github/actions/setup-zsh@4403e5a200c63596f641966dfb64e08a7a655ffa # main
+
+      - name: Build corpus tools
+        working-directory: zsh-lint
+        run: |
+          go build -o "$RUNNER_TEMP/zsh-lint-survey" ./cmd/zsh-lint-survey
+          go build -o "$RUNNER_TEMP/zsh-lint" ./cmd/zsh-lint
+
+      - name: Record corpus revisions
+        working-directory: corpus
+        run: |
+          for repository in src zd zunit z-a-meta-plugins zsh-fancy-completions zsh-eza; do
+            printf '%s ' "$repository"
+            git -C "$repository" rev-parse HEAD
+          done
+
+      - name: Verify reference corpus
+        working-directory: corpus
+        shell: bash
+        env:
+          EXPECTED_CORPUS_FILES: "20"
+        run: |
+          set -euo pipefail
+          mapfile -t roots < ../zsh-lint/docs/project/corpus-paths.txt
+          for root in "${roots[@]}"; do
+            if [[ ! -e "$root" ]]; then
+              echo "::error::Corpus path does not exist: $root"
+              exit 1
+            fi
+          done
+
+          mapfile -d '' files < <(find "${roots[@]}" -type f -print0 | sort -z)
+          if [[ ${#files[@]} -ne $EXPECTED_CORPUS_FILES ]]; then
+            echo "::error::Expected $EXPECTED_CORPUS_FILES corpus files, found ${#files[@]}."
+            printf '%s\n' "${files[@]}"
+            exit 1
+          fi
+
+          if grep -n -F 'zsh-lint disable=' "${files[@]}"; then
+            echo "::error::The strict corpus must not use zsh-lint suppressions."
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            zsh -f -n -- "$file"
+          done
+          "$RUNNER_TEMP/zsh-lint-survey" "${files[@]}"
+
+          analyzer_status=0
+          "$RUNNER_TEMP/zsh-lint" --format=json "${files[@]}" > "$RUNNER_TEMP/corpus-diagnostics.json" || analyzer_status=$?
+          jq . "$RUNNER_TEMP/corpus-diagnostics.json"
+          if ! jq -e '.summary.errors == 0 and .summary.warnings == 0' "$RUNNER_TEMP/corpus-diagnostics.json" >/dev/null; then
+            echo "::error::The corpus contains error- or warning-level diagnostics."
+            exit 1
+          fi
+          if [[ $analyzer_status -ne 0 ]]; then
+            echo "::error::zsh-lint exited with status $analyzer_status."
+            exit "$analyzer_status"
+          fi
