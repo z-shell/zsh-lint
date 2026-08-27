@@ -65,12 +65,11 @@ func TestConfiguredPluginRuleApplicability(t *testing.T) {
 			context: configuredSource(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, ""),
 		},
 		{
-			name:    "sourced annex activates unload lifecycle",
+			name:    "sourced annex defers unload presence to project validator",
 			rule:    UnloadFunction{},
 			source:  "add-zsh-hook precmd _example_precmd\n",
 			path:    "annex.zsh",
 			context: configuredSource(projectconfig.KindZiAnnex, projectconfig.ProfileSourcedLibrary, ""),
-			want:    1,
 		},
 		{
 			name:    "library metadata disables unload lifecycle",

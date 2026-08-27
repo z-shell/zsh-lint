@@ -31,7 +31,7 @@ func Default() []analyzer.Rule {
 func ForProfile(profile Profile) ([]analyzer.Rule, error) {
 	switch profile {
 	case ProjectProfileV1:
-		return append(genericRules(), configuredProjectRules()...), nil
+		return configuredProjectRules(), nil
 	default:
 		return nil, fmt.Errorf("unsupported rule profile %q", profile)
 	}
@@ -53,10 +53,22 @@ func legacyProjectRules() []analyzer.Rule {
 		FunctionScopedOptions{},
 		ZeroHandling{},
 		UnloadFunction{},
+		ProjectUnloadLifecycle{},
 		FpathHygiene{},
 	}
 }
 
 func configuredProjectRules() []analyzer.Rule {
-	return append(legacyProjectRules(), FunctionNamespace{})
+	return []analyzer.Rule{
+		UnquotedVar{},
+		PreferDoubleBrackets{},
+		EvalUsage{},
+		SpecialParamShadow{},
+		FunctionScopedOptions{},
+		ZeroHandling{},
+		UnloadFunction{},
+		FpathHygiene{},
+		FunctionNamespace{},
+		RepeatedExternalCommand{},
+	}
 }

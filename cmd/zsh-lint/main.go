@@ -77,6 +77,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	an := analyzer.New(activeRules...)
+	if sourceContexts != nil {
+		return runConfiguredProject(an, names, sourceContexts, jsonOut, stdout, stderr)
+	}
 	var all diag.Diagnostics
 	var exitNonZero bool
 
@@ -139,6 +142,65 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	if exitNonZero {
+		return 1
+	}
+	return 0
+}
+
+func runConfiguredProject(
+	an *analyzer.Analyzer,
+	names []string,
+	contexts []projectconfig.SourceContext,
+	jsonOut bool,
+	stdout io.Writer,
+	stderr io.Writer,
+) int {
+	inputs := make([]analyzer.ProjectInput, 0, len(names))
+	var all diag.Diagnostics
+	exitNonZero := false
+	for index, name := range names {
+		fileHandle, err := os.Open(name)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
+			exitNonZero = true
+			continue
+		}
+		file, err := parse.Parse(fileHandle, name)
+		_ = fileHandle.Close()
+		if err != nil {
+			exitNonZero = true
+			if jsonOut {
+				all = append(all, parseErrDiag(name, err))
+			} else {
+				_, _ = fmt.Fprintln(stdout, formatErr(name, err))
+			}
+			continue
+		}
+		inputs = append(inputs, analyzer.ProjectInput{File: file, Path: name, Source: contexts[index]})
+	}
+	diagnostics := an.AnalyzeProject(inputs)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity <= diag.Warning {
+			exitNonZero = true
+		}
+		if jsonOut {
+			continue
+		}
+		if diagnostic.Range.IsValid() {
+			_, _ = fmt.Fprintf(stdout, "%s:%d:%d: [%s] %s\n", diagnostic.File, diagnostic.Range.Start.Line, diagnostic.Range.Start.Column, diagnostic.RuleID, diagnostic.Message)
+		} else {
+			_, _ = fmt.Fprintf(stdout, "%s: [%s] %s\n", diagnostic.File, diagnostic.RuleID, diagnostic.Message)
+		}
+	}
+	if jsonOut {
+		all = append(all, diagnostics...)
+		all.Sort()
+		if err := diag.WriteJSON(stdout, len(names), all); err != nil {
+			_, _ = fmt.Fprintf(stderr, "zsh-lint: encoding JSON: %v\n", err)
+			return 2
+		}
+	}
 	if exitNonZero {
 		return 1
 	}

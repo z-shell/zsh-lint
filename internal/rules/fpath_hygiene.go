@@ -67,11 +67,30 @@ func (rule FpathHygiene) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	if ctx.Source.Configured() && !sourcedPluginRuleApplies(ctx) {
 		return
 	}
+	if ctx.Source.Configured() {
+		file, ok := node.(*syntax.File)
+		if !ok {
+			return
+		}
+		invoked := make(map[*syntax.FuncDecl]bool)
+		for _, invocation := range ctx.File.AnonymousInvocations() {
+			invoked[invocation.Function] = true
+		}
+		for _, stmt := range file.Stmts {
+			walkExecutedEntrypoint(stmt, invoked, func(call *syntax.CallExpr) {
+				rule.analyzeCall(ctx, call)
+			})
+		}
+		return
+	}
 	call, ok := node.(*syntax.CallExpr)
 	if !ok {
 		return
 	}
+	rule.analyzeCall(ctx, call)
+}
 
+func (rule FpathHygiene) analyzeCall(ctx *analyzer.Context, call *syntax.CallExpr) {
 	for _, assign := range call.Assigns {
 		if assign == nil || assign.Name == nil {
 			continue
@@ -105,6 +124,18 @@ func (rule FpathHygiene) Analyze(ctx *analyzer.Context, node syntax.Node) {
 			checkFpathElement(ctx, assign.Value, rule.ID())
 		}
 	}
+}
+
+func walkExecutedEntrypoint(node syntax.Node, invoked map[*syntax.FuncDecl]bool, visit func(*syntax.CallExpr)) {
+	syntax.Walk(node, func(current syntax.Node) bool {
+		if function, ok := current.(*syntax.FuncDecl); ok {
+			return function.Name == nil && len(function.Names) == 0 && invoked[function]
+		}
+		if call, ok := current.(*syntax.CallExpr); ok {
+			visit(call)
+		}
+		return true
+	})
 }
 
 func arrayContainsFpathReference(array *syntax.ArrayExpr) bool {

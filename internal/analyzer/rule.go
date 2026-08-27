@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"github.com/z-shell/zsh-lint/internal/diag"
+	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -27,4 +29,18 @@ type FileRule interface {
 // unless at least one registered rule opts in.
 type ScopeAwareRule interface {
 	NeedsScope() bool
+}
+
+// ProjectInput is one parsed, explicitly configured source in a project
+// analysis invocation.
+type ProjectInput struct {
+	File   *parse.File
+	Path   string
+	Source projectconfig.SourceContext
+}
+
+// ProjectRule evaluates invariants that require more than one configured
+// source file. Per-file Analyze methods remain responsible for local findings.
+type ProjectRule interface {
+	AnalyzeProject(ctx *ProjectContext)
 }

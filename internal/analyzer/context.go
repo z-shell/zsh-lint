@@ -20,6 +20,20 @@ type Context struct {
 	Scope *scope.Map
 }
 
+// ProjectContext provides the complete configured input set and accumulates
+// source-positioned project-validator findings.
+type ProjectContext struct {
+	Inputs      []ProjectInput
+	Diagnostics diag.Diagnostics
+}
+
+// Report adds a project-validator finding attributed to one input.
+func (c *ProjectContext) Report(input ProjectInput, pos, end syntax.Pos, ruleID diag.RuleID, sev diag.Severity, msg string) {
+	context := NewContextWithSource(input.File, input.Path, input.Source)
+	context.Report(pos, end, ruleID, sev, msg)
+	c.Diagnostics = append(c.Diagnostics, context.Diagnostics...)
+}
+
 // NewContext creates a new analysis context for a file.
 func NewContext(file *parse.File, path string) *Context {
 	return NewContextWithSource(file, path, projectconfig.SourceContext{})

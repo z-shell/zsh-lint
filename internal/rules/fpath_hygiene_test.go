@@ -7,6 +7,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 )
 
 func TestFpathHygiene(t *testing.T) {
@@ -76,6 +77,50 @@ fpath=( "${0:h}/functions" )
 			}
 			if len(relevant) != tt.wantDiag {
 				t.Fatalf("got %d diagnostics, want %d: %v", len(relevant), tt.wantDiag, relevant)
+			}
+		})
+	}
+}
+
+func TestConfiguredFpathHygieneExecutionScope(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{
+			name: "direct top-level assignment",
+			src:  "fpath=( /tmp/functions )\n",
+			want: 1,
+		},
+		{
+			name: "top-level conditional assignment",
+			src:  "if true; then fpath=( /tmp/functions ); fi\n",
+			want: 1,
+		},
+		{
+			name: "named function definition is not executed",
+			src:  "helper() { fpath=( /tmp/functions ) }\n",
+		},
+		{
+			name: "invoked anonymous function is executed",
+			src:  "() { fpath=( /tmp/functions ) } argument\n",
+			want: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "plugin.zsh")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			got := analyzer.New(FpathHygiene{}).AnalyzeSource(
+				file,
+				"plugin.zsh",
+				configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, ""),
+			)
+			if len(got) != test.want {
+				t.Fatalf("diagnostics = %+v, want %d", got, test.want)
 			}
 		})
 	}
