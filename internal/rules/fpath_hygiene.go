@@ -14,9 +14,10 @@ import (
 //
 // Name: fpath manipulation hygiene in plugin entrypoints
 //
-// Summary: Detects destructive assignments to `fpath` that overwrite existing
-// autoload paths, additions of non-function directories (`bin/`, `tests/`), and
-// hardcoded user paths.
+// Summary: In configured plugin and Zi annex sourced-library entrypoints,
+// detects destructive assignments to `fpath` that overwrite existing autoload
+// paths, additions of non-function directories (`bin/`, `tests/`), and
+// hardcoded user paths. Unconfigured analysis retains its legacy applicability.
 //
 // Why: Sourced Zsh plugins must not destructively replace `fpath` (which removes
 // standard system and user function directories), add hardcoded user machine paths,
@@ -63,6 +64,9 @@ func (FpathHygiene) Name() string {
 }
 
 func (rule FpathHygiene) Analyze(ctx *analyzer.Context, node syntax.Node) {
+	if ctx.Source.Configured() && !sourcedPluginRuleApplies(ctx) {
+		return
+	}
 	call, ok := node.(*syntax.CallExpr)
 	if !ok {
 		return

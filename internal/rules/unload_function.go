@@ -14,9 +14,11 @@ import (
 //
 // Name: Unload function convention and hygiene
 //
-// Summary: Checks that plugins registering persistent shell hooks or widgets
-// define a namespaced unload function (`*_plugin_unload`), and that defined
-// unload functions cleanly unfunction themselves upon completion.
+// Summary: Checks configured plugin and Zi annex sourced-library entrypoints
+// that register persistent shell hooks or widgets for a namespaced unload
+// function (`*_plugin_unload`), and checks that defined unload functions
+// cleanly unfunction themselves upon completion. Unconfigured analysis retains
+// the legacy path heuristic.
 //
 // Why: The Zsh Plugin Standard specifies that plugins with persistent side
 // effects (hooks via `add-zsh-hook`, line-editor widgets via
@@ -67,7 +69,7 @@ func (UnloadFunction) Name() string {
 
 func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	file, ok := node.(*syntax.File)
-	if !ok || hasFunctionsPathSegment(ctx.FilePath) {
+	if !ok || !sourcedPluginRuleApplies(ctx) {
 		return
 	}
 
