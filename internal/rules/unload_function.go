@@ -17,8 +17,9 @@ import (
 // Summary: Checks configured plugin and Zi annex sourced-library entrypoints
 // that register persistent shell hooks or widgets for a namespaced unload
 // function (`*_plugin_unload`), and checks that defined unload functions
-// cleanly unfunction themselves upon completion. Unconfigured analysis retains
-// the legacy path heuristic.
+// cleanly unfunction themselves upon completion. This remains a per-file
+// check: project-wide registration and cleanup matching requires aggregation.
+// Unconfigured analysis retains the legacy path heuristic.
 //
 // Why: The Zsh Plugin Standard specifies that plugins with persistent side
 // effects (hooks via `add-zsh-hook`, line-editor widgets via
@@ -80,7 +81,7 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	syntax.Walk(file, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.FuncDecl:
-			if x.Name != nil && strings.HasSuffix(x.Name.Value, "_unload") {
+			if x.Name != nil && strings.HasSuffix(x.Name.Value, "_plugin_unload") {
 				unloadFuncs = append(unloadFuncs, x)
 			}
 		case *syntax.CallExpr:
@@ -124,6 +125,18 @@ func isHookRegistrationCall(call *syntax.CallExpr) bool {
 			}
 		}
 		return true
+	}
+	if cmdName == "zle" {
+		hasNew := false
+		for _, arg := range call.Args[1:] {
+			switch getWordLiteral(arg) {
+			case "-D":
+				return false
+			case "-N":
+				hasNew = true
+			}
+		}
+		return hasNew
 	}
 	return false
 }
@@ -176,20 +189,29 @@ func isSelfUnfunctionArg(w *syntax.Word, fnName string) bool {
 		return false
 	}
 	argLit := getWordLiteral(w)
-	if argLit == fnName || argLit == "$0" || strings.Contains(argLit, fnName) {
+	if argLit == fnName {
 		return true
 	}
-	found := false
-	syntax.Walk(w, func(n syntax.Node) bool {
-		if pe, ok := n.(*syntax.ParamExp); ok {
-			if pe.Param != nil && (pe.Param.Value == "0" || pe.Param.Value == fnName) {
-				found = true
-				return false
-			}
+	return wordIsExactParameter(w, "0") || wordIsExactParameter(w, fnName)
+}
+
+func wordIsExactParameter(w *syntax.Word, name string) bool {
+	if w == nil || len(w.Parts) != 1 {
+		return false
+	}
+	part := w.Parts[0]
+	if quoted, ok := part.(*syntax.DblQuoted); ok {
+		if len(quoted.Parts) != 1 {
+			return false
 		}
-		return true
-	})
-	return found
+		part = quoted.Parts[0]
+	}
+	param, ok := part.(*syntax.ParamExp)
+	return ok && param.Param != nil && param.Param.Value == name &&
+		param.Flags == nil && !param.Excl && !param.Length && !param.Width &&
+		!param.IsSet && param.NestedParam == nil && param.Index == nil &&
+		len(param.Modifiers) == 0 && param.Slice == nil && param.Repl == nil &&
+		param.Names == 0 && param.Exp == nil
 }
 
 func isIndiscriminateFunctionsWipe(w *syntax.Word) bool {
