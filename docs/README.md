@@ -21,6 +21,9 @@ by hand on the wiki.
 
 ## For contributors
 
+The source-adjacent [project configuration contract](project/project-configuration.md)
+documents the explicit metadata available to project-aware rules.
+
 ```sh
 go build ./... && go vet ./... && go test ./...
 go tool gomarkdoc --output ref.md \
