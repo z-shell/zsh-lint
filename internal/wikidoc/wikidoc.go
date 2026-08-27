@@ -130,21 +130,44 @@ func fenceIndentedCodeBlocks(s string) string {
 }
 
 // indentedCodeLanguage classifies gomarkdoc's generated blocks. Rule examples
-// immediately follow the fixed Bad:/Good: schema and contain Zsh. Package
-// imports and Go declarations use Go, which is also the safe default for new
-// gomarkdoc sections that do not use the rule-example schema.
+// immediately follow Bad:/Good: labels, optionally with a parenthetical
+// qualifier, and contain Zsh. Package imports and Go declarations use Go,
+// which is also the safe default for new gomarkdoc sections that do not use the
+// rule-example schema.
 func indentedCodeLanguage(lines []string, blockStart int) string {
 	for i := blockStart - 1; i >= 0; i-- {
-		switch strings.TrimSpace(lines[i]) {
-		case "":
+		line := strings.TrimSpace(lines[i])
+		switch {
+		case line == "":
 			continue
-		case "Bad:", "Good:":
+		case isRuleExampleLabel(line):
 			return "zsh"
 		default:
 			return "go"
 		}
 	}
 	return "go"
+}
+
+func isRuleExampleLabel(line string) bool {
+	for _, label := range []string{"Bad", "Good"} {
+		if line == label+":" {
+			return true
+		}
+
+		detail, found := strings.CutPrefix(line, label+" ")
+		if !found || !strings.HasSuffix(detail, ":") {
+			continue
+		}
+		detail = strings.TrimSuffix(detail, ":")
+		if strings.HasPrefix(detail, "(") && strings.HasSuffix(detail, ")") {
+			return true
+		}
+		if strings.HasPrefix(detail, `\(`) && strings.HasSuffix(detail, `\)`) {
+			return true
+		}
+	}
+	return false
 }
 
 // demoteHeadings shifts generated Markdown headings down three levels. Markdown
