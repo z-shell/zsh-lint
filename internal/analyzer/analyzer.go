@@ -30,6 +30,13 @@ func (a *Analyzer) Analyze(file *parse.File, path string) diag.Diagnostics {
 // execution-profile metadata. Analyze remains the compatibility entry point
 // for callers that do not use project configuration.
 func (a *Analyzer) AnalyzeSource(file *parse.File, path string, source projectconfig.SourceContext) diag.Diagnostics {
+	if source.Configured() {
+		return a.AnalyzeProject([]ProjectInput{{File: file, Path: path, Source: source}})
+	}
+	return a.analyzeSource(file, path, source, true)
+}
+
+func (a *Analyzer) analyzeSource(file *parse.File, path string, source projectconfig.SourceContext, applySuppressions bool) diag.Diagnostics {
 	ctx := NewContextWithSource(file, path, source)
 	ast := file.AST()
 
@@ -62,7 +69,7 @@ func (a *Analyzer) AnalyzeSource(file *parse.File, path string, source projectco
 	// Pass 3: inline suppression (docs/project/suppression.md). Applying it
 	// here keeps human and JSON output consistent: suppressed findings are
 	// dropped and meta/* findings appended before the single final sort.
-	if ast != nil {
+	if ast != nil && applySuppressions {
 		known := make(map[diag.RuleID]bool, len(a.rules))
 		for _, rule := range a.rules {
 			known[rule.ID()] = true
@@ -72,6 +79,49 @@ func (a *Analyzer) AnalyzeSource(file *parse.File, path string, source projectco
 
 	ctx.Diagnostics.Sort()
 	return ctx.Diagnostics
+}
+
+// AnalyzeProject runs per-file analysis and then project rules over the
+// complete explicit configured input set.
+func (a *Analyzer) AnalyzeProject(inputs []ProjectInput) diag.Diagnostics {
+	var diagnostics diag.Diagnostics
+	for _, input := range inputs {
+		diagnostics = append(diagnostics, a.analyzeSource(input.File, input.Path, input.Source, false)...)
+	}
+	project := &ProjectContext{Inputs: append([]ProjectInput(nil), inputs...)}
+	for _, rule := range a.rules {
+		if projectRule, ok := rule.(ProjectRule); ok {
+			projectRule.AnalyzeProject(project)
+		}
+	}
+	known := make(map[diag.RuleID]bool, len(a.rules))
+	for _, rule := range a.rules {
+		known[rule.ID()] = true
+	}
+	for _, input := range inputs {
+		var attributed diag.Diagnostics
+		var remaining diag.Diagnostics
+		for _, diagnostic := range diagnostics {
+			if diagnostic.File == input.Path {
+				attributed = append(attributed, diagnostic)
+			} else {
+				remaining = append(remaining, diagnostic)
+			}
+		}
+		for _, diagnostic := range project.Diagnostics {
+			if diagnostic.File == input.Path {
+				attributed = append(attributed, diagnostic)
+			}
+		}
+		diagnostics = append(remaining, suppress.Apply(
+			suppress.Collect(input.File),
+			attributed,
+			known,
+			input.Path,
+		)...)
+	}
+	diagnostics.Sort()
+	return diagnostics
 }
 
 func needsScope(rules []Rule) bool {

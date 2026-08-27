@@ -16,29 +16,33 @@ import (
 // Name: Zero-handling idiom in plugin entrypoint
 //
 // Summary: Reports direct uses of `$0` at the top level of configured plugin
-// and Zi annex sourced-library entrypoints before `$0` has been initialized
-// using prompt expansions (`${(%):-%N}` or `${(%):-%x}`). Unconfigured
-// analysis retains the legacy path heuristic.
+// and Zi annex sourced-library entrypoints. Configured analysis also reports
+// assignment to special parameter `0`, because sourced entrypoints must not
+// replace caller state. Unconfigured analysis retains the legacy path heuristic.
 //
 // Why: When a Zsh plugin is sourced, positional parameter `$0` evaluates to the
 // name of the shell (`zsh` or `-zsh`) rather than the path of the sourced script,
-// unless `FUNCTION_ARGZERO` is active. Plugin entrypoints must initialize `$0`
-// using prompt expansion `${(%):-%N}` or `${(%):-%x}` (optionally with `$ZERO`
-// fallback) before using `$0` to derive directories or autoload paths.
+// unless `FUNCTION_ARGZERO` is active. Configured plugin entrypoints must
+// resolve the source path with prompt expansion `${(%):-%N}` or
+// `${(%):-%x}` (optionally with `$ZERO` fallback) and pass it into a
+// localized scope instead of assigning to caller-visible special parameter
+// `0`.
 // See https://wiki.zshell.dev/community/zsh_plugin_standard#zero-handling.
 //
 // Bad:
 //
 //	fpath+=( "${0:h}/functions" )
 //
-// Good:
+// Good (configured sourced entrypoint):
 //
-//	0="${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}"
-//	0="${${(M)0:#/*}:-$PWD/$0}"
-//	fpath+=( "${0:h}/functions" )
+//	() {
+//	  local source_path=$1
+//	  fpath+=( "${source_path:h}/functions" )
+//	} "${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}"
 //
-// Severity: Warning. Deriving paths from uninitialized `$0` in a sourced plugin
-// leads to incorrect directory paths or runtime loading failures.
+// Severity: Warning. Deriving paths from uninitialized `$0` can load the
+// wrong path; assigning to `0` can replace caller state or fail when
+// `POSIX_ARGZERO` makes it read-only.
 //
 // False positives: Scripts intended solely for direct execution (not sourcing)
 // or functions where `$0` refers to the function name. Suppress with a reason.
@@ -47,9 +51,8 @@ import (
 // `# zsh-lint disable=plugin/zero-handling -- <reason>` on the finding line or
 // immediately before the next non-comment, non-blank source line.
 //
-// Corpus evidence: `z-a-meta-plugins/z-a-meta-plugins.plugin.zsh:7` uses the
-// compliant `0="${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}"` idiom before
-// referencing `${0:h}` on line 12.
+// Corpus evidence: z-a-meta-plugins, zsh-fancy-completions, and zsh-eza use
+// the caller-preserving anonymous-function argument pattern.
 type ZeroHandling struct{}
 
 func (ZeroHandling) ID() diag.RuleID {
@@ -73,7 +76,14 @@ func (rule ZeroHandling) Analyze(ctx *analyzer.Context, node syntax.Node) {
 			continue
 		}
 
-		// Check if this statement initializes 0 with prompt expansion or $ZERO
+		if ctx.Source.Configured() && reportConfiguredZeroAssignment(ctx, stmt, rule.ID()) {
+			// Avoid cascading path-use findings after the primary caller-state
+			// violation on the assignment itself.
+			zeroInitialized = true
+			continue
+		}
+
+		// Preserve the legacy unconfigured initialization contract.
 		if isZeroInitializationStatement(stmt) {
 			zeroInitialized = true
 			continue
@@ -84,6 +94,29 @@ func (rule ZeroHandling) Analyze(ctx *analyzer.Context, node syntax.Node) {
 			checkUninitializedZeroInStmt(ctx, stmt, rule.ID())
 		}
 	}
+}
+
+func reportConfiguredZeroAssignment(ctx *analyzer.Context, stmt *syntax.Stmt, ruleID diag.RuleID) bool {
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	reported := false
+	for _, assign := range call.Assigns {
+		if assign != nil && assign.Name != nil && assign.Name.Value == "0" {
+			ctx.Report(assign.Pos(), assign.End(), ruleID, diag.Warning,
+				"Do not assign to special parameter '0' in a sourced entrypoint; pass the resolved source path into a localized anonymous function")
+			reported = true
+		}
+	}
+	for _, arg := range call.Args {
+		if isZeroAssignmentWord(arg) {
+			ctx.Report(arg.Pos(), arg.End(), ruleID, diag.Warning,
+				"Do not assign to special parameter '0' in a sourced entrypoint; pass the resolved source path into a localized anonymous function")
+			reported = true
+		}
+	}
+	return reported
 }
 
 func sourcedPluginRuleApplies(ctx *analyzer.Context) bool {
@@ -155,7 +188,7 @@ func hasPromptExpansionOrZeroInWord(word *syntax.Word) bool {
 			}
 		}
 		if lit, ok := n.(*syntax.Lit); ok {
-			if strings.Contains(lit.Value, "%N") || strings.Contains(lit.Value, "%x") || strings.Contains(lit.Value, "ZERO") {
+			if lit.Value == "%N" || lit.Value == "%x" {
 				found = true
 				return false
 			}

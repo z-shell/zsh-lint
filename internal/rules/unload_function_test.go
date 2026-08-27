@@ -7,6 +7,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 )
 
 func TestUnloadFunction(t *testing.T) {
@@ -14,92 +15,80 @@ func TestUnloadFunction(t *testing.T) {
 		name     string
 		src      string
 		path     string
-		wantDiag int
-		wantSev  diag.Severity
+		want     int
+		severity diag.Severity
 	}{
-		{
-			name: "hook registered without unload function",
-			src: `autoload -Uz add-zsh-hook
-add-zsh-hook precmd _my_precmd
-`,
-			path:     "my-plugin.plugin.zsh",
-			wantDiag: 1,
-			wantSev:  diag.Hint,
-		},
-		{
-			name: "unload function missing self-unfunction",
-			src: `my_plugin_unload() {
-  autoload -Uz add-zsh-hook
-  add-zsh-hook -d precmd _my_precmd
-  unfunction _my_precmd
+		{name: "hook registered without unload function", src: "autoload -Uz add-zsh-hook\nadd-zsh-hook precmd _my_precmd\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
+		{name: "unload function missing self-unfunction", src: "my_plugin_unload() {\n  add-zsh-hook -d precmd _my_precmd\n  unfunction _my_precmd\n}\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
+		{name: "unload function with indiscriminate function wipe", src: "my_plugin_unload() {\n  unfunction ${(k)functions}\n  unfunction my_plugin_unload\n}\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Warning},
+		{name: "compliant hook and unload function", src: "add-zsh-hook precmd _my_precmd\nmy_plugin_unload() {\n  add-zsh-hook -d precmd _my_precmd\n  unfunction _my_precmd my_plugin_unload\n}\n", path: "my-plugin.plugin.zsh"},
+		{name: "file inside functions directory", src: "add-zsh-hook precmd _my_precmd\n", path: "functions/.handler"},
+		{name: "suppressed hook finding", src: "# zsh-lint disable=plugin/unload-function -- static plugin\nadd-zsh-hook precmd _my_precmd\n", path: "my-plugin.plugin.zsh"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), test.path)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			diagnostics := analyzer.New(UnloadFunction{}).Analyze(file, test.path)
+			if len(diagnostics) != test.want {
+				t.Fatalf("diagnostics = %+v, want %d", diagnostics, test.want)
+			}
+			if test.want > 0 && diagnostics[0].Severity != test.severity {
+				t.Fatalf("severity = %v, want %v", diagnostics[0].Severity, test.severity)
+			}
+		})
+	}
 }
-`,
-			path:     "my-plugin.plugin.zsh",
-			wantDiag: 1,
-			wantSev:  diag.Hint,
-		},
-		{
-			name: "unload function with indiscriminate function wipe",
-			src: `my_plugin_unload() {
-  unfunction ${(k)functions}
-  unfunction my_plugin_unload
-}
-`,
-			path:     "my-plugin.plugin.zsh",
-			wantDiag: 1,
-			wantSev:  diag.Warning,
-		},
-		{
-			name: "compliant hook and unload function",
-			src: `autoload -Uz add-zsh-hook
-add-zsh-hook precmd _my_precmd
 
-my_plugin_unload() {
-  autoload -Uz add-zsh-hook
-  add-zsh-hook -d precmd _my_precmd
-  unfunction _my_precmd my_plugin_unload
-}
-`,
-			path:     "my-plugin.plugin.zsh",
-			wantDiag: 0,
-		},
-		{
-			name: "file inside functions directory",
-			src: `add-zsh-hook precmd _my_precmd
-`,
-			path:     "functions/.handler",
-			wantDiag: 0,
-		},
-		{
-			name: "suppressed hook finding",
-			src: `# zsh-lint disable=plugin/unload-function -- static plugin
-add-zsh-hook precmd _my_precmd
-`,
-			path:     "my-plugin.plugin.zsh",
-			wantDiag: 0,
-		},
+func TestProjectUnloadLifecycleAcrossFiles(t *testing.T) {
+	entry, err := parse.Parse(strings.NewReader("add-zsh-hook precmd _tick\n"), "plugin.zsh")
+	if err != nil {
+		t.Fatalf("parse entry: %v", err)
+	}
+	unload, err := parse.Parse(strings.NewReader("example_plugin_unload() { unfunction example_plugin_unload }\n"), "lib/state.zsh")
+	if err != nil {
+		t.Fatalf("parse unload: %v", err)
+	}
+	source := configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "")
+	an := analyzer.New(UnloadFunction{}, ProjectUnloadLifecycle{})
+	diagnostics := an.AnalyzeProject([]analyzer.ProjectInput{
+		{File: entry, Path: "plugin.zsh", Source: source},
+		{File: unload, Path: "lib/state.zsh", Source: source},
+	})
+	if len(diagnostics) != 0 {
+		t.Fatalf("cross-file unload diagnostics = %+v, want none", diagnostics)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			file, err := parse.Parse(strings.NewReader(tt.src), tt.path)
+	diagnostics = an.AnalyzeProject([]analyzer.ProjectInput{{File: entry, Path: "plugin.zsh", Source: source}})
+	if len(diagnostics) != 1 || diagnostics[0].RuleID != "plugin/project-unload-lifecycle" {
+		t.Fatalf("missing project unload diagnostics = %+v, want one project finding", diagnostics)
+	}
+}
+
+func TestUnloadFunctionExactLifecycleMatching(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{name: "near-miss unload suffix does not satisfy lifecycle", src: "add-zsh-hook precmd _tick\nexample_unload() { unfunction example_unload }\n", want: 1},
+		{name: "substring does not satisfy self removal", src: "example_plugin_unload() { unfunction prefix-example_plugin_unload-suffix }\n", want: 1},
+		{name: "exact parameter satisfies self removal", src: "example_plugin_unload() { unfunction \"$0\" }\n"},
+		{name: "zle widget registration requires unload", src: "zle -N example-widget example_widget\n", want: 1},
+		{name: "zle widget deletion is not registration", src: "zle -D example-widget\n"},
+		{name: "hook deletion is not registration", src: "add-zsh-hook -d precmd _tick\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "plugin.zsh")
 			if err != nil {
-				t.Fatalf("Parse failed: %v", err)
+				t.Fatalf("parse: %v", err)
 			}
-			diags := analyzer.New(UnloadFunction{}).Analyze(file, tt.path)
-			var relevant diag.Diagnostics
-			for _, d := range diags {
-				if d.RuleID == "plugin/unload-function" {
-					relevant = append(relevant, d)
-				}
-			}
-			if len(relevant) != tt.wantDiag {
-				t.Fatalf("got %d diagnostics, want %d: %v", len(relevant), tt.wantDiag, relevant)
-			}
-			if tt.wantDiag > 0 && tt.wantSev != 0 {
-				if relevant[0].Severity != tt.wantSev {
-					t.Errorf("severity = %v, want %v", relevant[0].Severity, tt.wantSev)
-				}
+			diagnostics := analyzer.New(UnloadFunction{}).Analyze(file, "plugin.zsh")
+			if len(diagnostics) != test.want {
+				t.Fatalf("diagnostics = %+v, want %d", diagnostics, test.want)
 			}
 		})
 	}
