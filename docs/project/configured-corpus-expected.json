@@ -1,0 +1,98 @@
+[
+  {
+    "repository": "zsh-eza",
+    "path": "functions/.zsh-eza",
+    "rule": "plugin/function-scoped-options",
+    "severity": "hint",
+    "line": 10,
+    "classification": "accepted legacy autoload body; advisory migration candidate"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "functions/.complete_menu",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "accepted legacy autoload name; no source suppression"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "functions/.completion-prediction",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "accepted legacy autoload name; no source suppression"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "functions/.completion-prediction",
+    "rule": "plugin/function-scoped-options",
+    "severity": "hint",
+    "line": 5,
+    "classification": "accepted legacy autoload body; advisory migration candidate"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "functions/.expand-or-complete-with-dots",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "accepted legacy autoload name; no source suppression"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "functions/.force_rehash",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "accepted legacy autoload name; no source suppression"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "functions/.force_rehash",
+    "rule": "plugin/function-scoped-options",
+    "severity": "hint",
+    "line": 4,
+    "classification": "accepted legacy autoload body; advisory migration candidate"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "functions/.man_glob",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "accepted legacy autoload name; no source suppression"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "security/eval",
+    "severity": "info",
+    "line": 81,
+    "classification": "accepted existing generic advisory in project-owned state restoration"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "security/eval",
+    "severity": "info",
+    "line": 86,
+    "classification": "accepted existing generic advisory in project-owned state restoration"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "security/eval",
+    "severity": "info",
+    "line": 93,
+    "classification": "accepted existing generic advisory in project-owned state restoration"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "security/eval",
+    "severity": "info",
+    "line": 98,
+    "classification": "accepted existing generic advisory in project-owned state restoration"
+  }
+]

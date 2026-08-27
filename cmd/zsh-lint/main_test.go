@@ -176,6 +176,42 @@ func TestRunConfigurationActivatesProjectProfile(t *testing.T) {
 	}
 }
 
+func TestRunConfiguredMetadataOverridesLegacyPathHeuristics(t *testing.T) {
+	const toolConfig = `{
+  "version": 1,
+  "project": {
+    "kind": "tool",
+    "minimum_zsh": "5.8",
+    "function_namespaces": []
+  },
+  "sources": [
+    {"root": "functions", "profile": "autoload-function"}
+  ]
+}`
+	root := t.TempDir()
+	config := filepath.Join(root, "zsh-lint.json")
+	script := filepath.Join(root, "functions", "handler")
+	writeFile(t, config, toolConfig)
+	writeFile(t, script, "rehash\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{"--config", config, script}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("configured run() exit = %d, want 0; stdout = %q, stderr = %q", exit, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "[plugin/") {
+		t.Errorf("configured tool stdout = %q, want no plugin diagnostic", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if exit := run([]string{script}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("unconfigured run() exit = %d, want 0; stderr = %q", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "[plugin/function-scoped-options]") {
+		t.Errorf("unconfigured stdout = %q, want legacy path diagnostic", stdout.String())
+	}
+}
+
 func writeFile(t *testing.T, filename, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {

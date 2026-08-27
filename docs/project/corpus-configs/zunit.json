@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "project": {
+    "kind": "tool",
+    "minimum_zsh": "5.5.1",
+    "function_namespaces": []
+  },
+  "sources": [{ "root": "build.zsh", "profile": "standalone-executable" }]
+}

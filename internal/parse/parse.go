@@ -22,8 +22,18 @@ import (
 
 // File is the parsed source produced by the front end.
 type File struct {
-	tree  *syntax.File
-	lines []string
+	tree                 *syntax.File
+	lines                []string
+	anonymousInvocations []AnonymousInvocation
+}
+
+// AnonymousInvocation pairs an anonymous function declaration with the words
+// passed when Zsh invokes it immediately. mvdan/sh v3.13.1 has no AST field
+// for these words, so the compatibility front end retains them as typed syntax
+// nodes with their original source positions.
+type AnonymousInvocation struct {
+	Function *syntax.FuncDecl
+	Words    []*syntax.Word
 }
 
 // AST returns the underlying mvdan.cc/sh syntax tree.
@@ -41,12 +51,51 @@ func (f *File) Lines() []string {
 	return f.lines
 }
 
+// AnonymousInvocations returns immediate anonymous-function invocations found
+// by the Zsh compatibility front end. The returned slice is independent; its
+// syntax nodes are shared with the immutable parse result.
+func (f *File) AnonymousInvocations() []AnonymousInvocation {
+	return append([]AnonymousInvocation(nil), f.anonymousInvocations...)
+}
+
 func parseTree(src []byte, name string) (*syntax.File, error) {
 	parser := syntax.NewParser(
 		syntax.KeepComments(true),
 		syntax.Variant(syntax.LangZsh),
 	)
 	return parser.Parse(bytes.NewReader(src), name)
+}
+
+type compatibilityParser func([]byte, string, error) (*syntax.File, error)
+
+// parseCompatibleTree applies the established byte-preserving adapters in
+// order. Anonymous-function invocation arguments are handled separately
+// because their words live in File metadata rather than the upstream AST.
+func parseCompatibleTree(src []byte, name string) (*syntax.File, error) {
+	tree, err := parseTree(src, name)
+	if err == nil {
+		return tree, nil
+	}
+	adapters := []compatibilityParser{
+		parseNestedConditionalAlternation,
+		parseAlternateIfBrace,
+		parseAssociativeSubscript,
+		parseRCExpandCaret,
+		parseReverseSubscript,
+		parseParamGlobToggle,
+		parseFdVarRedirect,
+		parseMultiNameFor,
+		parseTryAlways,
+		parseGroupedCasePattern,
+		parseANSICHeredocDelimiter,
+	}
+	for _, adapter := range adapters {
+		tree, err = adapter(src, name, err)
+		if err == nil {
+			return tree, nil
+		}
+	}
+	return nil, err
 }
 
 // Parse parses a single Zsh source read from r, using name in error
@@ -56,46 +105,21 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	tree, err := parseTree(src, name)
+	tree, err := parseCompatibleTree(src, name)
+	var anonymousInvocations []AnonymousInvocation
 	if err != nil {
-		tree, err = parseNestedConditionalAlternation(src, name, err)
+		tree, anonymousInvocations, err = parseAnonymousFunctionArgs(src, name, err)
 		if err != nil {
-			tree, err = parseAlternateIfBrace(src, name, err)
-			if err != nil {
-				tree, err = parseAssociativeSubscript(src, name, err)
-				if err != nil {
-					tree, err = parseRCExpandCaret(src, name, err)
-					if err != nil {
-						tree, err = parseReverseSubscript(src, name, err)
-						if err != nil {
-							tree, err = parseParamGlobToggle(src, name, err)
-							if err != nil {
-								tree, err = parseFdVarRedirect(src, name, err)
-								if err != nil {
-									tree, err = parseMultiNameFor(src, name, err)
-									if err != nil {
-										tree, err = parseTryAlways(src, name, err)
-										if err != nil {
-											tree, err = parseGroupedCasePattern(src, name, err)
-											if err != nil {
-												tree, err = parseANSICHeredocDelimiter(src, name, err)
-												if err != nil {
-													return nil, err
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
+			return nil, err
 		}
 	}
 	if err := validateConditionalPatterns(src, name); err != nil {
 		return nil, err
 	}
 	text := strings.TrimSuffix(string(src), "\n")
-	return &File{tree: tree, lines: strings.Split(text, "\n")}, nil
+	return &File{
+		tree:                 tree,
+		lines:                strings.Split(text, "\n"),
+		anonymousInvocations: anonymousInvocations,
+	}, nil
 }

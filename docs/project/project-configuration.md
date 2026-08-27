@@ -14,10 +14,31 @@ zsh-lint --format=json --config zsh-lint.json plugin.zsh
 Invocations without `--config` preserve the unconfigured behavior and default
 rule set.
 
-A valid version 1 configuration also activates the version 1 project-aware
-rule profile. The current profile adds `plugin/function-namespace`; it remains
-inactive without `--config` and evaluates only configured plugin or Zi annex
-sources with explicit function namespaces.
+A valid schema version 1 configuration activates the independent
+`z-shell/project@1` rule profile. Configuration schema versions describe the
+accepted metadata document; rule-profile versions describe a complete,
+deterministic rule set. They are deliberately separate so a schema correction
+does not silently change rule membership, and a rule-profile revision does not
+silently change configuration syntax.
+
+The configured profile contains the generic rules plus the existing plugin
+lifecycle rules and `plugin/function-namespace`. Rules that need project
+context use explicit `project.kind`, source `profile`, and source `role`
+metadata. Paths cannot override configured metadata. The legacy path heuristics
+remain available only on invocations without `--config`.
+
+In project profile version 1:
+
+- `plugin/function-scoped-options` applies to plugin and Zi annex
+  `autoload-function` sources, including the `completion` role;
+- `plugin/zero-handling`, `plugin/unload-function`, and
+  `plugin/fpath-hygiene` apply to plugin and Zi annex `sourced-library`
+  sources; and
+- `plugin/function-namespace` retains its documented plugin and Zi annex
+  sourced-library and autoload-function boundary.
+
+Theme projects do not inherit plugin lifecycle contracts in this profile. A
+future theme contract requires an explicit profile decision.
 
 ## Version 1 format
 

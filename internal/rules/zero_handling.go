@@ -5,6 +5,7 @@ import (
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -14,9 +15,10 @@ import (
 //
 // Name: Zero-handling idiom in plugin entrypoint
 //
-// Summary: Reports direct uses of `$0` at the top level of plugin scripts
-// before `$0` has been initialized using prompt expansions (`${(%):-%N}` or
-// `${(%):-%x}`).
+// Summary: Reports direct uses of `$0` at the top level of configured plugin
+// and Zi annex sourced-library entrypoints before `$0` has been initialized
+// using prompt expansions (`${(%):-%N}` or `${(%):-%x}`). Unconfigured
+// analysis retains the legacy path heuristic.
 //
 // Why: When a Zsh plugin is sourced, positional parameter `$0` evaluates to the
 // name of the shell (`zsh` or `-zsh`) rather than the path of the sourced script,
@@ -60,7 +62,7 @@ func (ZeroHandling) Name() string {
 
 func (rule ZeroHandling) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	file, ok := node.(*syntax.File)
-	if !ok || hasFunctionsPathSegment(ctx.FilePath) {
+	if !ok || !sourcedPluginRuleApplies(ctx) {
 		return
 	}
 
@@ -82,6 +84,13 @@ func (rule ZeroHandling) Analyze(ctx *analyzer.Context, node syntax.Node) {
 			checkUninitializedZeroInStmt(ctx, stmt, rule.ID())
 		}
 	}
+}
+
+func sourcedPluginRuleApplies(ctx *analyzer.Context) bool {
+	if ctx.Source.Configured() {
+		return configuredPluginSource(ctx.Source, projectconfig.ProfileSourcedLibrary)
+	}
+	return !hasFunctionsPathSegment(ctx.FilePath)
 }
 
 func isZeroInitializationStatement(stmt *syntax.Stmt) bool {

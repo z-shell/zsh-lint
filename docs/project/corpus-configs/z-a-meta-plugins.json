@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "project": {
+    "kind": "zi-annex",
+    "minimum_zsh": "5.9.2",
+    "function_namespaces": ["za-meta-plugins"]
+  },
+  "sources": [
+    { "root": "z-a-meta-plugins.plugin.zsh", "profile": "sourced-library" },
+    { "root": "functions", "profile": "autoload-function" }
+  ]
+}

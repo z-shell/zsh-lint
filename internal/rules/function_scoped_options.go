@@ -5,6 +5,7 @@ import (
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -15,9 +16,11 @@ import (
 //
 // Name: Function files should scope shell options
 //
-// Summary: Reports executable files beneath a `functions` directory when
-// neither `builtin emulate -L zsh` nor `setopt local_options` appears before
-// the first non-guard top-level statement.
+// Summary: For configured plugin and Zi annex projects, reports autoload
+// function sources when neither `builtin emulate -L zsh` nor
+// `setopt local_options` appears before the first non-guard top-level
+// statement. Unconfigured analysis retains the legacy `functions` path
+// heuristic.
 //
 // Why: Zsh functions inherit the caller's option state. The Zsh manual
 // documents `LOCAL_OPTIONS` as restoring options on function return, while
@@ -74,7 +77,7 @@ func (FunctionScopedOptions) Name() string {
 
 func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	file, ok := node.(*syntax.File)
-	if !ok || !hasFunctionsPathSegment(ctx.FilePath) {
+	if !ok || !functionScopedOptionsApplies(ctx) {
 		return
 	}
 
@@ -97,6 +100,13 @@ func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Nod
 		)
 		return
 	}
+}
+
+func functionScopedOptionsApplies(ctx *analyzer.Context) bool {
+	if ctx.Source.Configured() {
+		return configuredPluginSource(ctx.Source, projectconfig.ProfileAutoloadFunction)
+	}
+	return hasFunctionsPathSegment(ctx.FilePath)
 }
 
 func hasFunctionsPathSegment(path string) bool {

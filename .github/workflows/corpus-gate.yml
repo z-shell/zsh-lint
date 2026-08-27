@@ -9,6 +9,8 @@ on:
       - "cmd/**"
       - "docs/project/corpus.md"
       - "docs/project/corpus-paths.txt"
+      - "docs/project/corpus-configs/**"
+      - "docs/project/configured-corpus-expected.json"
       - "go.mod"
       - "go.sum"
       - "internal/**"
@@ -18,6 +20,8 @@ on:
       - "cmd/**"
       - "docs/project/corpus.md"
       - "docs/project/corpus-paths.txt"
+      - "docs/project/corpus-configs/**"
+      - "docs/project/configured-corpus-expected.json"
       - "go.mod"
       - "go.sum"
       - "internal/**"
@@ -156,4 +160,164 @@ jobs:
           if [[ $analyzer_status -ne 0 ]]; then
             echo "::error::zsh-lint exited with status $analyzer_status."
             exit "$analyzer_status"
+          fi
+
+  configured-corpus:
+    name: Configured corpus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out zsh-lint
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: zsh-lint
+          persist-credentials: false
+
+      - name: Check out src
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/src
+          ref: main
+          path: corpus/src
+          persist-credentials: false
+
+      - name: Check out zd
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zd
+          ref: main
+          path: corpus/zd
+          persist-credentials: false
+
+      - name: Check out zunit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zunit
+          ref: main
+          path: corpus/zunit
+          persist-credentials: false
+
+      - name: Check out z-a-meta-plugins
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/z-a-meta-plugins
+          ref: main
+          path: corpus/z-a-meta-plugins
+          persist-credentials: false
+
+      - name: Check out zsh-fancy-completions
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zsh-fancy-completions
+          ref: main
+          path: corpus/zsh-fancy-completions
+          persist-credentials: false
+
+      - name: Check out zsh-eza
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zsh-eza
+          ref: main
+          path: corpus/zsh-eza
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.25"
+          cache-dependency-path: zsh-lint/go.sum
+
+      - name: Build configured analyzer
+        working-directory: zsh-lint
+        run: go build -o "$RUNNER_TEMP/zsh-lint" ./cmd/zsh-lint
+
+      - name: Record configured corpus revisions
+        working-directory: corpus
+        run: |
+          for repository in src zd zunit z-a-meta-plugins zsh-fancy-completions zsh-eza; do
+            printf '%s ' "$repository"
+            git -C "$repository" rev-parse HEAD
+          done
+
+      - name: Verify configured corpus classifications
+        working-directory: corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          repositories=(src zd zunit z-a-meta-plugins zsh-fancy-completions zsh-eza)
+          diagnostic_files=()
+
+          for repository in "${repositories[@]}"; do
+            config_source="../zsh-lint/docs/project/corpus-configs/$repository.json"
+            config="$repository/.zsh-lint-corpus.json"
+            cp "$config_source" "$config"
+
+            mapfile -t roots < <(sed -n "s#^$repository/##p" ../zsh-lint/docs/project/corpus-paths.txt)
+            if [[ ${#roots[@]} -eq 0 ]]; then
+              echo "::error::No configured corpus roots found for $repository."
+              exit 1
+            fi
+
+            input_roots=()
+            for root in "${roots[@]}"; do
+              input_roots+=("$repository/$root")
+            done
+            mapfile -d '' files < <(find "${input_roots[@]}" -type f -print0 | sort -z)
+            if [[ ${#files[@]} -eq 0 ]]; then
+              echo "::error::No configured corpus files found for $repository."
+              exit 1
+            fi
+
+            diagnostics="$RUNNER_TEMP/configured-$repository.json"
+            analyzer_status=0
+            "$RUNNER_TEMP/zsh-lint" --format=json --config "$config" "${files[@]}" > "$diagnostics" || analyzer_status=$?
+            if [[ $analyzer_status -ne 0 ]]; then
+              jq . "$diagnostics"
+              echo "::error::Configured zsh-lint for $repository exited with status $analyzer_status."
+              exit "$analyzer_status"
+            fi
+            diagnostic_files+=("$diagnostics")
+          done
+
+          jq -s '{
+            version: 1,
+            summary: {
+              files: ([.[].summary.files] | add),
+              diagnostics: ([.[].summary.diagnostics] | add),
+              errors: ([.[].summary.errors] | add),
+              warnings: ([.[].summary.warnings] | add),
+              infos: ([.[].summary.infos] | add),
+              hints: ([.[].summary.hints] | add)
+            },
+            diagnostics: ([.[].diagnostics[]] | sort_by(.file, (.range.start.line // 0), (.range.start.column // 0), .rule))
+          }' "${diagnostic_files[@]}" > "$RUNNER_TEMP/configured-corpus.json"
+          jq . "$RUNNER_TEMP/configured-corpus.json"
+
+          if ! jq -e '.summary.errors == 0 and .summary.warnings == 0' "$RUNNER_TEMP/configured-corpus.json" >/dev/null; then
+            echo "::error::The configured corpus contains error- or warning-level diagnostics."
+            exit 1
+          fi
+
+          expected=../zsh-lint/docs/project/configured-corpus-expected.json
+          if ! jq -e 'all(.[]; (.classification | type == "string" and length > 0))' "$expected" >/dev/null; then
+            echo "::error::Every configured corpus finding needs a non-empty classification."
+            exit 1
+          fi
+
+          jq '[.[] | {repository, path, rule, severity, line}] | sort_by(.repository, .path, (.line // 0), .rule)' \
+            "$expected" > "$RUNNER_TEMP/configured-expected-identities.json"
+          jq '[.diagnostics[] |
+            (.file | split("/")) as $parts |
+            {
+              repository: $parts[0],
+              path: ($parts[1:] | join("/")),
+              rule: .rule,
+              severity: .severity,
+              line: (.range.start.line // null)
+            }
+          ] | sort_by(.repository, .path, (.line // 0), .rule)' \
+            "$RUNNER_TEMP/configured-corpus.json" > "$RUNNER_TEMP/configured-actual-identities.json"
+
+          if ! diff -u "$RUNNER_TEMP/configured-expected-identities.json" "$RUNNER_TEMP/configured-actual-identities.json"; then
+            echo "::error::Configured corpus diagnostics changed; review and classify every difference."
+            exit 1
           fi

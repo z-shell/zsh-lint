@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "project": {
+    "kind": "plugin",
+    "minimum_zsh": "5.9.2",
+    "function_namespaces": ["zfc", "zsh-fancy-completions"]
+  },
+  "sources": [
+    {
+      "root": "zsh-fancy-completions.plugin.zsh",
+      "profile": "sourced-library"
+    },
+    { "root": "functions", "profile": "autoload-function" },
+    { "root": "lib", "profile": "sourced-library" }
+  ]
+}

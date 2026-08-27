@@ -97,3 +97,11 @@ the adapter verifies the original AST structure, invalid-syntax behavior, and
 every source position before returning the complete tree. This exception does
 not permit general source rewriting or consuming separators from the
 full-file retry.
+
+When an upstream AST has no field for a native construct, the parser result may
+retain source-mapped typed syntax nodes as explicit `parse.File` metadata. This
+exception requires the same exact-error gate and byte-preserving retry, plus a
+stable association with the owning AST node. Consumers must inspect the typed
+metadata rather than recover masked source text. Anonymous-function invocation
+words use this boundary because mvdan/sh v3.13.1 represents the declaration but
+has no field for its invocation arguments.

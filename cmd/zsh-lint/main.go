@@ -60,7 +60,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
 			return 2
 		}
-		activeRules = append(activeRules, rules.ProjectProfile(config.Version)...)
+		activeRules, err = rules.ForProfile(rules.CurrentProjectProfile)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "zsh-lint: rule profile: %v\n", err)
+			return 2
+		}
 		sourceContexts = make([]projectconfig.SourceContext, len(names))
 		for index, name := range names {
 			context, err := config.Resolve(name)
