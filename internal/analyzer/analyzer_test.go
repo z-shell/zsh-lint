@@ -7,6 +7,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"github.com/z-shell/zsh-lint/internal/rules"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -27,6 +28,28 @@ func (r *dummyRule) Analyze(ctx *analyzer.Context, node syntax.Node) {
 
 type scopeRule struct {
 	sawGlobal bool
+}
+
+type sourceRule struct {
+	source projectconfig.SourceContext
+}
+
+func (r *sourceRule) ID() diag.RuleID { return "test/source" }
+func (r *sourceRule) Name() string    { return "Source Rule" }
+func (r *sourceRule) Analyze(ctx *analyzer.Context, _ syntax.Node) {
+	r.source = ctx.Source.Clone()
+}
+
+type fileRule struct {
+	calls int
+}
+
+func (r *fileRule) ID() diag.RuleID                            { return "test/file" }
+func (r *fileRule) Name() string                               { return "File Rule" }
+func (r *fileRule) Analyze(_ *analyzer.Context, _ syntax.Node) {}
+func (r *fileRule) AnalyzeFile(ctx *analyzer.Context) {
+	r.calls++
+	ctx.Report(syntax.Pos{}, syntax.Pos{}, r.ID(), diag.Hint, "file finding")
 }
 
 func (r *scopeRule) ID() diag.RuleID { return "test/scope" }
@@ -75,6 +98,62 @@ func TestAnalyzerIndexesScopeForOptInRule(t *testing.T) {
 
 	if !rule.sawGlobal {
 		t.Fatal("scope-aware rule did not receive the declaration index")
+	}
+}
+
+func TestAnalyzerSuppliesSourceContext(t *testing.T) {
+	file, err := parse.Parse(strings.NewReader("print ok\n"), "functions/example-run")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	want := projectconfig.SourceContext{
+		ConfigVersion:      projectconfig.CurrentVersion,
+		ProjectKind:        projectconfig.KindPlugin,
+		MinimumZsh:         "5.8",
+		FunctionNamespaces: []string{"example"},
+		Profile:            projectconfig.ProfileAutoloadFunction,
+		SourceRoot:         "functions",
+	}
+	rule := &sourceRule{}
+	analyzer.New(rule).AnalyzeSource(file, "functions/example-run", want)
+	if rule.source.ConfigVersion != want.ConfigVersion || rule.source.ProjectKind != want.ProjectKind ||
+		rule.source.MinimumZsh != want.MinimumZsh ||
+		rule.source.Profile != want.Profile || rule.source.SourceRoot != want.SourceRoot ||
+		len(rule.source.FunctionNamespaces) != 1 || rule.source.FunctionNamespaces[0] != "example" {
+		t.Errorf("source context = %+v, want %+v", rule.source, want)
+	}
+
+	want.FunctionNamespaces[0] = "mutated"
+	if rule.source.FunctionNamespaces[0] != "example" {
+		t.Errorf("analyzer retained caller-owned namespace storage: %q", rule.source.FunctionNamespaces)
+	}
+}
+
+func TestAnalyzerLegacyEntryPointHasUnconfiguredSource(t *testing.T) {
+	file, err := parse.Parse(strings.NewReader("print ok\n"), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rule := &sourceRule{}
+	analyzer.New(rule).Analyze(file, "test.zsh")
+	if rule.source.Configured() {
+		t.Errorf("legacy Analyze() source = %+v, want unconfigured context", rule.source)
+	}
+}
+
+func TestAnalyzerRunsFileRuleOnce(t *testing.T) {
+	file, err := parse.Parse(strings.NewReader("print one\nprint two\n"), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rule := &fileRule{}
+	diagnostics := analyzer.New(rule).Analyze(file, "test.zsh")
+	if rule.calls != 1 {
+		t.Errorf("AnalyzeFile calls = %d, want 1", rule.calls)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Range.IsValid() {
+		t.Errorf("file diagnostics = %+v, want one unpositioned finding", diagnostics)
 	}
 }
 

@@ -3,7 +3,9 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -11,29 +13,73 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"github.com/z-shell/zsh-lint/internal/rules"
 )
 
+const usage = "usage: zsh-lint [--format=json] [--config PATH] <file.zsh> [file.zsh ...]"
+
 func main() {
-	args := os.Args[1:]
-	jsonOut := false
-	if len(args) > 0 && args[0] == "--format=json" {
-		jsonOut = true
-		args = args[1:]
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	var formatFlag singleValue
+	formatFlag.name = "format"
+	var configFlag singleValue
+	configFlag.name = "config"
+
+	flags := flag.NewFlagSet("zsh-lint", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	flags.Var(&formatFlag, "format", "output format (json)")
+	flags.Var(&configFlag, "config", "explicit project configuration path")
+	if err := flags.Parse(args); err != nil {
+		fmt.Fprintf(stderr, "zsh-lint: %v\n%s\n", err, usage)
+		return 2
 	}
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: zsh-lint [--format=json] <file.zsh> [file.zsh ...]")
-		os.Exit(2)
+	if formatFlag.set && formatFlag.value != "json" {
+		fmt.Fprintf(stderr, "zsh-lint: unsupported output format %q\n%s\n", formatFlag.value, usage)
+		return 2
+	}
+	if configFlag.set && configFlag.value == "" {
+		fmt.Fprintf(stderr, "zsh-lint: --config requires a non-empty path\n%s\n", usage)
+		return 2
+	}
+	names := flags.Args()
+	if len(names) == 0 {
+		fmt.Fprintln(stderr, usage)
+		return 2
+	}
+	jsonOut := formatFlag.value == "json"
+
+	var sourceContexts []projectconfig.SourceContext
+	activeRules := rules.Default()
+	if configFlag.set {
+		config, err := projectconfig.Load(configFlag.value)
+		if err != nil {
+			fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
+			return 2
+		}
+		activeRules = append(activeRules, rules.ProjectProfile(config.Version)...)
+		sourceContexts = make([]projectconfig.SourceContext, len(names))
+		for index, name := range names {
+			context, err := config.Resolve(name)
+			if err != nil {
+				fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
+				return 2
+			}
+			sourceContexts[index] = context
+		}
 	}
 
-	an := analyzer.New(rules.Default()...)
+	an := analyzer.New(activeRules...)
 	var all diag.Diagnostics
 	var exitNonZero bool
 
-	for _, name := range args {
+	for index, name := range names {
 		f, err := os.Open(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+			fmt.Fprintf(stderr, "%s: %v\n", name, err)
 			exitNonZero = true
 			continue
 		}
@@ -49,12 +95,17 @@ func main() {
 				// (docs/project/output-contract.md).
 				all = append(all, parseErrDiag(name, err))
 			} else {
-				fmt.Println(formatErr(name, err))
+				fmt.Fprintln(stdout, formatErr(name, err))
 			}
 			continue
 		}
 
-		diags := an.Analyze(file, name)
+		var diags diag.Diagnostics
+		if sourceContexts == nil {
+			diags = an.Analyze(file, name)
+		} else {
+			diags = an.AnalyzeSource(file, name, sourceContexts[index])
+		}
 		for _, d := range diags {
 			// Errors and warnings cause a non-zero exit; Info/Hint do not.
 			if d.Severity <= diag.Warning {
@@ -66,9 +117,9 @@ func main() {
 			}
 			// Format similar to gcc/clang
 			if d.Range.IsValid() {
-				fmt.Printf("%s:%d:%d: [%s] %s\n", d.File, d.Range.Start.Line, d.Range.Start.Column, d.RuleID, d.Message)
+				fmt.Fprintf(stdout, "%s:%d:%d: [%s] %s\n", d.File, d.Range.Start.Line, d.Range.Start.Column, d.RuleID, d.Message)
 			} else {
-				fmt.Printf("%s: [%s] %s\n", d.File, d.RuleID, d.Message)
+				fmt.Fprintf(stdout, "%s: [%s] %s\n", d.File, d.RuleID, d.Message)
 			}
 		}
 		if jsonOut {
@@ -78,15 +129,33 @@ func main() {
 
 	if jsonOut {
 		all.Sort()
-		if err := diag.WriteJSON(os.Stdout, len(args), all); err != nil {
-			fmt.Fprintf(os.Stderr, "zsh-lint: encoding JSON: %v\n", err)
-			os.Exit(2)
+		if err := diag.WriteJSON(stdout, len(names), all); err != nil {
+			fmt.Fprintf(stderr, "zsh-lint: encoding JSON: %v\n", err)
+			return 2
 		}
 	}
 
 	if exitNonZero {
-		os.Exit(1)
+		return 1
 	}
+	return 0
+}
+
+type singleValue struct {
+	name  string
+	value string
+	set   bool
+}
+
+func (value *singleValue) String() string { return value.value }
+
+func (value *singleValue) Set(text string) error {
+	if value.set {
+		return fmt.Errorf("--%s may be specified only once", value.name)
+	}
+	value.value = text
+	value.set = true
+	return nil
 }
 
 // parseErrDiag converts a parser/IO error into a parse/error diagnostic,

@@ -90,8 +90,9 @@ A rule PR is mergeable when:
    safe text extraction, table-driven tests).
 3. Table-driven tests cover the Bad and Good examples plus every documented
    false-positive case.
-4. The rule is registered in `internal/rules.Default()` and the generated
-   reference docs are regenerated.
+4. The rule is registered in `internal/rules.Default()`, or in an explicitly
+   versioned opt-in profile when its approved proposal requires project
+   metadata. The generated reference docs are regenerated in either case.
 5. Running the analyzer over the survey corpus produces no finding the
    author cannot classify as true positive or documented false positive.
 

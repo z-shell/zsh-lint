@@ -3,6 +3,7 @@ package analyzer
 import (
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"github.com/z-shell/zsh-lint/internal/suppress"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -22,8 +23,22 @@ func New(rules ...Rule) *Analyzer {
 // Analyze runs the semantic analyzer on the parsed file. Rules that implement
 // ScopeAwareRule opt into a scope-resolution pass before rule evaluation.
 func (a *Analyzer) Analyze(file *parse.File, path string) diag.Diagnostics {
-	ctx := NewContext(file, path)
+	return a.AnalyzeSource(file, path, projectconfig.SourceContext{})
+}
+
+// AnalyzeSource runs the semantic analyzer with resolved project and
+// execution-profile metadata. Analyze remains the compatibility entry point
+// for callers that do not use project configuration.
+func (a *Analyzer) AnalyzeSource(file *parse.File, path string, source projectconfig.SourceContext) diag.Diagnostics {
+	ctx := NewContextWithSource(file, path, source)
 	ast := file.AST()
+
+	// File-level evaluation runs once and may report an unpositioned finding.
+	for _, rule := range a.rules {
+		if fileRule, ok := rule.(FileRule); ok {
+			fileRule.AnalyzeFile(ctx)
+		}
+	}
 
 	// Pass 1: Scope Resolution (Indexer), only when a rule consumes it.
 	if ast != nil && needsScope(a.rules) {

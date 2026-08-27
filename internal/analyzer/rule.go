@@ -15,6 +15,13 @@ type Rule interface {
 	Analyze(ctx *Context, node syntax.Node)
 }
 
+// FileRule is implemented by rules that report file-level findings which do
+// not belong to one AST node, such as contracts derived from an autoload file
+// name. AnalyzeFile is called once per parsed file before node traversal.
+type FileRule interface {
+	AnalyzeFile(ctx *Context)
+}
+
 // ScopeAwareRule is implemented by rules that need the declaration index.
 // Most rules inspect syntax only, so the analyzer skips the indexing pass
 // unless at least one registered rule opts in.

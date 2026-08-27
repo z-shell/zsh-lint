@@ -48,10 +48,19 @@ Two placements, both line-scoped:
    print $word_splitting_intended
    ```
 
-There is deliberately **no file-level or block-level scope in the first
-wave**: line scope keeps suppressions adjacent to the code they excuse and
-prevents drive-by blanket disabling. File/block scope, if ever needed, is a
-separate proposal that must amend this contract.
+An unpositioned whole-file diagnostic, such as a contract derived from an
+autoload filename, can be suppressed only by a standalone directive in the
+file header before any source code:
+
+```zsh
+# zsh-lint disable=plugin/function-namespace -- intentional external API name
+builtin emulate -L zsh
+```
+
+The same header directive retains its ordinary preceding-line scope for
+positioned findings. A directive after executable code cannot suppress a
+whole-file finding. There is no general file-wide or block-level suppression
+for positioned diagnostics.
 
 A suppression silences only the listed rule IDs, only within its scope.
 Diagnostics from other rules on the same line are unaffected.
@@ -93,9 +102,9 @@ remain included so editor and CI integrations can audit suppression usage.
 See `docs/project/output-contract.md` for the settled machine-readable
 contract.
 
-## Out of scope (first wave)
+## Out of scope
 
-- File-level and block-level scopes.
+- File-wide suppression of positioned diagnostics and block-level scopes.
 - Severity overrides via comments (use configuration, not inline
   directives).
 - Enabling rules inline (`enable=`) — configuration owns rule activation.
