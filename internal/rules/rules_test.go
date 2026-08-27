@@ -48,63 +48,75 @@ func TestRuleSeverities(t *testing.T) {
 	}
 }
 
-func TestDefaultIncludesFunctionScopedOptions(t *testing.T) {
-	for _, rule := range Default() {
-		if rule.ID() == "plugin/function-scoped-options" {
-			return
-		}
+func TestRuleSetSelection(t *testing.T) {
+	defaultIDs := []diag.RuleID{
+		"quoting/unquoted-var",
+		"style/backquotes",
+		"style/prefer-double-brackets",
+		"security/eval",
+		"style/function-decl",
+		"compat/special-param-shadow",
+		"plugin/function-scoped-options",
+		"plugin/zero-handling",
+		"plugin/unload-function",
+		"plugin/fpath-hygiene",
 	}
-	t.Fatal("Default rules do not include plugin/function-scoped-options")
+	profileIDs := append(append([]diag.RuleID(nil), defaultIDs...), "plugin/function-namespace")
+
+	if got := ruleIDs(Default()); !equalRuleIDs(got, defaultIDs) {
+		t.Fatalf("Default IDs = %v, want %v", got, defaultIDs)
+	}
+	profile, err := ForProfile(ProjectProfileV1)
+	if err != nil {
+		t.Fatalf("ForProfile(%q): %v", ProjectProfileV1, err)
+	}
+	if got := ruleIDs(profile); !equalRuleIDs(got, profileIDs) {
+		t.Fatalf("profile IDs = %v, want %v", got, profileIDs)
+	}
+	assertUniqueRuleIDs(t, profile)
+
+	if _, err := ForProfile(Profile("z-shell/project@2")); err == nil {
+		t.Fatal("ForProfile(unknown) succeeded, want error")
+	}
+
+	profile[0] = FunctionNamespace{}
+	again, err := ForProfile(CurrentProjectProfile)
+	if err != nil {
+		t.Fatalf("ForProfile(CurrentProjectProfile): %v", err)
+	}
+	if got := again[0].ID(); got != "quoting/unquoted-var" {
+		t.Fatalf("profile selection reused caller-mutated slice: first ID = %q", got)
+	}
 }
 
-func TestDefaultIncludesSpecialParamShadow(t *testing.T) {
-	for _, rule := range Default() {
-		if rule.ID() == "compat/special-param-shadow" {
-			return
-		}
+func ruleIDs(rules []analyzer.Rule) []diag.RuleID {
+	ids := make([]diag.RuleID, len(rules))
+	for index, rule := range rules {
+		ids[index] = rule.ID()
 	}
-	t.Fatal("Default rules do not include compat/special-param-shadow")
+	return ids
 }
 
-func TestDefaultIncludesZeroHandling(t *testing.T) {
-	for _, rule := range Default() {
-		if rule.ID() == "plugin/zero-handling" {
-			return
+func equalRuleIDs(got, want []diag.RuleID) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range got {
+		if got[index] != want[index] {
+			return false
 		}
 	}
-	t.Fatal("Default rules do not include plugin/zero-handling")
+	return true
 }
 
-func TestDefaultIncludesUnloadFunction(t *testing.T) {
-	for _, rule := range Default() {
-		if rule.ID() == "plugin/unload-function" {
-			return
+func assertUniqueRuleIDs(t *testing.T, rules []analyzer.Rule) {
+	t.Helper()
+	seen := make(map[diag.RuleID]bool, len(rules))
+	for _, rule := range rules {
+		if seen[rule.ID()] {
+			t.Fatalf("duplicate rule ID %q", rule.ID())
 		}
-	}
-	t.Fatal("Default rules do not include plugin/unload-function")
-}
-
-func TestDefaultIncludesFpathHygiene(t *testing.T) {
-	for _, rule := range Default() {
-		if rule.ID() == "plugin/fpath-hygiene" {
-			return
-		}
-	}
-	t.Fatal("Default rules do not include plugin/fpath-hygiene")
-}
-
-func TestFunctionNamespaceIsOptIn(t *testing.T) {
-	for _, rule := range Default() {
-		if rule.ID() == "plugin/function-namespace" {
-			t.Fatal("Default includes opt-in plugin/function-namespace")
-		}
-	}
-	profile := ProjectProfile(1)
-	if len(profile) != 1 || profile[0].ID() != "plugin/function-namespace" {
-		t.Fatalf("ProjectProfile(1) = %v, want plugin/function-namespace", profile)
-	}
-	if profile := ProjectProfile(2); len(profile) != 0 {
-		t.Fatalf("ProjectProfile(2) = %v, want no rules", profile)
+		seen[rule.ID()] = true
 	}
 }
 

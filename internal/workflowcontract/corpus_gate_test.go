@@ -1,9 +1,12 @@
 package workflowcontract
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 )
 
 func TestCorpusManifestIsExactAndContained(t *testing.T) {
@@ -36,10 +39,10 @@ func TestCorpusManifestIsExactAndContained(t *testing.T) {
 
 func TestCorpusGateUsesReadOnlyMainCheckouts(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github", "workflows", "corpus-gate.yml")
-	if got := strings.Count(workflow, "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"); got != 7 {
-		t.Fatalf("corpus gate must use seven pinned checkout steps; got %d", got)
+	if got := strings.Count(workflow, "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"); got != 14 {
+		t.Fatalf("two corpus jobs must use fourteen pinned checkout steps; got %d", got)
 	}
-	if got := strings.Count(workflow, "persist-credentials: false"); got != 7 {
+	if got := strings.Count(workflow, "persist-credentials: false"); got != 14 {
 		t.Fatalf("every corpus checkout must disable persisted credentials; got %d", got)
 	}
 
@@ -48,8 +51,8 @@ func TestCorpusGateUsesReadOnlyMainCheckouts(t *testing.T) {
 			"          ref: main\n" +
 			"          path: corpus/" + repository + "\n" +
 			"          persist-credentials: false"
-		if !strings.Contains(workflow, want) {
-			t.Errorf("corpus checkout for %s must use its main branch and isolated path", repository)
+		if got := strings.Count(workflow, want); got != 2 {
+			t.Errorf("both corpus jobs must check out %s from main in its isolated path; got %d", repository, got)
 		}
 	}
 }
@@ -69,6 +72,55 @@ func TestCorpusGateRunsTheFullReadinessContract(t *testing.T) {
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("corpus gate is missing required contract fragment %q", required)
+		}
+	}
+}
+
+func TestConfiguredCorpusContract(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github", "workflows", "corpus-gate.yml")
+	for _, required := range []string{
+		"configured-corpus:",
+		"name: Configured corpus",
+		`config_source="../zsh-lint/docs/project/corpus-configs/$repository.json"`,
+		`"$RUNNER_TEMP/zsh-lint" --format=json --config "$config" "${files[@]}"`,
+		`configured-corpus-expected.json`,
+		`.summary.errors == 0 and .summary.warnings == 0`,
+		`Configured corpus diagnostics changed; review and classify every difference.`,
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("configured corpus gate is missing required contract fragment %q", required)
+		}
+	}
+
+	repositories := []string{"src", "zd", "zunit", "z-a-meta-plugins", "zsh-fancy-completions", "zsh-eza"}
+	for _, repository := range repositories {
+		path := repositoryFilePath(t, "docs", "project", "corpus-configs", repository+".json")
+		config, err := projectconfig.Load(path)
+		if err != nil {
+			t.Errorf("configured corpus fixture %s is invalid: %v", repository, err)
+			continue
+		}
+		if config.Version != projectconfig.CurrentVersion {
+			t.Errorf("configured corpus fixture %s uses schema %d, want %d", repository, config.Version, projectconfig.CurrentVersion)
+		}
+	}
+
+	var expected []struct {
+		Repository     string `json:"repository"`
+		Path           string `json:"path"`
+		Rule           string `json:"rule"`
+		Severity       string `json:"severity"`
+		Classification string `json:"classification"`
+	}
+	if err := json.Unmarshal([]byte(readRepositoryFile(t, "docs", "project", "configured-corpus-expected.json")), &expected); err != nil {
+		t.Fatalf("decode configured corpus classifications: %v", err)
+	}
+	if len(expected) == 0 {
+		t.Fatal("configured corpus classifications must not be empty")
+	}
+	for index, finding := range expected {
+		if finding.Repository == "" || finding.Path == "" || finding.Rule == "" || finding.Severity == "" || finding.Classification == "" {
+			t.Errorf("configured corpus classification %d has an empty required field: %+v", index, finding)
 		}
 	}
 }
