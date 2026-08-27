@@ -266,7 +266,22 @@ func TestSanitize_DemoteHeadings(t *testing.T) {
 func TestSanitize_FenceIndentedCode(t *testing.T) {
 	input := "\tfunc render() { print ok; }\n\t  print done\n\t\n\nProse"
 	got := wikidoc.Sanitize(input)
-	want := "```\nfunc render() { print ok; }\n  print done\n```\n\nProse"
+	want := "```go\nfunc render() { print ok; }\n  print done\n```\n\nProse"
+	if got != want {
+		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
+	}
+}
+
+// TestSanitize_FenceIndentedCodeLanguages verifies generated Go declarations
+// and Zsh rule examples receive the explicit languages required by the wiki.
+func TestSanitize_FenceIndentedCodeLanguages(t *testing.T) {
+	input := "## func Run\n\n\tfunc Run() int\n\n" +
+		"Bad:\n\n\tprint -r -- $value\n\n" +
+		"Good:\n\n\tprint -r -- \"$value\""
+	got := wikidoc.Sanitize(input)
+	want := "##### func Run\n\n```go\nfunc Run() int\n```\n\n" +
+		"Bad:\n\n```zsh\nprint -r -- $value\n```\n\n" +
+		"Good:\n\n```zsh\nprint -r -- \"$value\"\n```"
 	if got != want {
 		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
 	}
@@ -298,7 +313,7 @@ func TestSanitize_EscapeProseChars(t *testing.T) {
 func TestSanitize_IndentedCodePreservesContent(t *testing.T) {
 	input := "\tfunc F(a <T>) {}"
 	got := wikidoc.Sanitize(input)
-	want := "```\nfunc F(a <T>) {}\n```"
+	want := "```go\nfunc F(a <T>) {}\n```"
 	if got != want {
 		t.Errorf("Sanitize should fence tab-indented code without escaping it; got: %q, want: %q", got, want)
 	}
@@ -318,7 +333,7 @@ func TestSanitize_FencedCodeNotEscaped(t *testing.T) {
 func TestSanitize_FourSpaceIndentFenced(t *testing.T) {
 	input := "    func F(a <T>) {}"
 	got := wikidoc.Sanitize(input)
-	want := "```\nfunc F(a <T>) {}\n```"
+	want := "```go\nfunc F(a <T>) {}\n```"
 	if got != want {
 		t.Errorf("Sanitize should fence 4-space-indented code; got: %q, want: %q", got, want)
 	}
