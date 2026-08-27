@@ -59,9 +59,21 @@ func TestRuleSetSelection(t *testing.T) {
 		"plugin/function-scoped-options",
 		"plugin/zero-handling",
 		"plugin/unload-function",
+		"plugin/project-unload-lifecycle",
 		"plugin/fpath-hygiene",
 	}
-	profileIDs := append(append([]diag.RuleID(nil), defaultIDs...), "plugin/function-namespace")
+	profileIDs := []diag.RuleID{
+		"quoting/unquoted-var",
+		"style/prefer-double-brackets",
+		"security/eval",
+		"compat/special-param-shadow",
+		"plugin/function-scoped-options",
+		"plugin/zero-handling",
+		"plugin/unload-function",
+		"plugin/fpath-hygiene",
+		"plugin/function-namespace",
+		"performance/repeated-external-command",
+	}
 
 	if got := ruleIDs(Default()); !equalRuleIDs(got, defaultIDs) {
 		t.Fatalf("Default IDs = %v, want %v", got, defaultIDs)

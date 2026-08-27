@@ -5,6 +5,7 @@ import (
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -17,9 +18,9 @@ import (
 // Summary: Checks configured plugin and Zi annex sourced-library entrypoints
 // that register persistent shell hooks or widgets for a namespaced unload
 // function (`*_plugin_unload`), and checks that defined unload functions
-// cleanly unfunction themselves upon completion. This remains a per-file
-// check: project-wide registration and cleanup matching requires aggregation.
-// Unconfigured analysis retains the legacy path heuristic.
+// cleanly unfunction themselves upon completion. Configured multi-file
+// invocations aggregate registration and unload presence across the project;
+// unconfigured analysis retains the legacy per-file path heuristic.
 //
 // Why: The Zsh Plugin Standard specifies that plugins with persistent side
 // effects (hooks via `add-zsh-hook`, line-editor widgets via
@@ -93,7 +94,7 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	})
 
 	// Check if hooks are registered without any unload function in the file
-	if len(hookRegistrations) > 0 && len(unloadFuncs) == 0 {
+	if !ctx.Source.Configured() && len(hookRegistrations) > 0 && len(unloadFuncs) == 0 {
 		for _, call := range hookRegistrations {
 			ctx.Report(
 				call.Pos(),
@@ -108,6 +109,62 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	// Inspect hygiene of defined unload functions
 	for _, fn := range unloadFuncs {
 		checkUnloadFunctionHygiene(ctx, fn, rule.ID())
+	}
+}
+
+// ProjectUnloadLifecycle checks configured registration and unload presence
+// across every source supplied in one project invocation.
+type ProjectUnloadLifecycle struct{}
+
+func (ProjectUnloadLifecycle) ID() diag.RuleID {
+	return "plugin/project-unload-lifecycle"
+}
+
+func (ProjectUnloadLifecycle) Name() string {
+	return "Project-wide unload lifecycle completeness"
+}
+
+func (ProjectUnloadLifecycle) Analyze(_ *analyzer.Context, _ syntax.Node) {}
+
+func (rule ProjectUnloadLifecycle) AnalyzeProject(ctx *analyzer.ProjectContext) {
+	var registrations []struct {
+		input analyzer.ProjectInput
+		call  *syntax.CallExpr
+	}
+	hasUnload := false
+	for _, input := range ctx.Inputs {
+		if !configuredPluginSource(input.Source, projectconfig.ProfileSourcedLibrary) {
+			continue
+		}
+		syntax.Walk(input.File.AST(), func(node syntax.Node) bool {
+			switch value := node.(type) {
+			case *syntax.FuncDecl:
+				if value.Name != nil && strings.HasSuffix(value.Name.Value, "_plugin_unload") {
+					hasUnload = true
+				}
+			case *syntax.CallExpr:
+				if isHookRegistrationCall(value) {
+					registrations = append(registrations, struct {
+						input analyzer.ProjectInput
+						call  *syntax.CallExpr
+					}{input: input, call: value})
+				}
+			}
+			return true
+		})
+	}
+	if hasUnload {
+		return
+	}
+	for _, registration := range registrations {
+		ctx.Report(
+			registration.input,
+			registration.call.Pos(),
+			registration.call.End(),
+			rule.ID(),
+			diag.Hint,
+			"Project registers persistent hooks or widgets but no configured source defines an exact '<name>_plugin_unload' function",
+		)
 	}
 }
 

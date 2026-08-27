@@ -21,8 +21,12 @@ deterministic rule set. They are deliberately separate so a schema correction
 does not silently change rule membership, and a rule-profile revision does not
 silently change configuration syntax.
 
-The configured profile contains the generic rules plus the existing plugin
-lifecycle rules and `plugin/function-namespace`. Rules that need project
+The configured profile contains correctness rules, the organization-approved
+`style/prefer-double-brackets` advisory style rule, the existing plugin
+lifecycle rules, `plugin/function-namespace`, and evidence-gated advisory
+performance rules. The legacy `style/backquotes` and `style/function-decl`
+rules remain available only in unconfigured compatibility mode because no
+organization policy currently adopts those preferences. Rules that need project
 context use explicit `project.kind`, source `profile`, and source `role`
 metadata. Paths cannot override configured metadata. The legacy path heuristics
 remain available only on invocations without `--config`.
@@ -36,6 +40,18 @@ In project profile version 1:
   sources; and
 - `plugin/function-namespace` retains its documented plugin and Zi annex
   sourced-library and autoload-function boundary.
+
+Configured invocations analyze their complete explicit input list as one
+project. The `plugin/project-unload-lifecycle` validator can therefore match a
+persistent registration in an entrypoint to an exact `*_plugin_unload`
+definition in another configured source. Files omitted from the command are
+intentionally outside that proof boundary.
+
+The `performance/repeated-external-command` rule applies only to configured
+`autoload-function` sources with the `completion` role. It reports Info
+findings for a conservative allowlist of known external commands inside loops.
+Its cost model is N process creations for N iterations; remediation still
+requires workload measurement when the command result varies per iteration.
 
 Theme projects do not inherit plugin lifecycle contracts in this profile. A
 future theme contract requires an explicit profile decision.

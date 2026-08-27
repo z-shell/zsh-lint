@@ -7,6 +7,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 )
 
 func TestUnloadFunction(t *testing.T) {
@@ -38,6 +39,31 @@ func TestUnloadFunction(t *testing.T) {
 				t.Fatalf("severity = %v, want %v", diagnostics[0].Severity, test.severity)
 			}
 		})
+	}
+}
+
+func TestProjectUnloadLifecycleAcrossFiles(t *testing.T) {
+	entry, err := parse.Parse(strings.NewReader("add-zsh-hook precmd _tick\n"), "plugin.zsh")
+	if err != nil {
+		t.Fatalf("parse entry: %v", err)
+	}
+	unload, err := parse.Parse(strings.NewReader("example_plugin_unload() { unfunction example_plugin_unload }\n"), "lib/state.zsh")
+	if err != nil {
+		t.Fatalf("parse unload: %v", err)
+	}
+	source := configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "")
+	an := analyzer.New(UnloadFunction{}, ProjectUnloadLifecycle{})
+	diagnostics := an.AnalyzeProject([]analyzer.ProjectInput{
+		{File: entry, Path: "plugin.zsh", Source: source},
+		{File: unload, Path: "lib/state.zsh", Source: source},
+	})
+	if len(diagnostics) != 0 {
+		t.Fatalf("cross-file unload diagnostics = %+v, want none", diagnostics)
+	}
+
+	diagnostics = an.AnalyzeProject([]analyzer.ProjectInput{{File: entry, Path: "plugin.zsh", Source: source}})
+	if len(diagnostics) != 1 || diagnostics[0].RuleID != "plugin/project-unload-lifecycle" {
+		t.Fatalf("missing project unload diagnostics = %+v, want one project finding", diagnostics)
 	}
 }
 
