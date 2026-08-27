@@ -358,8 +358,8 @@ func TestDependencyAutomationTargetsNext(t *testing.T) {
 	var renovate struct {
 		BaseBranchPatterns []string `json:"baseBranchPatterns"`
 	}
-	if err := json.Unmarshal([]byte(readRepositoryFile(t, "renovate.json")), &renovate); err != nil {
-		t.Fatalf("parse renovate.json: %v", err)
+	if err := json.Unmarshal([]byte(readRepositoryFile(t, ".github", "renovate.json")), &renovate); err != nil {
+		t.Fatalf("parse .github/renovate.json: %v", err)
 	}
 	if got := strings.Join(renovate.BaseBranchPatterns, ","); got != "next" {
 		t.Fatalf("Renovate must target only next; got %q", got)

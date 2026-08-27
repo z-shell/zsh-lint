@@ -182,6 +182,15 @@ func finding(id diag.RuleID, line int) diag.Diagnostic {
 	}
 }
 
+func fileFinding(id diag.RuleID) diag.Diagnostic {
+	return diag.Diagnostic{
+		RuleID:   id,
+		Severity: diag.Hint,
+		Message:  "file finding",
+		File:     "test.zsh",
+	}
+}
+
 func ids(ds diag.Diagnostics) []string {
 	var out []string
 	for _, d := range ds {
@@ -318,4 +327,45 @@ func TestApply(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("header directive suppresses an unpositioned file finding", func(t *testing.T) {
+		d := wellFormed(3, "security/eval")
+		d.Header = true
+		got := Apply([]Directive{d}, diag.Diagnostics{fileFinding("security/eval")}, known, "test.zsh")
+		if len(got) != 0 {
+			t.Fatalf("Apply = %+v, want file finding suppressed", got)
+		}
+	})
+
+	t.Run("directive after code does not suppress a file finding", func(t *testing.T) {
+		d := wellFormed(3, "security/eval")
+		got := Apply([]Directive{d}, diag.Diagnostics{fileFinding("security/eval")}, known, "test.zsh")
+		if len(got) != 2 || got[0].RuleID != "security/eval" || got[1].RuleID != RuleUnused {
+			t.Fatalf("Apply = %+v, want file finding and unused suppression", got)
+		}
+	})
+}
+
+func TestCollectMarksOnlyHeaderDirectivesForFileScope(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{name: "first line", src: "# zsh-lint disable=plugin/function-namespace\nprint ok\n", want: true},
+		{name: "after shebang and comments", src: "#!/usr/bin/env zsh\n# context\n# zsh-lint disable=plugin/function-namespace\nprint ok\n", want: true},
+		{name: "after code", src: "print one\n# zsh-lint disable=plugin/function-namespace\nprint two\n", want: false},
+		{name: "trailing", src: "print one # zsh-lint disable=plugin/function-namespace\n", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directives := Collect(mustParse(t, test.src))
+			if len(directives) != 1 {
+				t.Fatalf("Collect() count = %d, want 1", len(directives))
+			}
+			if directives[0].Header != test.want {
+				t.Errorf("Header = %v, want %v", directives[0].Header, test.want)
+			}
+		})
+	}
 }

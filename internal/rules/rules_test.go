@@ -92,3 +92,33 @@ func TestDefaultIncludesFpathHygiene(t *testing.T) {
 	}
 	t.Fatal("Default rules do not include plugin/fpath-hygiene")
 }
+
+func TestFunctionNamespaceIsOptIn(t *testing.T) {
+	for _, rule := range Default() {
+		if rule.ID() == "plugin/function-namespace" {
+			t.Fatal("Default includes opt-in plugin/function-namespace")
+		}
+	}
+	profile := ProjectProfile(1)
+	if len(profile) != 1 || profile[0].ID() != "plugin/function-namespace" {
+		t.Fatalf("ProjectProfile(1) = %v, want plugin/function-namespace", profile)
+	}
+	if profile := ProjectProfile(2); len(profile) != 0 {
+		t.Fatalf("ProjectProfile(2) = %v, want no rules", profile)
+	}
+}
+
+func TestFunctionNamespaceSeverity(t *testing.T) {
+	file, err := parse.Parse(strings.NewReader("refresh() { :; }\n"), "plugin.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	diagnostics := analyzer.New(FunctionNamespace{}).AnalyzeSource(
+		file,
+		"plugin.zsh",
+		sourcedPlugin("example"),
+	)
+	if len(diagnostics) != 1 || diagnostics[0].Severity != diag.Hint {
+		t.Fatalf("diagnostics = %+v, want one hint", diagnostics)
+	}
+}

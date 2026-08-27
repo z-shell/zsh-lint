@@ -3,6 +3,7 @@ package analyzer
 import (
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"github.com/z-shell/zsh-lint/internal/scope"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -12,15 +13,26 @@ type Context struct {
 	File        *parse.File
 	FilePath    string
 	Diagnostics diag.Diagnostics
+	// Source contains optional project and execution-profile metadata supplied
+	// by an explicit project configuration.
+	Source projectconfig.SourceContext
 	// Scope tracking per ADR 0011
 	Scope *scope.Map
 }
 
 // NewContext creates a new analysis context for a file.
 func NewContext(file *parse.File, path string) *Context {
+	return NewContextWithSource(file, path, projectconfig.SourceContext{})
+}
+
+// NewContextWithSource creates an analysis context with resolved project and
+// execution-profile metadata. Slice fields are cloned so rules cannot mutate
+// metadata shared with another input.
+func NewContextWithSource(file *parse.File, path string, source projectconfig.SourceContext) *Context {
 	return &Context{
 		File:     file,
 		FilePath: path,
+		Source:   source.Clone(),
 		Scope:    scope.NewMap(),
 	}
 }

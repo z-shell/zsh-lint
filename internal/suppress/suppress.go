@@ -6,11 +6,12 @@
 //	# zsh-lint disable=<rule-id>[,<rule-id>...] [-- reason]
 //
 // with two line-based scopes: trailing (same line as code) and preceding
-// (next non-comment, non-blank source line). Malformed directives are
-// reported as meta/malformed-suppression and suppress nothing; listed rule
-// IDs that match no finding in scope are reported per ID as
-// meta/unused-suppression. meta/* findings are never suppressible, so
-// machine output always carries them (docs/project/output-contract.md).
+// (next non-comment, non-blank source line). A standalone directive in the
+// file header also applies to unpositioned whole-file findings. Malformed
+// directives are reported as meta/malformed-suppression and suppress nothing;
+// listed rule IDs that match no finding in scope are reported per ID as
+// meta/unused-suppression. meta/* findings are never suppressible, so machine
+// output always carries them (docs/project/output-contract.md).
 package suppress
 
 import (
@@ -44,6 +45,9 @@ type Directive struct {
 	// Target is the 1-based line findings must start on to be suppressed;
 	// 0 means the directive has no scope (nothing follows it).
 	Target int
+	// Header reports whether this is a standalone directive before any source
+	// code. Header directives additionally target unpositioned file findings.
+	Header bool
 	// Range spans the source comment, for positioning meta findings.
 	Range diag.Range
 	// Malformed holds the parse-failure reason; empty means well-formed.
@@ -82,13 +86,20 @@ func Apply(ds []Directive, findings diag.Diagnostics, known map[diag.RuleID]bool
 	}
 	type slot struct{ d, r int }
 	active := make(map[key][]slot)
+	fileActive := make(map[diag.RuleID][]slot)
 	for di, d := range ds {
-		if d.Malformed != "" || d.Target == 0 {
+		if d.Malformed != "" {
 			continue
 		}
 		for ri, id := range d.Rules {
-			k := key{d.Target, id}
-			active[k] = append(active[k], slot{di, ri})
+			s := slot{di, ri}
+			if d.Target != 0 {
+				k := key{d.Target, id}
+				active[k] = append(active[k], s)
+			}
+			if d.Header {
+				fileActive[id] = append(fileActive[id], s)
+			}
 		}
 	}
 
@@ -99,7 +110,13 @@ func Apply(ds []Directive, findings diag.Diagnostics, known map[diag.RuleID]bool
 			kept = append(kept, f)
 			continue
 		}
-		if slots, ok := active[key{f.Range.Start.Line, f.RuleID}]; ok {
+		var slots []slot
+		if f.Range.IsValid() {
+			slots = active[key{f.Range.Start.Line, f.RuleID}]
+		} else {
+			slots = fileActive[f.RuleID]
+		}
+		if len(slots) != 0 {
 			for _, s := range slots {
 				used[s] = true
 			}
@@ -149,6 +166,7 @@ func parseDirective(c *syntax.Comment, lines []string) (Directive, bool) {
 	d := Directive{
 		Range:  commentRange(c),
 		Target: targetLine(int(c.Hash.Line()), int(c.Hash.Col()), lines),
+		Header: headerDirective(int(c.Hash.Line()), int(c.Hash.Col()), lines),
 	}
 	rest := fields[1:]
 	if len(rest) == 0 {
@@ -186,6 +204,29 @@ func parseDirective(c *syntax.Comment, lines []string) (Directive, bool) {
 		d.Rules = append(d.Rules, diag.RuleID(id))
 	}
 	return d, true
+}
+
+// headerDirective reports whether the comment is standalone and every earlier
+// source line is blank or comment-only. This makes file suppressions explicit
+// and keeps a directive after executable code line-scoped.
+func headerDirective(line, col int, lines []string) bool {
+	if line < 1 || line > len(lines) {
+		return false
+	}
+	prefix := lines[line-1]
+	if col-1 >= 0 && col-1 <= len(prefix) {
+		prefix = prefix[:col-1]
+	}
+	if strings.TrimSpace(prefix) != "" {
+		return false
+	}
+	for _, earlier := range lines[:line-1] {
+		trimmed := strings.TrimSpace(earlier)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			return false
+		}
+	}
+	return true
 }
 
 // targetLine resolves the directive's scope per the contract: trailing when
