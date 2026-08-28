@@ -3,7 +3,7 @@ name: Corpus Gate
 
 on:
   push:
-    branches: [main, next]
+    branches: [main]
     paths:
       - ".github/workflows/corpus-gate.yml"
       - "cmd/**"
