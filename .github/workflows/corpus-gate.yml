@@ -102,7 +102,7 @@ jobs:
           cache-dependency-path: zsh-lint/go.sum
 
       - name: Set up Zsh
-        uses: z-shell/.github/actions/setup-zsh@4403e5a200c63596f641966dfb64e08a7a655ffa # main
+        uses: z-shell/.github/actions/setup-zsh@9c22447f8270816e097260f6504de0a85d31b057 # main
 
       - name: Build corpus tools
         working-directory: zsh-lint
