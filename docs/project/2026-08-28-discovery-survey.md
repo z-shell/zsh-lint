@@ -38,8 +38,8 @@ and 2 are correctly rejected by both native Zsh and zsh-lint.
 One of the 11, family F, turned out not to be a missing language feature at all
 but a composition defect in the adapter chain. It is fixed in this change; see
 family F below. Fixing it revealed one further real gap in `zi.zsh` that the
-defect had been masking (family K), so 10 gap families remain to be closed:
-A through E, G through K.
+defect had been masking (family K), and family G was subsequently fixed by
+#164. Nine gap families remain to be closed: A through E and H through K.
 
 ### Not parser gaps
 
@@ -146,7 +146,7 @@ Related to the closed reverse-subscript work (#15) but distinct: the existing
 out on anything else, so a `$name` expansion inside the search pattern is never
 handled. This gap was invisible until family F was fixed.
 
-### G. Anonymous function with a process-substitution redirect
+### G. Anonymous function with a process-substitution redirect, FIXED
 
     () {
       print -r -- "$1"
@@ -155,6 +155,9 @@ handled. This gap was invisible until family F was fixed.
 Error: `statements must be separated by &, ; or a newline`. Manual:
 `zshmisc`, anonymous functions and process substitution. Real site:
 `zpmod/tests/builtin/process_substitution_source.zsh:35`.
+
+Current `main` parses this construct after the anonymous-function argument
+adapter landed in #164 (`bcfba34`). It needs no parser-gap issue.
 
 ### H. `do;` with a leading separator
 
@@ -183,7 +186,7 @@ ranges. Real site: `zunit/src/commands/run.zsh:268`.
 
 ## Recommended handling
 
-Families A through E and G through K are one `parser-gap` + `corpus` issue each,
+Families A through E and H through K are one `parser-gap` + `corpus` issue each,
 per the workflow's one-feature-per-issue rule. Minimized sources become
 `gap-<issue>-<slug>.zsh` fixtures once the issue numbers exist.
 
@@ -195,8 +198,8 @@ first error per file. Family K was hidden behind it. Any future adapter work
 should assume more findings are masked and re-run this survey after each fix.
 
 Do **not** add these repositories to `corpus-paths.txt` yet. The strict gate
-requires zero errors and zero warnings, and these sources currently carry 11
-parse errors plus 213 warning-level diagnostics (dominated by
+requires zero errors and zero warnings. The recorded run carried 11
+native-valid parse failures plus 213 warning-level diagnostics (dominated by
 `quoting/unquoted-var` and `plugin/zero-handling`). Promotion follows the same
 sequence used on 2026-08-16: close the parser gaps, remediate consumer findings
 in the owning repository, then promote and re-run the complete gate.
