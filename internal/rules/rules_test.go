@@ -70,6 +70,7 @@ func TestRuleSetSelection(t *testing.T) {
 		"plugin/function-scoped-options",
 		"plugin/zero-handling",
 		"plugin/unload-function",
+		"plugin/project-unload-lifecycle",
 		"plugin/fpath-hygiene",
 		"plugin/function-namespace",
 		"performance/repeated-external-command",

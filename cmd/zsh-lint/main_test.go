@@ -176,6 +176,41 @@ func TestRunConfigurationActivatesProjectProfile(t *testing.T) {
 	}
 }
 
+func TestRunConfiguredProjectUnloadLifecycle(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "zsh-lint.json")
+	entry := filepath.Join(root, "example.plugin.zsh")
+	unload := filepath.Join(root, "lib", "state.zsh")
+	writeFile(t, config, cliConfig)
+	writeFile(t, entry, "add-zsh-hook precmd _example_tick\n")
+	writeFile(t, unload, "example_plugin_unload() { unfunction example_plugin_unload }\n")
+
+	tests := []struct {
+		name        string
+		inputs      []string
+		wantFinding bool
+	}{
+		{name: "missing unload function", inputs: []string{entry}, wantFinding: true},
+		{name: "unload function in another source", inputs: []string{entry, unload}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"--config", config}, test.inputs...)
+			var stdout, stderr bytes.Buffer
+			if exit := run(args, &stdout, &stderr); exit != 0 {
+				t.Fatalf("run() exit = %d, want 0 for hint-only project finding; stderr = %q", exit, stderr.String())
+			}
+			gotFinding := strings.Contains(stdout.String(), "[plugin/project-unload-lifecycle]")
+			if gotFinding != test.wantFinding {
+				t.Errorf("project unload finding = %v, want %v; stdout = %q", gotFinding, test.wantFinding, stdout.String())
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want empty", stderr.String())
+			}
+		})
+	}
+}
+
 func TestRunConfiguredMetadataOverridesLegacyPathHeuristics(t *testing.T) {
 	const toolConfig = `{
   "version": 1,
