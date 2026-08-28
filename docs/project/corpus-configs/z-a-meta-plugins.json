@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "zi-annex",
     "minimum_zsh": "5.9.2",
-    "function_namespaces": ["za-meta-plugins"]
+    "identifier": "z-a-meta-plugins"
   },
   "sources": [
     { "root": "z-a-meta-plugins.plugin.zsh", "profile": "sourced-library" },

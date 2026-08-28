@@ -14,31 +14,30 @@ func TestFunctionNamespaceDeclarations(t *testing.T) {
 	tests := []struct {
 		name       string
 		source     string
-		namespaces []string
+		identifier string
 		want       int
 	}{
 		{name: "public underscore", source: "example_refresh() { :; }\n", want: 0},
 		{name: "portable private", source: "_example_precmd() { :; }\n", want: 0},
-		{name: "established private", source: "function .example_private { :; }\n", want: 0},
-		{name: "hook role", source: "function →example_hook { :; }\n", want: 0},
-		{name: "output role", source: "function +example_output { :; }\n", want: 0},
-		{name: "debug role", source: "function /example_debug { :; }\n", want: 0},
-		{name: "api role", source: "function @example_api { :; }\n", want: 0},
-		{name: "alternate namespace", source: "_zfc_state() { :; }\n", namespaces: []string{"example", "zfc"}, want: 0},
-		{name: "unicode role and namespace", source: "function →δοκιμή_hook { :; }\n", namespaces: []string{"δοκιμή"}, want: 0},
+		{name: "hyphenated identifier", source: "_zsh_fancy_completions_state() { :; }\n", identifier: "zsh-fancy-completions", want: 0},
+		{name: "legacy private role", source: "function .example_private { :; }\n", want: 1},
+		{name: "legacy hook role", source: "function →example_hook { :; }\n", want: 1},
+		{name: "legacy output role", source: "function +example_output { :; }\n", want: 1},
+		{name: "legacy debug role", source: "function /example_debug { :; }\n", want: 1},
+		{name: "legacy api role", source: "function @example_api { :; }\n", want: 1},
 		{name: "missing namespace", source: "refresh() { :; }\n", want: 1},
+		{name: "prefix without boundary", source: "exampled_refresh() { :; }\n", want: 1},
 		{name: "role without namespace", source: "function .refresh { :; }\n", want: 1},
-		{name: "only one role prefix stripped", source: "function ..example_private { :; }\n", want: 1},
 		{name: "multiple declaration names", source: "function example_one foreign { :; }\n", want: 1},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			namespaces := test.namespaces
-			if namespaces == nil {
-				namespaces = []string{"example"}
+			identifier := test.identifier
+			if identifier == "" {
+				identifier = "example"
 			}
-			diagnostics := analyzeFunctionNamespace(t, test.source, "plugin.zsh", sourcedPlugin(namespaces...))
+			diagnostics := analyzeFunctionNamespace(t, test.source, "plugin.zsh", sourcedPlugin(identifier))
 			got := diagnosticsByID(diagnostics, "plugin/function-namespace")
 			if len(got) != test.want {
 				t.Fatalf("finding count = %d, want %d: %+v", len(got), test.want, diagnostics)
@@ -80,10 +79,10 @@ func TestFunctionNamespaceNoOpProfiles(t *testing.T) {
 		{name: "startup", context: sourceContext(projectconfig.KindPlugin, projectconfig.ProfileStartupFile, "example")},
 		{name: "test fixture", context: sourceContext(projectconfig.KindPlugin, projectconfig.ProfileTestFixture, "example")},
 		{name: "library project", context: sourceContext(projectconfig.KindLibrary, projectconfig.ProfileSourcedLibrary, "example")},
-		{name: "empty namespaces", context: sourceContext(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary)},
+		{name: "empty identifier", context: sourceContext(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "")},
 		{name: "unknown config version", context: sourcedPlugin("example")},
 	}
-	tests[len(tests)-1].context.ConfigVersion = 2
+	tests[len(tests)-1].context.ConfigVersion = projectconfig.CurrentVersion + 1
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -100,16 +99,15 @@ func TestFunctionNamespaceAutoloadBasenames(t *testing.T) {
 		name       string
 		path       string
 		role       projectconfig.SourceRole
-		namespaces []string
+		identifier string
 		want       int
 		message    string
 	}{
 		{name: "public", path: "functions/example_refresh", want: 0},
-		{name: "private", path: "functions/.example_refresh", want: 0},
-		{name: "hook", path: "functions/→example_hook", want: 0},
-		{name: "output", path: "functions/+example_output", want: 0},
-		{name: "api", path: "functions/@example_api", want: 0},
-		{name: "alternate namespace", path: "functions/.zfc_state", namespaces: []string{"example", "zfc"}, want: 0},
+		{name: "private", path: "functions/_example_refresh", want: 0},
+		{name: "legacy private", path: "functions/.example_refresh", want: 1},
+		{name: "legacy hook", path: "functions/→example_hook", want: 1},
+		{name: "hyphenated identifier", path: "functions/_zsh_fancy_completions_state", identifier: "zsh-fancy-completions", want: 0},
 		{name: "missing namespace", path: "functions/.refresh", want: 1, message: `Autoload function name ".refresh"`},
 		{name: "completion", path: "completions/_git", role: projectconfig.RoleCompletion, want: 0},
 		{name: "completion requires underscore", path: "completions/example_git", role: projectconfig.RoleCompletion, want: 1, message: "must use the _command form"},
@@ -118,11 +116,11 @@ func TestFunctionNamespaceAutoloadBasenames(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			namespaces := test.namespaces
-			if namespaces == nil {
-				namespaces = []string{"example"}
+			identifier := test.identifier
+			if identifier == "" {
+				identifier = "example"
 			}
-			context := sourceContext(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, namespaces...)
+			context := sourceContext(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, identifier)
 			context.Role = test.role
 			diagnostics := analyzeFunctionNamespace(t, "builtin emulate -L zsh\n", test.path, context)
 			got := diagnosticsByID(diagnostics, "plugin/function-namespace")
@@ -158,7 +156,7 @@ func TestFunctionNamespaceSuppression(t *testing.T) {
 		},
 		{
 			name:         "header is stale for valid basename",
-			path:         "functions/.example_refresh",
+			path:         "functions/_example_refresh",
 			source:       "# zsh-lint disable=plugin/function-namespace -- intentional external API\nbuiltin emulate -L zsh\n",
 			wantRule:     0,
 			wantMeta:     "meta/unused-suppression",
@@ -229,18 +227,18 @@ func analyzeFunctionNamespace(t *testing.T, source, path string, context project
 	return analyzer.New(FunctionNamespace{}).AnalyzeSource(file, path, context)
 }
 
-func sourcedPlugin(namespaces ...string) projectconfig.SourceContext {
-	return sourceContext(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, namespaces...)
+func sourcedPlugin(identifier string) projectconfig.SourceContext {
+	return sourceContext(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, identifier)
 }
 
-func sourceContext(kind projectconfig.ProjectKind, profile projectconfig.Profile, namespaces ...string) projectconfig.SourceContext {
+func sourceContext(kind projectconfig.ProjectKind, profile projectconfig.Profile, identifier string) projectconfig.SourceContext {
 	return projectconfig.SourceContext{
-		ConfigVersion:      projectconfig.CurrentVersion,
-		ProjectKind:        kind,
-		MinimumZsh:         "5.8",
-		FunctionNamespaces: namespaces,
-		Profile:            profile,
-		SourceRoot:         ".",
+		ConfigVersion:     projectconfig.CurrentVersion,
+		ProjectKind:       kind,
+		MinimumZsh:        "5.8",
+		ProjectIdentifier: identifier,
+		Profile:           profile,
+		SourceRoot:        ".",
 	}
 }
 

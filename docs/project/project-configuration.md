@@ -2,20 +2,20 @@
 
 The `zsh-lint` project configuration supplies explicit project and source
 metadata to rules that need more context than one syntax tree can provide. It
-is opt-in. Version 1 performs no automatic configuration discovery.
+is opt-in. Version 2 performs no automatic configuration discovery.
 
 Pass the configuration path on every configured invocation:
 
 ```sh
-zsh-lint --config zsh-lint.json plugin.zsh functions/example-run
+zsh-lint --config zsh-lint.json plugin.zsh functions/example_run
 zsh-lint --format=json --config zsh-lint.json plugin.zsh
 ```
 
 Invocations without `--config` preserve the unconfigured behavior and default
 rule set.
 
-A valid schema version 1 configuration activates the independent
-`z-shell/project@1` rule profile. Configuration schema versions describe the
+A valid schema version 2 configuration activates the independent
+`z-shell/project@2` rule profile. Configuration schema versions describe the
 accepted metadata document; rule-profile versions describe a complete,
 deterministic rule set. They are deliberately separate so a schema correction
 does not silently change rule membership, and a rule-profile revision does not
@@ -23,29 +23,41 @@ silently change configuration syntax.
 
 The configured profile contains correctness rules, the organization-approved
 `style/prefer-double-brackets` advisory style rule, the existing plugin
-lifecycle rules, `plugin/function-namespace`, and evidence-gated advisory
-performance rules. The legacy `style/backquotes` and `style/function-decl`
-rules remain available only in unconfigured compatibility mode because no
+lifecycle rules, Zsh Plugin Standard 2 architecture rules, and evidence-gated
+advisory performance rules. The generic `style/backquotes` and
+`style/function-decl`
+rules remain available only in unconfigured mode because no
 organization policy currently adopts those preferences. Rules that need project
 context use explicit `project.kind`, source `profile`, and source `role`
-metadata. Paths cannot override configured metadata. The legacy path heuristics
-remain available only on invocations without `--config`.
+metadata. Paths cannot override configured metadata. Path-based applicability
+remains available only on generic invocations without `--config` and is not a
+Standard 2 compatibility profile.
 
-In project profile version 1:
+In project profile version 2:
 
 - `plugin/function-scoped-options` applies to plugin and Zi annex
   `autoload-function` sources, including the `completion` role;
 - `plugin/zero-handling`, `plugin/unload-function`, and
   `plugin/fpath-hygiene` apply to plugin and Zi annex `sourced-library`
   sources; and
-- `plugin/function-namespace` retains its documented plugin and Zi annex
-  sourced-library and autoload-function boundary.
+- `plugin/function-namespace` accepts only the derived public
+  `project_name_...` and private `_project_name_...` forms, plus native
+  `_command` completion names;
+- `plugin/shared-plugins-registry` rejects writes to the ownerless `Plugins`
+  parameter;
+- `plugin/persistent-parameter-namespace` requires persistent typed state to
+  use the private project prefix and directs ordinary configuration to the
+  `:project-identifier:config` style context; and
+- `plugin/load-only-helper` reports conservatively proven private setup helpers
+  that remain defined after initialization.
 
 Configured invocations analyze their complete explicit input list as one
 project. The `plugin/project-unload-lifecycle` validator can therefore match a
 persistent registration in an entrypoint to an exact `*_plugin_unload`
-definition in another configured source. Files omitted from the command are
-intentionally outside that proof boundary.
+definition in another configured source. This proves only that an unload
+entrypoint is present. Exact ownership-aware restoration is a runtime contract
+and must be tested in a clean Zsh process. Files omitted from the command are
+intentionally outside that static proof boundary.
 
 The `performance/repeated-external-command` rule applies only to configured
 `autoload-function` sources with the `completion` role. It reports Info
@@ -56,15 +68,15 @@ requires workload measurement when the command result varies per iteration.
 Theme projects do not inherit plugin lifecycle contracts in this profile. A
 future theme contract requires an explicit profile decision.
 
-## Version 1 format
+## Version 2 format
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "plugin",
     "minimum_zsh": "5.8",
-    "function_namespaces": ["example"]
+    "identifier": "example"
   },
   "sources": [
     { "root": ".", "profile": "sourced-library" },
@@ -83,15 +95,17 @@ All fields shown above are required except `sources[].role`.
 
 ### Project fields
 
-- `version` must be `1`.
+- `version` must be `2`.
 - `project.kind` must be one of `plugin`, `theme`, `zi-annex`, `module`,
   `library`, `tool`, or `application`.
 - `project.minimum_zsh` has two or three numeric components, such as `5.8` or
   `5.9.1`. Components must not have leading zeroes.
-- `project.function_namespaces` is an explicit list of namespaces accepted by
-  rules that evaluate function names. Each value is matched as a literal name
-  prefix. Namespaces are never inferred from a repository or directory name.
-  The list may be empty.
+- `project.identifier` is the one portable project identifier. It begins and
+  ends with a lowercase ASCII letter and otherwise contains lowercase ASCII
+  letters, digits, or hyphens. Namespaces are never inferred from a repository
+  or directory name. Shell-visible names replace identifier hyphens with
+  underscores: `zsh-fancy-completions` derives public prefix
+  `zsh_fancy_completions_` and private prefix `_zsh_fancy_completions_`.
 
 ### Source fields
 
@@ -106,13 +120,18 @@ profile. At least one source entry is required.
 - `autoload-function`
 - `test-fixture`
 
-The optional `role` field supports `completion` in version 1. That role requires
+The optional `role` field supports `completion` in version 2. That role requires
 the `autoload-function` profile.
+
+For plugin and Zi annex projects, standard directory mappings are validated
+when present: `lib` uses `sourced-library`, `functions` uses
+`autoload-function`, and `completions` uses `autoload-function` with role
+`completion`. A source root ending in `.plugin.zsh` uses `sourced-library`.
 
 Source roots use forward slashes, must be clean relative paths, and must not
 escape the directory containing the configuration. Duplicate roots are
 invalid. When roots overlap, the longest matching root wins. For example,
-`functions/example-run` resolves to `functions` rather than `.` in the example
+`functions/example_run` resolves to `functions` rather than `.` in the example
 configuration.
 
 Resolution is lexical. The linter does not execute files or resolve symlinks to

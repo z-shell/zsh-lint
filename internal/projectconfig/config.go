@@ -10,7 +10,7 @@ import (
 
 // CurrentVersion is the only configuration schema version understood by this
 // release.
-const CurrentVersion = 1
+const CurrentVersion = 2
 
 // ProjectKind identifies the kind of Z-Shell project being analyzed.
 type ProjectKind string
@@ -37,12 +37,12 @@ const (
 )
 
 // SourceRole refines a source profile when a rule needs a narrower contract.
-// The empty role is ordinary source; completion is the only version 1 role.
+// The empty role is ordinary source; completion is the only version 2 role.
 type SourceRole string
 
 const RoleCompletion SourceRole = "completion"
 
-// Config is the validated version 1 project configuration.
+// Config is the validated version 2 project configuration.
 type Config struct {
 	Version int
 	Project Project
@@ -53,9 +53,9 @@ type Config struct {
 
 // Project contains project-wide metadata shared by every configured source.
 type Project struct {
-	Kind               ProjectKind
-	MinimumZsh         string
-	FunctionNamespaces []string
+	Kind       ProjectKind
+	MinimumZsh string
+	Identifier string
 }
 
 // Source maps a project-relative root to one execution profile and optional
@@ -69,25 +69,21 @@ type Source struct {
 // SourceContext is immutable-by-convention metadata supplied to analyzer
 // rules for one resolved input file.
 type SourceContext struct {
-	ConfigVersion      int
-	ProjectKind        ProjectKind
-	MinimumZsh         string
-	FunctionNamespaces []string
-	Profile            Profile
-	Role               SourceRole
-	ConfigRoot         string
-	SourceRoot         string
+	ConfigVersion     int
+	ProjectKind       ProjectKind
+	MinimumZsh        string
+	ProjectIdentifier string
+	Profile           Profile
+	Role              SourceRole
+	ConfigRoot        string
+	SourceRoot        string
 }
 
 // Configured reports whether this context came from a configured source.
 func (c SourceContext) Configured() bool { return c.Profile != "" }
 
-// Clone returns a context whose slice fields do not share backing storage with
-// the receiver.
-func (c SourceContext) Clone() SourceContext {
-	c.FunctionNamespaces = append([]string(nil), c.FunctionNamespaces...)
-	return c
-}
+// Clone returns an independent copy of the source context.
+func (c SourceContext) Clone() SourceContext { return c }
 
 func (c *Config) validate() error {
 	if c.Version != CurrentVersion {
@@ -100,22 +96,8 @@ func (c *Config) validate() error {
 		return fmt.Errorf("project.minimum_zsh: %w", err)
 	}
 
-	seenNamespaces := make(map[string]bool, len(c.Project.FunctionNamespaces))
-	for index, namespace := range c.Project.FunctionNamespaces {
-		field := fmt.Sprintf("project.function_namespaces[%d]", index)
-		if namespace == "" {
-			return fmt.Errorf("%s: must not be empty", field)
-		}
-		if strings.TrimSpace(namespace) != namespace {
-			return fmt.Errorf("%s: must not have leading or trailing whitespace", field)
-		}
-		if strings.ContainsRune(namespace, '\x00') {
-			return fmt.Errorf("%s: must not contain NUL", field)
-		}
-		if seenNamespaces[namespace] {
-			return fmt.Errorf("%s: duplicate namespace %q", field, namespace)
-		}
-		seenNamespaces[namespace] = true
+	if err := validateProjectIdentifier(c.Project.Identifier); err != nil {
+		return fmt.Errorf("project.identifier: %w", err)
 	}
 
 	if len(c.Sources) == 0 {
@@ -139,6 +121,57 @@ func (c *Config) validate() error {
 		}
 		if source.Role == RoleCompletion && source.Profile != ProfileAutoloadFunction {
 			return fmt.Errorf("%s.role: completion requires profile %q", field, ProfileAutoloadFunction)
+		}
+		if c.Project.Kind == KindPlugin || c.Project.Kind == KindZiAnnex {
+			if err := validatePluginSourceMapping(source); err != nil {
+				return fmt.Errorf("%s: %w", field, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateProjectIdentifier(identifier string) error {
+	if identifier == "" {
+		return fmt.Errorf("must not be empty")
+	}
+	for index, char := range []byte(identifier) {
+		letter := char >= 'a' && char <= 'z'
+		digit := char >= '0' && char <= '9'
+		if !letter && !digit && char != '-' {
+			return fmt.Errorf("must contain only lowercase portable ASCII letters, digits, and hyphens")
+		}
+		if (index == 0 || index == len(identifier)-1) && !letter {
+			return fmt.Errorf("must begin and end with a lowercase ASCII letter")
+		}
+	}
+	return nil
+}
+
+// ShellPrefix derives the identifier form used by persistent Zsh function and
+// parameter names. Hyphens remain available in repository and zstyle names,
+// while underscores keep the shell-visible prefix portable and easy to type.
+func ShellPrefix(identifier string) string {
+	return strings.ReplaceAll(identifier, "-", "_")
+}
+
+func validatePluginSourceMapping(source Source) error {
+	switch source.Root {
+	case "lib":
+		if source.Profile != ProfileSourcedLibrary || source.Role != "" {
+			return fmt.Errorf("root %q must use profile %q with no role", source.Root, ProfileSourcedLibrary)
+		}
+	case "functions":
+		if source.Profile != ProfileAutoloadFunction || source.Role != "" {
+			return fmt.Errorf("root %q must use profile %q with no role", source.Root, ProfileAutoloadFunction)
+		}
+	case "completions":
+		if source.Profile != ProfileAutoloadFunction || source.Role != RoleCompletion {
+			return fmt.Errorf("root %q must use profile %q and role %q", source.Root, ProfileAutoloadFunction, RoleCompletion)
+		}
+	default:
+		if strings.HasSuffix(source.Root, ".plugin.zsh") && source.Profile != ProfileSourcedLibrary {
+			return fmt.Errorf("plugin entrypoint %q must use profile %q", source.Root, ProfileSourcedLibrary)
 		}
 	}
 	return nil

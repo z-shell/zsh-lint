@@ -29,7 +29,7 @@ func TestUserExamplesAreValidAndFindingFree(t *testing.T) {
 			dir:  "plugin",
 			sources: map[string]projectconfig.Profile{
 				"example.plugin.zsh":        projectconfig.ProfileSourcedLibrary,
-				"functions/example-run":     projectconfig.ProfileAutoloadFunction,
+				"functions/example_run":     projectconfig.ProfileAutoloadFunction,
 				"completions/_example":      projectconfig.ProfileAutoloadFunction,
 				"tests/example-fixture.zsh": projectconfig.ProfileTestFixture,
 			},

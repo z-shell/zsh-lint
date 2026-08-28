@@ -73,22 +73,25 @@ func TestRuleSetSelection(t *testing.T) {
 		"plugin/project-unload-lifecycle",
 		"plugin/fpath-hygiene",
 		"plugin/function-namespace",
+		"plugin/shared-plugins-registry",
+		"plugin/persistent-parameter-namespace",
+		"plugin/load-only-helper",
 		"performance/repeated-external-command",
 	}
 
 	if got := ruleIDs(Default()); !equalRuleIDs(got, defaultIDs) {
 		t.Fatalf("Default IDs = %v, want %v", got, defaultIDs)
 	}
-	profile, err := ForProfile(ProjectProfileV1)
+	profile, err := ForProfile(ProjectProfileV2)
 	if err != nil {
-		t.Fatalf("ForProfile(%q): %v", ProjectProfileV1, err)
+		t.Fatalf("ForProfile(%q): %v", ProjectProfileV2, err)
 	}
 	if got := ruleIDs(profile); !equalRuleIDs(got, profileIDs) {
 		t.Fatalf("profile IDs = %v, want %v", got, profileIDs)
 	}
 	assertUniqueRuleIDs(t, profile)
 
-	if _, err := ForProfile(Profile("z-shell/project@2")); err == nil {
+	if _, err := ForProfile(Profile("z-shell/project@1")); err == nil {
 		t.Fatal("ForProfile(unknown) succeeded, want error")
 	}
 

@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "plugin",
     "minimum_zsh": "5.9.2",
-    "function_namespaces": ["zfc", "zsh-fancy-completions"]
+    "identifier": "zsh-fancy-completions"
   },
   "sources": [
     {
