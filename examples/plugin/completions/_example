@@ -1,0 +1,4 @@
+#compdef example
+
+builtin emulate -L zsh
+_arguments '1:message:'

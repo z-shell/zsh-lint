@@ -6,12 +6,25 @@ reports greppable static-analysis diagnostics.
 
 ## Documentation
 
-📖 **Canonical docs live on the Z-Shell Wiki:**
-**[wiki.zshell.dev — Zsh Lint](https://wiki.zshell.dev/community/zsh_lint)**
+The canonical user guides live on the
+[Z-Shell Wiki](https://wiki.zshell.dev/community/zsh_lint). Start there for
+installation, file selection, output, suppressions, CI, and troubleshooting.
 
-The wiki is the single reading surface. The reference section there is generated
-from this repo's Go doc comments and kept in sync automatically — do not edit it
-by hand on the wiki.
+The wiki's rule reference is generated from the latest published release, not
+from unreleased `main` behavior. Do not edit its marked generated region by
+hand.
+
+## Copyable examples
+
+- [`examples/standalone`](../examples/standalone) contains one executable Zsh
+  script and its project configuration.
+- [`examples/plugin`](../examples/plugin) classifies a plugin entrypoint,
+  autoloaded function, completion, and test fixture.
+
+The example configurations use the `--config` support currently on `main`.
+That option is not part of the published v1.1.0 CLI. Users of v1.1.0 should
+pass files explicitly without `--config`; the wiki keeps this stable path
+separate from the unreleased project-configuration guide.
 
 ## Commands
 

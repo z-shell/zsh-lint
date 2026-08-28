@@ -1,0 +1,2 @@
+builtin emulate -L zsh
+print -r -- "example: ${1:-ready}"

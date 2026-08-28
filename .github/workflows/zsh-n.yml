@@ -36,7 +36,7 @@ jobs:
       - name: "Set matrix output"
         id: set-matrix
         run: |
-          MATRIX="$(find . -type d -name 'doc' -prune -o -type f \( -iname '*.zsh' -o -iname 'zsh-lint*' -o -iname '.zsh-lint*' -o -iname '@zsh-lint*' \) -print0 | jq -Rsc 'split("\u0000") | map(select(length > 0) | {"file": .}) | {"include": .}')"
+          MATRIX="$(find . -type d -name 'doc' -prune -o -type f \( -name '*.zsh' -o -path './legacy/functions/zsh-lint' -o -path './legacy/functions/.zsh-lint-worker' -o -path './legacy/functions/@zsh-lint-process-buffer' \) -print0 | jq -Rsc 'split("\u0000") | map(select(length > 0) | {"file": .}) | {"include": .}')"
           echo "MATRIX=${MATRIX}" >&2
           echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
   zsh-n:

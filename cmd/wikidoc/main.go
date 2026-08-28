@@ -4,7 +4,7 @@
 //
 // Usage:
 //
-//	wikidoc -in <generated.md> -mdx <page.mdx> [-start <marker>] [-end <marker>]
+//	wikidoc -in <generated.md> -mdx <page.mdx> [-mode api|rules]
 package main
 
 import (
@@ -18,12 +18,15 @@ import (
 func main() {
 	inPath := flag.String("in", "", "path to gomarkdoc-generated Markdown file (required)")
 	mdxPath := flag.String("mdx", "", "path to target .mdx file, edited in place (required)")
+	mode := flag.String("mode", "api", "generated content mode: api or rules")
+	sourceVersion := flag.String("source-version", "", "published source version for rules mode")
+	sourceCommit := flag.String("source-commit", "", "published source commit for rules mode")
 	startMarker := flag.String("start", "{/* zsh-lint:generated:start */}", "start marker in the .mdx file")
 	endMarker := flag.String("end", "{/* zsh-lint:generated:end */}", "end marker in the .mdx file")
 	flag.Parse()
 
 	if *inPath == "" || *mdxPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: wikidoc -in <generated.md> -mdx <page.mdx> [-start <marker>] [-end <marker>]")
+		fmt.Fprintln(os.Stderr, "usage: wikidoc -in <generated.md> -mdx <page.mdx> [-mode api|rules]")
 		os.Exit(2)
 	}
 
@@ -45,9 +48,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	sanitized := wikidoc.Sanitize(string(rawMD))
+	var generated string
+	switch *mode {
+	case "api":
+		generated = wikidoc.Sanitize(string(rawMD))
+	case "rules":
+		generated, err = wikidoc.RuleReference(string(rawMD), *sourceVersion, *sourceCommit)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "wikidoc: unsupported mode %q\n", *mode)
+		os.Exit(2)
+	}
 
-	result, err := wikidoc.Inject(string(page), sanitized, *startMarker, *endMarker)
+	result, err := wikidoc.Inject(string(page), generated, *startMarker, *endMarker)
 	if err != nil {
 		// Inject already prefixes its errors with "wikidoc:"; print as-is to
 		// avoid a doubled "wikidoc: wikidoc: ..." prefix.
