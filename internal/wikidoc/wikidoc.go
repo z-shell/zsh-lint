@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -19,7 +20,188 @@ var (
 	reAPIMethodHeading = regexp.MustCompile(
 		`(?m)^#{2,} func \\\(([A-Za-z_][A-Za-z0-9_]*)\\\) ([A-Za-z_][A-Za-z0-9_]*)\b.*$`,
 	)
+	reRuleTypeHeading = regexp.MustCompile(`(?m)^## type ([A-Za-z_][A-Za-z0-9_]*)[^\n]*$`)
+	reSourceVersion   = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	reSourceCommit    = regexp.MustCompile(`^[0-9A-Fa-f]{40}$`)
 )
+
+type ruleReferenceEntry struct {
+	id   string
+	name string
+	body string
+}
+
+// RuleReference reduces gomarkdoc's internal Go API reference to a user-facing
+// list of documented lint rules. sourceVersion and sourceCommit identify the
+// published source snapshot used to generate raw.
+func RuleReference(raw, sourceVersion, sourceCommit string) (string, error) {
+	if !reSourceVersion.MatchString(sourceVersion) {
+		return "", fmt.Errorf("wikidoc: invalid source version %q", sourceVersion)
+	}
+	if !reSourceCommit.MatchString(sourceCommit) {
+		return "", fmt.Errorf("wikidoc: invalid source commit %q", sourceCommit)
+	}
+
+	matches := reRuleTypeHeading.FindAllStringSubmatchIndex(raw, -1)
+	entries := make([]ruleReferenceEntry, 0, len(matches))
+	seenIDs := make(map[string]struct{}, len(matches))
+	seenAnchors := make(map[string]struct{}, len(matches))
+	for i, match := range matches {
+		sectionEnd := len(raw)
+		if i+1 < len(matches) {
+			sectionEnd = matches[i+1][0]
+		}
+		typeName := raw[match[2]:match[3]]
+		section := raw[match[1]:sectionEnd]
+		entry, ok := parseRuleReferenceEntry(section, typeName)
+		if !ok {
+			continue
+		}
+		if _, exists := seenIDs[entry.id]; exists {
+			return "", fmt.Errorf("wikidoc: duplicate rule ID %q", entry.id)
+		}
+		anchor := ruleAnchor(entry.id)
+		if _, exists := seenAnchors[anchor]; exists {
+			return "", fmt.Errorf("wikidoc: rule IDs produce duplicate anchor %q", anchor)
+		}
+		seenIDs[entry.id] = struct{}{}
+		seenAnchors[anchor] = struct{}{}
+		entries = append(entries, entry)
+	}
+	if len(entries) == 0 {
+		return "", fmt.Errorf("wikidoc: no documented lint rules found")
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].id < entries[j].id })
+
+	var out strings.Builder
+	fmt.Fprintf(&out, ":::info Published rule set\n")
+	fmt.Fprintf(
+		&out,
+		"This reference was generated from the published `%s` release at commit [`%s`](https://github.com/z-shell/zsh-lint/commit/%s). It matches the rules users receive from `go install github.com/z-shell/zsh-lint/cmd/zsh-lint@%s`.\n",
+		sourceVersion,
+		sourceCommit,
+		sourceCommit,
+		sourceVersion,
+	)
+	out.WriteString(":::\n\n## Rules\n\n")
+	for _, entry := range entries {
+		fmt.Fprintf(&out, "- [`%s`](#%s)", entry.id, ruleAnchor(entry.id))
+		if entry.name != "" {
+			fmt.Fprintf(&out, ": %s", entry.name)
+		}
+		out.WriteByte('\n')
+	}
+	for _, entry := range entries {
+		fmt.Fprintf(&out, "\n## Rule: `%s`\n\n%s\n", entry.id, entry.body)
+	}
+
+	return strings.TrimSpace(out.String()), nil
+}
+
+func parseRuleReferenceEntry(section, typeName string) (ruleReferenceEntry, bool) {
+	section = cutRuleTypeDeclaration(section, typeName)
+	lines := strings.Split(section, "\n")
+	idLine := -1
+	id := ""
+	for i, line := range lines {
+		const prefix = "ID: \\`"
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, prefix) || !strings.HasSuffix(trimmed, "\\`") {
+			continue
+		}
+		id = unescapeMarkdownPunctuation(strings.TrimSuffix(strings.TrimPrefix(trimmed, prefix), "\\`"))
+		idLine = i
+		break
+	}
+	if idLine < 0 || id == "" {
+		return ruleReferenceEntry{}, false
+	}
+
+	body := strings.TrimSpace(Sanitize(strings.Join(lines[idLine+1:], "\n")))
+	body = normalizeRuleProseEscapes(body)
+	body = emphasizeRuleMetadata(body)
+	return ruleReferenceEntry{
+		id:   id,
+		name: ruleMetadataValue(body, "Name"),
+		body: body,
+	}, true
+}
+
+func normalizeRuleProseEscapes(body string) string {
+	lines := strings.Split(body, "\n")
+	inFence := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence {
+			lines[i] = unescapeRulePunctuation(line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func unescapeRulePunctuation(line string) string {
+	var out strings.Builder
+	for i := 0; i < len(line); i++ {
+		if line[i] == '\\' && i+1 < len(line) && isASCIIPunctuation(line[i+1]) &&
+			line[i+1] != '[' && line[i+1] != ']' {
+			i++
+		}
+		out.WriteByte(line[i])
+	}
+	return out.String()
+}
+
+func cutRuleTypeDeclaration(section, typeName string) string {
+	cut := len(section)
+	for _, declaration := range []string{
+		"\n\ttype " + typeName,
+		"\n    type " + typeName,
+	} {
+		if index := strings.Index(section, declaration); index >= 0 && index < cut {
+			cut = index
+		}
+	}
+	return section[:cut]
+}
+
+func emphasizeRuleMetadata(body string) string {
+	labels := []string{"Name", "Summary", "Bad", "Good", "Severity", "Suppression"}
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		for _, label := range labels {
+			prefix := label + ":"
+			if strings.HasPrefix(line, prefix) {
+				lines[i] = "**" + prefix + "**" + strings.TrimPrefix(line, prefix)
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func ruleMetadataValue(body, label string) string {
+	prefix := "**" + label + ":** "
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
+}
+
+func ruleAnchor(id string) string {
+	var out strings.Builder
+	out.WriteString("rule-")
+	for _, r := range strings.ToLower(id) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
 
 // Sanitize transforms a gomarkdoc Markdown string into MDX-safe content by
 // applying the following transformations in order:

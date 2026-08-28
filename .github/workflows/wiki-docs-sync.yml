@@ -12,6 +12,9 @@ on:
       - "internal/wikidoc/**"
       - "cmd/wikidoc/**"
       - ".github/workflows/wiki-docs-sync.yml"
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch: {}
 
 permissions:
@@ -23,6 +26,9 @@ concurrency:
 
 jobs:
   sync:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: wiki-sync
     steps:
@@ -44,6 +50,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: zsh-lint
+          fetch-depth: 0
 
       - name: Check out wiki (main)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,13 +68,28 @@ jobs:
           cache-dependency-path: zsh-lint/go.sum
 
       - name: Generate and inject reference
+        id: reference
         working-directory: zsh-lint
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" \
-            ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
+          stable_tag="$(gh release view --repo z-shell/zsh-lint --json tagName --jq .tagName)"
+          stable_commit="$(git rev-parse "${stable_tag}^{commit}")"
+          release_tree="$RUNNER_TEMP/zsh-lint-release"
+          mkdir -p "$release_tree"
+          git archive "$stable_tag" | tar -x -C "$release_tree"
+          (
+            cd "$release_tree"
+            go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" ./internal/rules
+          )
           go run ./cmd/wikidoc \
+            -mode rules \
             -in "$RUNNER_TEMP/ref.md" \
-            -mdx ../wiki/community/04_zsh_lint/index.mdx
+            -mdx ../wiki/community/04_zsh_lint/08_rule_reference.mdx \
+            -source-version "$stable_tag" \
+            -source-commit "$stable_commit"
+          echo "version=$stable_tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$stable_commit" >> "$GITHUB_OUTPUT"
 
       - name: Open or update sync PR
         id: sync-pr
@@ -78,7 +100,7 @@ jobs:
           # docs-sync/zsh-lint is a fixed automation-branch exception to the
           # wiki's human feature-ID naming convention. A fixed branch lets a
           # later run update the existing PR rather than open a duplicate.
-          add-paths: community/04_zsh_lint/index.mdx
+          add-paths: community/04_zsh_lint/08_rule_reference.mdx
           sign-commits: true
           base: main
           branch: docs-sync/zsh-lint
@@ -86,8 +108,9 @@ jobs:
           commit-message: "docs(zsh-lint): sync generated reference from zsh-lint"
           body: |
             Automated reference sync from `z-shell/zsh-lint`.
-            Generated from Go doc comments — do not hand-edit the marked region.
-            Source commit: ${{ github.sha }}
+            Generated from published rule documentation. Do not hand-edit the marked region.
+            Published source: ${{ steps.reference.outputs.version }}
+            Source commit: ${{ steps.reference.outputs.commit }}
           delete-branch: true
 
       - name: Report sync PR operation

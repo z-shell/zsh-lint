@@ -259,7 +259,11 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		{"setup Go action pin", "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"},
 		{"pull request action pin", "peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1"},
 		{"pull request step ID", "id: sync-pr"},
-		{"generated path scope", "add-paths: community/04_zsh_lint/index.mdx"},
+		{"generated path scope", "add-paths: community/04_zsh_lint/08_rule_reference.mdx"},
+		{"published release lookup", "gh release view --repo z-shell/zsh-lint"},
+		{"published release archive", `git archive "$stable_tag"`},
+		{"published source version", `-source-version "$stable_tag"`},
+		{"published source commit", `-source-commit "$stable_commit"`},
 		{"verified commit output", "pull-request-commits-verified"},
 		{"stable operation report", "sync-pr-operation=${PR_OPERATION:-none}"},
 		{"fixed branch", "branch: docs-sync/zsh-lint"},
@@ -307,7 +311,18 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		2,
 		[]workflowMappingField{
 			{name: "push", value: ""},
+			{name: "workflow_run", value: ""},
 			{name: "workflow_dispatch", value: "{}"},
+		},
+	)...)
+	workflowRunBlock := workflowBlock(t, onBlock, "workflow_run:", 2)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"release completion trigger",
+		workflowRunBlock,
+		4,
+		[]workflowMappingField{
+			{name: "workflows", value: "[Release]"},
+			{name: "types", value: "[completed]"},
 		},
 	)...)
 	pushBlock := workflowBlock(t, onBlock, "push:", 2)
@@ -364,10 +379,19 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		syncJobBlock,
 		4,
 		[]workflowMappingField{
+			{name: "if", value: ">-"},
 			{name: "runs-on", value: "ubuntu-latest"},
 			{name: "environment", value: "wiki-sync"},
 			{name: "steps", value: ""},
 		},
+	)...)
+	jobIfBlock := workflowBlock(t, syncJobBlock, "if: >-", 4)
+	violations = append(violations, exactWorkflowBlockViolations(
+		"release completion condition",
+		jobIfBlock,
+		"    if: >-\n"+
+			"      github.event_name != 'workflow_run' ||\n"+
+			"      github.event.workflow_run.conclusion == 'success'\n",
 	)...)
 	stepsBlock := workflowBlock(t, syncJobBlock, "steps:", 4)
 	violations = append(violations, exactWorkflowStepSequenceViolations(
@@ -456,7 +480,10 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		"source checkout inputs",
 		sourceCheckoutInputs,
 		10,
-		[]workflowMappingField{{name: "path", value: "zsh-lint"}},
+		[]workflowMappingField{
+			{name: "path", value: "zsh-lint"},
+			{name: "fetch-depth", value: "0"},
+		},
 	)...)
 
 	wikiCheckoutStep := workflowStep(t, workflow, "Check out wiki (main)", "Set up Go")
@@ -520,20 +547,41 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		generateStep,
 		8,
 		[]workflowMappingField{
+			{name: "id", value: "reference"},
 			{name: "working-directory", value: "zsh-lint"},
+			{name: "env", value: ""},
 			{name: "run", value: "|"},
 		},
+	)...)
+	generateEnvBlock := workflowBlock(t, generateStep, "env:", 8)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"generate step environment",
+		generateEnvBlock,
+		10,
+		[]workflowMappingField{{name: "GH_TOKEN", value: "${{ github.token }}"}},
 	)...)
 	generateRunBlock := workflowBlock(t, generateStep, "run: |", 8)
 	violations = append(violations, exactWorkflowBlockViolations(
 		"generate step run",
 		generateRunBlock,
 		`        run: |
-          go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" \
-            ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
+          stable_tag="$(gh release view --repo z-shell/zsh-lint --json tagName --jq .tagName)"
+          stable_commit="$(git rev-parse "${stable_tag}^{commit}")"
+          release_tree="$RUNNER_TEMP/zsh-lint-release"
+          mkdir -p "$release_tree"
+          git archive "$stable_tag" | tar -x -C "$release_tree"
+          (
+            cd "$release_tree"
+            go tool gomarkdoc --output "$RUNNER_TEMP/ref.md" ./internal/rules
+          )
           go run ./cmd/wikidoc \
+            -mode rules \
             -in "$RUNNER_TEMP/ref.md" \
-            -mdx ../wiki/community/04_zsh_lint/index.mdx
+            -mdx ../wiki/community/04_zsh_lint/08_rule_reference.mdx \
+            -source-version "$stable_tag" \
+            -source-commit "$stable_commit"
+          echo "version=$stable_tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$stable_commit" >> "$GITHUB_OUTPUT"
 
 `,
 	)...)
@@ -562,7 +610,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		[]workflowMappingField{
 			{name: "token", value: "${{ steps.app-token.outputs.token }}"},
 			{name: "path", value: "wiki"},
-			{name: "add-paths", value: "community/04_zsh_lint/index.mdx"},
+			{name: "add-paths", value: "community/04_zsh_lint/08_rule_reference.mdx"},
 			{name: "sign-commits", value: "true"},
 			{name: "base", value: "main"},
 			{name: "branch", value: "docs-sync/zsh-lint"},
@@ -578,8 +626,9 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		pullRequestBodyBlock,
 		"          body: |\n"+
 			"            Automated reference sync from `z-shell/zsh-lint`.\n"+
-			"            Generated from Go doc comments — do not hand-edit the marked region.\n"+
-			"            Source commit: ${{ github.sha }}\n",
+			"            Generated from published rule documentation. Do not hand-edit the marked region.\n"+
+			"            Published source: ${{ steps.reference.outputs.version }}\n"+
+			"            Source commit: ${{ steps.reference.outputs.commit }}\n",
 	)...)
 
 	if got := strings.Count(workflow, "${{ steps.app-token.outputs.token }}"); got != 2 {
@@ -800,9 +849,11 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name: "unnamed action step inserted",
-			old: "          path: zsh-lint\n\n" +
+			old: "          path: zsh-lint\n" +
+				"          fetch-depth: 0\n\n" +
 				"      - name: Check out wiki (main)",
-			replacement: "          path: zsh-lint\n\n" +
+			replacement: "          path: zsh-lint\n" +
+				"          fetch-depth: 0\n\n" +
 				"      - uses: attacker/action@1111111111111111111111111111111111111111\n\n" +
 				"      - name: Check out wiki (main)",
 		},
@@ -813,9 +864,9 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name: "bare unnamed run step inserted",
-			old: "            -mdx ../wiki/community/04_zsh_lint/index.mdx\n\n" +
+			old: "          echo \"commit=$stable_commit\" >> \"$GITHUB_OUTPUT\"\n\n" +
 				"      - name: Open or update sync PR",
-			replacement: "            -mdx ../wiki/community/04_zsh_lint/index.mdx\n\n" +
+			replacement: "          echo \"commit=$stable_commit\" >> \"$GITHUB_OUTPUT\"\n\n" +
 				"      -\n" +
 				"        run: echo attacker\n\n" +
 				"      - name: Open or update sync PR",
@@ -852,9 +903,8 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name: "generate step private key environment",
-			old:  "        working-directory: zsh-lint\n        run: |",
-			replacement: "        working-directory: zsh-lint\n" +
-				"        env:\n" +
+			old:  "          GH_TOKEN: ${{ github.token }}\n        run: |",
+			replacement: "          GH_TOKEN: ${{ github.token }}\n" +
 				"          EXFIL: ${{ secrets['WIKI_SYNC_APP_PRIVATE_KEY'] }}\n" +
 				"        run: |",
 		},
@@ -867,8 +917,8 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name: "pull request body private key interpolation",
-			old:  "            Source commit: ${{ github.sha }}\n          delete-branch: true",
-			replacement: "            Source commit: ${{ github.sha }}\n" +
+			old:  "            Source commit: ${{ steps.reference.outputs.commit }}\n          delete-branch: true",
+			replacement: "            Source commit: ${{ steps.reference.outputs.commit }}\n" +
 				"            Private key: ${{ secrets['WIKI_SYNC_APP_PRIVATE_KEY'] }}\n" +
 				"          delete-branch: true",
 		},

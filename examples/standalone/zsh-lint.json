@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "project": {
+    "kind": "application",
+    "minimum_zsh": "5.8",
+    "function_namespaces": []
+  },
+  "sources": [
+    { "root": "script.zsh", "profile": "standalone-executable" }
+  ]
+}
