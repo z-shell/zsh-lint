@@ -13,6 +13,14 @@ static-analysis rules and reports greppable diagnostics.
 The original interactive Zi/`.zshrc` plugin lives under `legacy/` and is **not**
 part of the active product surface.
 
+## Branch model
+
+- `main` is the development branch; short-lived feature and fix branches start
+  from and target `main`.
+- Use `feature-<id>`, `bug-<id>`, or `hotfix-<id>` branch names.
+- Merge reviewed pull requests into `main` with squash merge.
+- Annotated `vX.Y.Z` tags are the publication boundary.
+
 ## Layout
 
 - `cmd/zsh-lint/` — semantic-analyzer CLI entry point.

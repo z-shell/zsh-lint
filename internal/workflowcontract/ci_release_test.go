@@ -311,10 +311,8 @@ func workflowPushBranches(t *testing.T, workflow string) []string {
 	}
 
 	switch values[0] {
-	case "[main, next]":
-		return []string{"main", "next"}
-	case "[next, main]":
-		return []string{"next", "main"}
+	case "[main]":
+		return []string{"main"}
 	case "":
 		branchesBlock := workflowBlock(t, pushBlock, "branches:", 4)
 		var branches []string
@@ -326,18 +324,19 @@ func workflowPushBranches(t *testing.T, workflow string) []string {
 		}
 		return branches
 	default:
-		t.Fatalf("push branches must use the canonical main/next form; got %q", values[0])
+		t.Fatalf("push branches must target only main; got %q", values[0])
 		return nil
 	}
 }
 
-func TestValidationPushTriggersIncludeMainAndNext(t *testing.T) {
+func TestValidationPushTriggersUseMainOnly(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
 	}{
 		{name: "Go CI", path: "go-ci.yml"},
 		{name: "Docs Generate Check", path: "docs-generate.yml"},
+		{name: "Corpus Gate", path: "corpus-gate.yml"},
 		{name: "Trunk Code Quality", path: "trunk-check.yml"},
 		{name: "Zsh Syntax Check", path: "zsh-n.yml"},
 	}
@@ -347,22 +346,20 @@ func TestValidationPushTriggersIncludeMainAndNext(t *testing.T) {
 			workflow := readRepositoryFile(t, ".github", "workflows", tt.path)
 			got := workflowPushBranches(t, workflow)
 			sort.Strings(got)
-			if joined := strings.Join(got, ","); joined != "main,next" {
-				t.Fatalf("push validation must target exactly main and next; got %q", got)
+			if joined := strings.Join(got, ","); joined != "main" {
+				t.Fatalf("push validation must target exactly main; got %q", got)
 			}
 		})
 	}
 }
 
-func TestDependencyAutomationTargetsNext(t *testing.T) {
-	var renovate struct {
-		BaseBranchPatterns []string `json:"baseBranchPatterns"`
-	}
+func TestDependencyAutomationUsesDefaultMain(t *testing.T) {
+	var renovate map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(readRepositoryFile(t, ".github", "renovate.json")), &renovate); err != nil {
 		t.Fatalf("parse .github/renovate.json: %v", err)
 	}
-	if got := strings.Join(renovate.BaseBranchPatterns, ","); got != "next" {
-		t.Fatalf("Renovate must target only next; got %q", got)
+	if _, configured := renovate["baseBranchPatterns"]; configured {
+		t.Fatal("Renovate must follow the repository default main branch without a baseBranchPatterns override")
 	}
 
 	dependabot := readRepositoryFile(t, ".github", "dependabot.yml")
@@ -374,8 +371,17 @@ func TestDependencyAutomationTargetsNext(t *testing.T) {
 		2,
 	)
 	values := directWorkflowMapping(githubActionsUpdater, 4)["target-branch"]
-	if len(values) != 1 || values[0] != `"next"` {
-		t.Fatalf("retained GitHub Actions Dependabot updater must target next; got %q", values)
+	if len(values) != 0 {
+		t.Fatalf("Dependabot must follow the repository default main branch without target-branch; got %q", values)
+	}
+}
+
+func TestTrunkModelHasNoMainBranchSourceGuard(t *testing.T) {
+	path := repositoryFilePath(t, ".github", "workflows", "main-branch-guard.yml")
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("trunk-on-main must not retain the next-to-main source guard workflow")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("inspect retired main branch guard: %v", err)
 	}
 }
 
@@ -427,294 +433,6 @@ func TestZshSyntaxExposesStableAggregateContext(t *testing.T) {
 				expected.name, expected.value, values,
 			)
 		}
-	}
-}
-
-const mainBranchGuardScript = `if [[ "${HEAD_REPOSITORY}" != "${REPOSITORY}" ]]; then
-  echo "::error::Pull requests into main must come from this repository (got '${HEAD_REPOSITORY}')."
-  exit 1
-fi
-if [[ "${HEAD_REF}" == "next" || "${HEAD_REF}" == hotfix-* ]]; then
-  echo "Head branch '${HEAD_REF}' is allowed to target main."
-  exit 0
-fi
-if [[ "${PULL_REQUEST_AUTHOR}" == "dependabot[bot]" && "${HEAD_REF}" == dependabot/* ]]; then
-  echo "Dependabot security update branch '${HEAD_REF}' is allowed to target main."
-  exit 0
-fi
-echo "::error::Pull requests into main must come from 'next', a 'hotfix-*' branch, or an authenticated Dependabot security-update branch (got '${HEAD_REF}' by '${PULL_REQUEST_AUTHOR}'). See ADR-0008 and ADR-0012 (z-shell/.github)."
-exit 1
-`
-
-func mainBranchGuardMappingViolations(t *testing.T, workflow string) []string {
-	t.Helper()
-
-	var violations []string
-	document := strings.TrimPrefix(workflow, "---\n")
-	if document == workflow {
-		violations = append(violations, "main branch guard must begin with a YAML document marker")
-	}
-	violations = append(violations, exactWorkflowMappingViolations(
-		"main branch guard workflow",
-		document,
-		0,
-		[]workflowMappingField{
-			{name: "name", value: "Main Branch Source Guard"},
-			{name: "on", value: ""},
-			{name: "permissions", value: ""},
-			{name: "concurrency", value: ""},
-			{name: "jobs", value: ""},
-		},
-	)...)
-	permissionsBlock := workflowBlock(t, workflow, "permissions:", 0)
-	violations = append(violations, exactWorkflowMappingViolations(
-		"main branch guard permissions",
-		permissionsBlock,
-		2,
-		[]workflowMappingField{{name: "contents", value: "read"}},
-	)...)
-	concurrencyBlock := workflowBlock(t, workflow, "concurrency:", 0)
-	violations = append(violations, exactWorkflowMappingViolations(
-		"main branch guard concurrency",
-		concurrencyBlock,
-		2,
-		[]workflowMappingField{
-			{name: "group", value: "${{ github.workflow }}-${{ github.event.pull_request.number }}"},
-			{name: "cancel-in-progress", value: "true"},
-		},
-	)...)
-	jobsBlock := workflowBlock(t, workflow, "jobs:", 0)
-	violations = append(violations, exactWorkflowMappingViolations(
-		"main branch guard jobs",
-		jobsBlock,
-		2,
-		[]workflowMappingField{{name: "guard", value: ""}},
-	)...)
-	jobBlock := workflowBlock(t, workflow, "guard:", 2)
-	violations = append(violations, exactWorkflowMappingViolations(
-		"main branch guard job",
-		jobBlock,
-		4,
-		[]workflowMappingField{
-			{name: "name", value: "Guard main branch source"},
-			{name: "runs-on", value: "ubuntu-latest"},
-			{name: "steps", value: ""},
-		},
-	)...)
-	stepsBlock := workflowBlock(t, jobBlock, "steps:", 4)
-	violations = append(violations, exactWorkflowStepSequenceViolations(
-		stepsBlock,
-		[]string{"name: Verify pull request source branch"},
-	)...)
-
-	step := workflowTerminalStep(t, workflow, "Verify pull request source branch")
-	violations = append(violations, exactWorkflowMappingViolations(
-		"main branch guard step",
-		step,
-		8,
-		[]workflowMappingField{
-			{name: "env", value: ""},
-			{name: "run", value: "|"},
-		},
-	)...)
-	if got := workflowRunScript(t, step); got != mainBranchGuardScript {
-		violations = append(violations, "main branch guard script must match the authenticated source policy exactly")
-	}
-	envBlock := workflowBlock(t, step, "env:", 8)
-	violations = append(violations, exactWorkflowMappingViolations(
-		"main branch guard environment",
-		envBlock,
-		10,
-		[]workflowMappingField{
-			{name: "HEAD_REF", value: "${{ github.head_ref }}"},
-			{name: "HEAD_REPOSITORY", value: "${{ github.event.pull_request.head.repo.full_name }}"},
-			{name: "PULL_REQUEST_AUTHOR", value: "${{ github.event.pull_request.user.login }}"},
-			{name: "REPOSITORY", value: "${{ github.repository }}"},
-		},
-	)...)
-	return violations
-}
-
-func TestMainBranchSourceGuardEnforcesPromotionSources(t *testing.T) {
-	workflow := readRepositoryFile(t, ".github", "workflows", "main-branch-guard.yml")
-	onBlock := workflowBlock(t, workflow, "on:", 0)
-	if violations := exactWorkflowMappingViolations(
-		"main branch guard triggers",
-		onBlock,
-		2,
-		[]workflowMappingField{{name: "pull_request", value: ""}},
-	); len(violations) != 0 {
-		t.Fatalf("main branch guard must use only pull_request: %s", strings.Join(violations, "; "))
-	}
-	pullRequestBlock := workflowBlock(t, onBlock, "pull_request:", 2)
-	if violations := exactWorkflowMappingViolations(
-		"main branch guard pull request trigger",
-		pullRequestBlock,
-		4,
-		[]workflowMappingField{
-			{name: "branches", value: "[main]"},
-			{name: "types", value: "[opened, reopened, synchronize, edited]"},
-		},
-	); len(violations) != 0 {
-		t.Fatalf("main branch guard pull_request trigger is invalid: %s", strings.Join(violations, "; "))
-	}
-
-	if got := len(exactWorkflowLineSpans(workflow, "    name: Guard main branch source")); got != 1 {
-		t.Fatalf("main branch guard must expose the stable required-check name exactly once; got %d", got)
-	}
-	if violations := mainBranchGuardMappingViolations(t, workflow); len(violations) != 0 {
-		t.Fatalf("main branch guard must not permit condition or failure bypasses: %s", strings.Join(violations, "; "))
-	}
-	step := workflowTerminalStep(t, workflow, "Verify pull request source branch")
-
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skip("bash is required for the branch guard behavior test")
-	}
-	tests := []struct {
-		name           string
-		headRef        string
-		headRepository string
-		author         string
-		wantSuccess    bool
-	}{
-		{
-			name:           "next promotion",
-			headRef:        "next",
-			headRepository: "z-shell/zsh-lint",
-			author:         "maintainer",
-			wantSuccess:    true,
-		},
-		{
-			name:           "hotfix promotion",
-			headRef:        "hotfix-90",
-			headRepository: "z-shell/zsh-lint",
-			author:         "maintainer",
-			wantSuccess:    true,
-		},
-		{
-			name:           "Dependabot security update",
-			headRef:        "dependabot/github_actions/actions-checkout-7",
-			headRepository: "z-shell/zsh-lint",
-			author:         "dependabot[bot]",
-			wantSuccess:    true,
-		},
-		{
-			name:           "spoofed Dependabot branch",
-			headRef:        "dependabot/github_actions/actions-checkout-7",
-			headRepository: "z-shell/zsh-lint",
-			author:         "maintainer",
-		},
-		{
-			name:           "feature bypass",
-			headRef:        "feature-90",
-			headRepository: "z-shell/zsh-lint",
-			author:         "maintainer",
-		},
-		{
-			name:           "forked next",
-			headRef:        "next",
-			headRepository: "contributor/zsh-lint",
-			author:         "contributor",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			command := exec.Command(
-				bash,
-				"--noprofile",
-				"--norc",
-				"-e",
-				"-o",
-				"pipefail",
-				"-c",
-				workflowRunScript(t, step),
-			)
-			command.Env = append(
-				os.Environ(),
-				"HEAD_REF="+tt.headRef,
-				"HEAD_REPOSITORY="+tt.headRepository,
-				"PULL_REQUEST_AUTHOR="+tt.author,
-				"REPOSITORY=z-shell/zsh-lint",
-			)
-			output, runErr := command.CombinedOutput()
-			if tt.wantSuccess && runErr != nil {
-				t.Fatalf("allowed source was rejected: %v\n%s", runErr, output)
-			}
-			if !tt.wantSuccess && runErr == nil {
-				t.Fatalf("disallowed source was accepted:\n%s", output)
-			}
-		})
-	}
-}
-
-func TestMainBranchSourceGuardRejectsBypassFields(t *testing.T) {
-	workflow := readRepositoryFile(t, ".github", "workflows", "main-branch-guard.yml")
-	tests := []struct {
-		name        string
-		old         string
-		replacement string
-	}{
-		{
-			name:        "job condition",
-			old:         "    name: Guard main branch source",
-			replacement: "    if: false\n    name: Guard main branch source",
-		},
-		{
-			name:        "step condition",
-			old:         "        env:\n          HEAD_REF:",
-			replacement: "        if: false\n        env:\n          HEAD_REF:",
-		},
-		{
-			name:        "continue on error",
-			old:         "        env:\n          HEAD_REF:",
-			replacement: "        continue-on-error: true\n        env:\n          HEAD_REF:",
-		},
-		{
-			name:        "unnamed prep step",
-			old:         "    steps:\n      - name: Verify pull request source branch",
-			replacement: "    steps:\n      - run: true\n      - name: Verify pull request source branch",
-		},
-		{
-			name: "extra job",
-			old:  "  guard:\n",
-			replacement: "  bypass:\n" +
-				"    runs-on: ubuntu-latest\n" +
-				"    steps:\n" +
-				"      - run: true\n" +
-				"  guard:\n",
-		},
-		{
-			name:        "top-level run defaults",
-			old:         "permissions:\n",
-			replacement: "defaults:\n  run:\n    shell: bash\n\npermissions:\n",
-		},
-		{
-			name:        "job run defaults",
-			old:         "    runs-on: ubuntu-latest\n",
-			replacement: "    defaults:\n      run:\n        shell: bash\n    runs-on: ubuntu-latest\n",
-		},
-		{
-			name: "extra guard command",
-			old: "        run: |\n" +
-				"          if [[ \"${HEAD_REPOSITORY}\" != \"${REPOSITORY}\" ]]; then",
-			replacement: "        run: |\n" +
-				"          true\n" +
-				"          if [[ \"${HEAD_REPOSITORY}\" != \"${REPOSITORY}\" ]]; then",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mutated := strings.Replace(workflow, tt.old, tt.replacement, 1)
-			if mutated == workflow {
-				t.Fatalf("mutation anchor %q was not found", tt.old)
-			}
-			if violations := mainBranchGuardMappingViolations(t, mutated); len(violations) == 0 {
-				t.Fatal("main branch guard contract accepted a bypass mutation")
-			}
-		})
 	}
 }
 

@@ -263,7 +263,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		{"verified commit output", "pull-request-commits-verified"},
 		{"stable operation report", "sync-pr-operation=${PR_OPERATION:-none}"},
 		{"fixed branch", "branch: docs-sync/zsh-lint"},
-		{"next base", "base: next"},
+		{"main base", "base: main"},
 		{"signed commits", "sign-commits: true"},
 		{"branch cleanup", "delete-branch: true"},
 		{"created verification condition", "steps.sync-pr.outputs.pull-request-operation == 'created'"},
@@ -375,7 +375,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		[]string{
 			"name: Mint wiki app token",
 			"name: Check out zsh-lint",
-			"name: Check out wiki (next)",
+			"name: Check out wiki (main)",
 			"name: Set up Go",
 			"name: Generate and inject reference",
 			"name: Open or update sync PR",
@@ -436,7 +436,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		}
 	}
 
-	sourceCheckoutStep := workflowStep(t, workflow, "Check out zsh-lint", "Check out wiki (next)")
+	sourceCheckoutStep := workflowStep(t, workflow, "Check out zsh-lint", "Check out wiki (main)")
 	violations = append(violations, exactWorkflowMappingViolations(
 		"source checkout step fields",
 		sourceCheckoutStep,
@@ -459,7 +459,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		[]workflowMappingField{{name: "path", value: "zsh-lint"}},
 	)...)
 
-	wikiCheckoutStep := workflowStep(t, workflow, "Check out wiki (next)", "Set up Go")
+	wikiCheckoutStep := workflowStep(t, workflow, "Check out wiki (main)", "Set up Go")
 	violations = append(violations, exactWorkflowMappingViolations(
 		"wiki checkout step fields",
 		wikiCheckoutStep,
@@ -481,7 +481,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		10,
 		[]workflowMappingField{
 			{name: "repository", value: "z-shell/wiki"},
-			{name: "ref", value: "next"},
+			{name: "ref", value: "main"},
 			{name: "path", value: "wiki"},
 			{name: "token", value: "${{ steps.app-token.outputs.token }}"},
 			{name: "persist-credentials", value: "false"},
@@ -564,7 +564,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			{name: "path", value: "wiki"},
 			{name: "add-paths", value: "community/04_zsh_lint/index.mdx"},
 			{name: "sign-commits", value: "true"},
-			{name: "base", value: "next"},
+			{name: "base", value: "main"},
 			{name: "branch", value: "docs-sync/zsh-lint"},
 			{name: "title", value: `"docs(zsh-lint): sync generated reference"`},
 			{name: "commit-message", value: `"docs(zsh-lint): sync generated reference from zsh-lint"`},
@@ -753,9 +753,9 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name: "wiki checkout mutable ref",
-			old: "      - name: Check out wiki (next)\n" +
+			old: "      - name: Check out wiki (main)\n" +
 				"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
-			replacement: "      - name: Check out wiki (next)\n" +
+			replacement: "      - name: Check out wiki (main)\n" +
 				"        uses: actions/checkout@v7",
 		},
 		{
@@ -801,10 +801,10 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		{
 			name: "unnamed action step inserted",
 			old: "          path: zsh-lint\n\n" +
-				"      - name: Check out wiki (next)",
+				"      - name: Check out wiki (main)",
 			replacement: "          path: zsh-lint\n\n" +
 				"      - uses: attacker/action@1111111111111111111111111111111111111111\n\n" +
-				"      - name: Check out wiki (next)",
+				"      - name: Check out wiki (main)",
 		},
 		{
 			name:        "unnamed terminal run step appended",

@@ -45,11 +45,11 @@ jobs:
         with:
           path: zsh-lint
 
-      - name: Check out wiki (next)
+      - name: Check out wiki (main)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: z-shell/wiki
-          ref: next
+          ref: main
           path: wiki
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
@@ -80,7 +80,7 @@ jobs:
           # later run update the existing PR rather than open a duplicate.
           add-paths: community/04_zsh_lint/index.mdx
           sign-commits: true
-          base: next
+          base: main
           branch: docs-sync/zsh-lint
           title: "docs(zsh-lint): sync generated reference"
           commit-message: "docs(zsh-lint): sync generated reference from zsh-lint"

@@ -3,7 +3,7 @@ name: Docs Generate Check
 
 on:
   push:
-    branches: [main, next]
+    branches: [main]
     paths: ["**/*.go", ".gomarkdoc.yml", ".github/workflows/docs-generate.yml"]
   pull_request:
     paths: ["**/*.go", ".gomarkdoc.yml", ".github/workflows/docs-generate.yml"]

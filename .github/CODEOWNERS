@@ -4,8 +4,7 @@
 # requires code-owner review. That rule needs a CODEOWNERS file to resolve an
 # owner; without one it can never be satisfied.
 #
-# The sole entry is also the usual author of promotions, so the self-review
-# deadlock the runbook describes is expected here: the ruleset grants
-# OrganizationAdmin and the admin/maintain/write roles `bypass_mode: always`,
-# and `gh pr merge --admin` is the normal promotion path, not an escape hatch.
+# The sole entry may also be a pull request author, so GitHub cannot accept a
+# self-review. The ruleset's documented role bypass handles that single-owner
+# case while retaining code-owner review for other contributors.
 * @ss-o
