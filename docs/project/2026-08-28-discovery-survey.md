@@ -1,0 +1,218 @@
+# Organization Discovery Survey, 2026-08-28
+
+Scope: parser coverage for Z-Shell repositories that are **not** in the strict
+reference corpus (`corpus.md`). This is a discovery run under
+[parser-gap-workflow.md](parser-gap-workflow.md) step 1, not a gate result.
+
+The strict corpus covers 6 repositories and 20 files. The three repositories
+below hold the largest Zsh sources in the organization and contribute nothing
+to it, so parser gaps in them are invisible to the current gate.
+
+## Run inputs
+
+| Repository      | Revision   | Branch surveyed            |
+| --------------- | ---------- | -------------------------- |
+| `z-shell/zi`    | `2d52795b` | `feature-553`              |
+| `z-shell/zpmod` | `1b35bcb4` | `code/issue-107-xdg-paths` |
+| `z-shell/zunit` | `10b1e58f` | `main`                     |
+
+`zi` and `zpmod` were surveyed at the meta-workspace's checked-out development
+branches, not `main`. Re-run against `main` before treating any count here as a
+released-state baseline.
+
+Tooling: `zsh-lint` `next` at `901f3f7`, Go 1.27.0, Zsh 5.9.2. File set is
+`*.zsh`, `zshrc`, and `zshenv`, with `.git` pruned.
+
+## Parser result
+
+| Repository | Files | Parsed | Failed |
+| ---------- | ----- | ------ | ------ |
+| `zpmod`    | 58    | 53     | 5      |
+| `zi`       | 28    | 21     | 7      |
+| `zunit`    | 15    | 14     | 1      |
+| **Total**  | 101   | 88     | 13     |
+
+Of the 13 failures, 11 occur in native-valid sources (`zsh -f -n` accepts them)
+and 2 are correctly rejected by both native Zsh and zsh-lint.
+
+One of the 11, family F, turned out not to be a missing language feature at all
+but a composition defect in the adapter chain. It is fixed in this change; see
+family F below. Fixing it revealed one further real gap in `zi.zsh` that the
+defect had been masking (family K), and family G was subsequently fixed by
+#164. Nine gap families remain to be closed: A through E and H through K.
+
+### Not parser gaps
+
+`zpmod/tests/command/zpmod_bundle_build.zsh` and
+`zpmod/tests/command/zpmod_compaudit_cache.zsh` use the ZUnit `TEST "name" { }`
+DSL, which is not plain Zsh. Native Zsh reports `parse error near '}'` for both.
+They must be excluded from any native-valid corpus rather than tracked as gaps.
+
+## Gap families
+
+Each construct below was minimized from the failing real file until only the
+reproducing feature remained, then validated in both directions: `zsh -f -n`
+accepts it and `cmd/zsh-lint-survey` still fails with the same error family.
+The survey reports only the first error per file, so a single repository may
+hold further gaps masked behind these.
+
+### A. Assignment inside parameter expansion
+
+    print -r -- ${${prev::=abc}:+set}
+
+Error: `` `=` must follow a name ``. Manual: `zshexpn`, `${name::=word}`.
+Real sites: `zi/lib/zsh/additional.zsh:13`, `zi/lib/zsh/side.zsh:314`. Both zi
+sites reduce to this one family.
+
+### B. Brace block terminated without a separator
+
+    { typeset -g COLS="$(tput cols)" } 2>/dev/null
+
+Error: `` reached EOF without matching `{` with `}` ``. Manual: `zshmisc`,
+complex commands. Real site: `zi/lib/zsh/git-process-output.zsh:11`. The
+redirect is incidental; the bare `{ cmd }` form fails on its own.
+
+### C. Alternation inside a backreference test pattern
+
+    while [[ $buf = (#b)[^"{}[]\\\"'":,]#(([\"{[]}\\\"'":,])|[\\](*))(*) ]]; do
+
+Error: `` not a valid test operator: `|` ``. Manual: `zshexpn`, filename
+generation and `(#b)` backreferences. Real site: `zi/lib/zsh/install.zsh:22`.
+
+### D. Exclusion operator inside a glob qualifier list
+
+    reply=( /tmp/**/_[^_.]*~*(*.zwc|*.md)(DN) )
+
+Error: `` `^` must follow an expression ``. Manual: `zshexpn`, `~` exclusion
+and `[^...]` character classes. Real site: `zi/lib/zsh/autoload.zsh:471`.
+
+### E. `foreach` loop form
+
+    foreach item (one)
+    print $item
+    end
+
+Error: `` a command can only contain words and redirects; encountered `(` ``.
+Manual: `zshmisc`, alternate loop forms. Real site:
+`zi/tests/fixtures/public-contract/foreach/zi.zsh:15`.
+
+### F. GLOB_SUBST `${~name}` after an alternate brace-form `if`, FIXED
+
+    if (( 1 )) { x=1 }
+    p=${~q}
+
+Error: `` not a valid parameter expansion operator: `~` ``. Manual: `zshexpn`,
+GLOB_SUBST `${~spec}`. Real site: `zi/zi.zsh:51`.
+
+This was not a parser gap. It was a composition defect in the adapter chain, and
+it has been fixed in this same change. `${~q}` parsed on its own, and after a
+classic `if ...; then ...; fi`, but not after an alternate brace-form `if`.
+
+Root cause: each adapter re-parsed its masked source through a hardcoded list of
+peers rather than the full adapter set. `parseAfterAlternateIf` named exactly
+two peers, so any _other_ Zsh feature in the same file failed. Measured before
+the fix: **40 of 42 ordered pairs** of distinct adapter features failed to parse,
+though every feature parsed alone and native Zsh accepted every combination.
+
+Fix: `internal/parse/adapter_chain.go` introduces one ordered chain that both
+`Parse` and every adapter retry through, so adapters compose in any order.
+Regression coverage in `internal/parse/adapter_chain_test.go` asserts all
+ordered pairs, all features together, original-text restoration, and continued
+rejection of invalid Zsh.
+
+Fixing this exposed a second, opposite defect. Routing the grouped-case adapter
+through the chain let it re-enter itself, masking one extra `)` per pass until
+`case x in (x|y))) : ;; esac` parsed, which native Zsh rejects. Composition must
+therefore be permissive across _distinct_ adapters but not unbounded within one:
+most adapters mask a single occurrence per pass and legitimately re-enter
+themselves for a second occurrence, while an adapter whose masking would widen
+its own grammar opts out through `retryExcluding`. Both directions are pinned by
+tests.
+
+Confirming the masking this caused: `zi.zsh` previously reported its first error
+at line 51. With the chain fixed it parses past that point and reports a genuine,
+previously hidden gap at line 382, recorded as family K below.
+
+### K. Reverse-subscript pattern containing a parameter expansion
+
+    print -r -- ${a[(r)$d/*]}
+
+Error: `` `/` must be followed by an expression ``. Manual: `zshparam`,
+subscript flags. Real site: `zi/zi.zsh:382`
+(`${fpath[(r)$PLUGIN_DIR/*]}`).
+
+Related to the closed reverse-subscript work (#15) but distinct: the existing
+`(iIrR)` scanner only masks literal `-`, `*`, and `?` pattern bytes and bails
+out on anything else, so a `$name` expansion inside the search pattern is never
+handled. This gap was invisible until family F was fixed.
+
+### G. Anonymous function with a process-substitution redirect, FIXED
+
+    () {
+      print -r -- "$1"
+    } <(print -r -- 'x=1')
+
+Error: `statements must be separated by &, ; or a newline`. Manual:
+`zshmisc`, anonymous functions and process substitution. Real site:
+`zpmod/tests/builtin/process_substitution_source.zsh:35`.
+
+Current `main` parses this construct after the anonymous-function argument
+adapter landed in #164 (`bcfba34`). It needs no parser-gap issue.
+
+### H. `do;` with a leading separator
+
+    freload() { while (( $# )); do; unfunction $1; shift; done }
+
+Error: `` `while` statement must end with `done` ``. Manual: `zshmisc`.
+Real site: `zpmod/vendor/zsh/StartupFiles/zshrc:45`. This is upstream Zsh's own
+shipped startup file.
+
+### I. Subscript search with a numeric-range pattern
+
+    integer argi=${argv[(i)-<->]}
+
+Error: `` `-` must be followed by an expression ``. Manual: `zshparam`,
+subscript flags; `zshexpn`, `<->` numeric globbing. Real site:
+`zpmod/vendor/zsh/Test/ztst.zsh:93`, upstream Zsh's test harness. Related to
+the closed reverse-subscript work (#15) but distinct: the pattern is `<->`
+inside an `(i)` search, and it is preceded by `-`.
+
+### J. Arithmetic subscript range containing a nested subscript search
+
+    line=(a b); testname="${line[(( ${line[(i)[\']]}+1 )),(( ${line[(I)[\']]}-1 ))]}"
+
+Error: `` `[` must follow a name like a[i] ``. Manual: `zshparam`, subscript
+ranges. Real site: `zunit/src/commands/run.zsh:268`.
+
+## Recommended handling
+
+Families A through E and H through K are one `parser-gap` + `corpus` issue each,
+per the workflow's one-feature-per-issue rule. Minimized sources become
+`gap-<issue>-<slug>.zsh` fixtures once the issue numbers exist.
+
+Family F needed no issue: it was an adapter-composition defect, not a language
+gap, and it is fixed in this change with regression coverage. Its lesson is
+worth keeping, though. A defective adapter does not only produce false
+failures, it silently _masks_ real ones, because the survey reports just the
+first error per file. Family K was hidden behind it. Any future adapter work
+should assume more findings are masked and re-run this survey after each fix.
+
+Do **not** add these repositories to `corpus-paths.txt` yet. The strict gate
+requires zero errors and zero warnings. The recorded run carried 11
+native-valid parse failures plus 213 warning-level diagnostics (dominated by
+`quoting/unquoted-var` and `plugin/zero-handling`). Promotion follows the same
+sequence used on 2026-08-16: close the parser gaps, remediate consumer findings
+in the owning repository, then promote and re-run the complete gate.
+
+## Analyzer load, non-gating
+
+Recorded so consumer remediation can be sized. Excludes `vendor/`.
+
+| Repository | Files | Errors | Warnings | Infos | Hints |
+| ---------- | ----- | ------ | -------- | ----- | ----- |
+| `zi`       | 28    | 7      | 20       | 0     | 0     |
+| `zpmod`    | 54    | 3      | 164      | 5     | 11    |
+| `zunit`    | 15    | 1      | 29       | 3     | 72    |
+
+Error counts are the `parse/error` diagnostics from the gaps above, not
+independent semantic findings.

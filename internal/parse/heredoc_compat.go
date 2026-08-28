@@ -17,15 +17,7 @@ const unclosedHeredocPrefix = "unclosed here-document"
 // ANSI-C delimiter, runs a same-width padded retry, and restores the original
 // ANSI-C literal in the resulting AST.
 func parseANSICHeredocDelimiter(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseANSICHeredocDelimiterWithParser(src, name, firstErr, parseANSICHeredocDelimiters)
-}
-
-func parseANSICHeredocDelimiters(src []byte, name string) (*syntax.File, error) {
-	tree, err := parseTree(src, name)
-	if err != nil {
-		return parseANSICHeredocDelimiterWithParser(src, name, err, parseANSICHeredocDelimiters)
-	}
-	return tree, nil
+	return parseANSICHeredocDelimiterWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseANSICHeredocDelimiterWithParser(

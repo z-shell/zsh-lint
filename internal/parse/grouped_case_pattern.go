@@ -39,7 +39,7 @@ func parseGroupedCasePattern(src []byte, name string, firstErr error) (*syntax.F
 		}
 		masked[edit.offset] = edit.replacement
 	}
-	tree, err := parseTree(masked, name)
+	tree, err := retryExcluding(parseGroupedCasePattern)(masked, name)
 	if err != nil {
 		return nil, err
 	}

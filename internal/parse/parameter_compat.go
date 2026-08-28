@@ -13,15 +13,7 @@ const (
 )
 
 func parseParamGlobToggle(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseParamGlobToggleWithParser(src, name, firstErr, parseParamGlobToggles)
-}
-
-func parseParamGlobToggles(src []byte, name string) (*syntax.File, error) {
-	tree, err := parseTree(src, name)
-	if err != nil {
-		return parseParamGlobToggleWithParser(src, name, err, parseParamGlobToggles)
-	}
-	return tree, nil
+	return parseParamGlobToggleWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseParamGlobToggleWithParser(
@@ -53,15 +45,7 @@ func parseParamGlobToggleWithParser(
 }
 
 func parseRCExpandCaret(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseRCExpandCaretWithParser(src, name, firstErr, parseRCExpandCarets)
-}
-
-func parseRCExpandCarets(src []byte, name string) (*syntax.File, error) {
-	tree, err := parseTree(src, name)
-	if err != nil {
-		return parseRCExpandCaretWithParser(src, name, err, parseRCExpandCarets)
-	}
-	return tree, nil
+	return parseRCExpandCaretWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseRCExpandCaretWithParser(
@@ -100,15 +84,7 @@ func parseRCExpandCaretWithParser(
 }
 
 func parseReverseSubscript(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseReverseSubscriptWithParser(src, name, firstErr, parseReverseSubscripts)
-}
-
-func parseReverseSubscripts(src []byte, name string) (*syntax.File, error) {
-	tree, err := parseTree(src, name)
-	if err != nil {
-		return parseReverseSubscriptWithParser(src, name, err, parseReverseSubscripts)
-	}
-	return tree, nil
+	return parseReverseSubscriptWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseReverseSubscriptWithParser(

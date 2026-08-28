@@ -35,21 +35,7 @@ type alternateIfSourceMap struct {
 }
 
 func parseAlternateIfBrace(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseAlternateIfBraceWithParser(src, name, firstErr, parseAfterAlternateIf)
-}
-
-// parseAfterAlternateIf lets independently gated, same-boundary adapters
-// compose when one real file contains more than one unsupported Zsh form.
-// Each adapter still activates only from its own concrete parser error.
-func parseAfterAlternateIf(src []byte, name string) (*syntax.File, error) {
-	tree, err := parseTree(src, name)
-	if err != nil {
-		tree, err = parseAssociativeSubscriptWithParser(src, name, err, parseAfterAlternateIf)
-		if err != nil {
-			tree, err = parseMultiNameForWithParser(src, name, err, parseAfterAlternateIf)
-		}
-	}
-	return tree, err
+	return parseAlternateIfBraceWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseAlternateIfBraceWithParser(
