@@ -46,6 +46,14 @@ jobs:
           path: discovery/zpmod
           persist-credentials: false
 
+      - name: Check out zunit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zunit
+          ref: main
+          path: discovery/zunit
+          persist-credentials: false
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -62,7 +70,7 @@ jobs:
       - name: Record discovery revisions
         working-directory: discovery
         run: |
-          for repository in zi zpmod; do
+          for repository in zi zpmod zunit; do
             printf '%s ' "$repository"
             git -C "$repository" rev-parse HEAD
           done
@@ -76,7 +84,7 @@ jobs:
           # Discovery is intentionally non-gating: a parse failure here is a
           # finding to triage, not a build break. Only an infrastructure fault
           # (missing tree, no files discovered) fails this job.
-          for repository in zi zpmod; do
+          for repository in zi zpmod zunit; do
             if [[ ! -d $repository ]]; then
               echo "::error::Discovery checkout missing: $repository"
               exit 1
@@ -84,7 +92,7 @@ jobs:
           done
 
           mapfile -d '' files < <(
-            find zi zpmod \
+            find zi zpmod zunit \
               -name .git -prune -o \
               -type f \( -name '*.zsh' -o -name 'zshrc' -o -name 'zshenv' \) \
               -print0 | sort -z
@@ -93,6 +101,12 @@ jobs:
             echo "::error::Discovery found no Zsh sources; check the find filter."
             exit 1
           fi
+          for file in "${files[@]}"; do
+            if [[ ! -r $file ]]; then
+              echo "::error::Discovery source is not readable: $file"
+              exit 1
+            fi
+          done
           echo "Discovered ${#files[@]} candidate source(s)."
 
           # A source that native Zsh also rejects is a broken or non-Zsh file
@@ -117,6 +131,10 @@ jobs:
           "$RUNNER_TEMP/zsh-lint-survey" "${native_valid[@]}" \
             > "$RUNNER_TEMP/discovery-survey.txt" 2>&1 || survey_status=$?
           cat "$RUNNER_TEMP/discovery-survey.txt"
+          if [[ $survey_status -gt 1 ]]; then
+            echo "::error::Survey tool failed with unexpected status ${survey_status}."
+            exit "$survey_status"
+          fi
 
           gaps=$(grep -c '^FAIL' "$RUNNER_TEMP/discovery-survey.txt" || true)
           {

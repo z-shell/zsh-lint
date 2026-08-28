@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -22,15 +23,23 @@ import (
 // table used a plain `(a|b)` case arm, which needs no adapter, and so missed a
 // real composition failure in the grouped-case adapter. TestAdapterSnippets-
 // RequireAnAdapter pins that property.
-var adapterSnippets = map[string]string{
-	"alternateIf":      "if (( 1 )) { x=1 }",
-	"paramGlobToggle":  "p=${~q}",
-	"rcExpandCaret":    "print -- ${^manpath}",
-	"reverseSubscript": "print -r -- ${_comps[(I)-value-*]}",
-	"assocSubscript":   "print ${functions[.foo]}",
-	"tryAlways":        "{ true } always { true }",
-	"multiNameFor":     "for a b in 1 2; do print $a$b; done",
-	"groupedCase":      "case x in\n  (x|y)) : ;;\nesac",
+type adapterSnippet struct {
+	attempt adapterAttempt
+	source  string
+}
+
+var adapterSnippets = map[string]adapterSnippet{
+	"nestedConditional": {attempt: parseNestedConditionalAlternation, source: "[[ $line == ((a|b)|c) ]]"},
+	"alternateIf":       {attempt: parseAlternateIfBrace, source: "if (( 1 )) { x=1 }"},
+	"paramGlobToggle":   {attempt: parseParamGlobToggle, source: "p=${~q}"},
+	"rcExpandCaret":     {attempt: parseRCExpandCaret, source: "print -- ${^manpath}"},
+	"reverseSubscript":  {attempt: parseReverseSubscript, source: "print -r -- ${_comps[(I)-value-*]}"},
+	"assocSubscript":    {attempt: parseAssociativeSubscript, source: "print ${functions[.foo]}"},
+	"fdVarRedirect":     {attempt: parseFdVarRedirect, source: "exec {fd}>&-"},
+	"tryAlways":         {attempt: parseTryAlways, source: "{ true } always { true }"},
+	"multiNameFor":      {attempt: parseMultiNameFor, source: "for a b in 1 2; do print $a$b; done"},
+	"groupedCase":       {attempt: parseGroupedCasePattern, source: "case x in\n  (x|y)) : ;;\nesac"},
+	"ansiCHeredoc":      {attempt: parseANSICHeredocDelimiter, source: "cat <<$'E\\x4fF'\nbody\nEOF"},
 }
 
 func parseString(t *testing.T, src string) error {
@@ -44,7 +53,7 @@ func parseString(t *testing.T, src string) error {
 func TestAdapterSnippetsParseAlone(t *testing.T) {
 	for name, snippet := range adapterSnippets {
 		t.Run(name, func(t *testing.T) {
-			if err := parseString(t, "#!/usr/bin/env zsh\n"+snippet+"\n"); err != nil {
+			if err := parseString(t, "#!/usr/bin/env zsh\n"+snippet.source+"\n"); err != nil {
 				t.Fatalf("snippet must parse alone: %v", err)
 			}
 		})
@@ -58,9 +67,9 @@ func TestAdapterSnippetsParseAlone(t *testing.T) {
 func TestAdapterSnippetsRequireAnAdapter(t *testing.T) {
 	for name, snippet := range adapterSnippets {
 		t.Run(name, func(t *testing.T) {
-			src := []byte("#!/usr/bin/env zsh\n" + snippet + "\n")
+			src := []byte("#!/usr/bin/env zsh\n" + snippet.source + "\n")
 			if _, err := parseTree(src, "compose_test.zsh"); err == nil {
-				t.Fatalf("snippet needs no adapter, so it cannot detect a composition defect: %q", snippet)
+				t.Fatalf("snippet needs no adapter, so it cannot detect a composition defect: %q", snippet.source)
 			}
 			if _, err := parseWithAdapters(src, "compose_test.zsh"); err != nil {
 				t.Fatalf("snippet must parse through the adapter chain: %v", err)
@@ -72,8 +81,21 @@ func TestAdapterSnippetsRequireAnAdapter(t *testing.T) {
 // TestAdapterChainCoversEveryAdapter keeps the snippet table honest as the
 // chain grows: every registered adapter should be represented above.
 func TestAdapterChainCoversEveryAdapter(t *testing.T) {
-	if got, want := len(adapterSnippets), len(adapterChain()); got > want {
-		t.Fatalf("more snippets (%d) than registered adapters (%d)", got, want)
+	if got, want := len(adapterSnippets), len(adapterChain()); got != want {
+		t.Fatalf("adapter snippets = %d, registered adapters = %d", got, want)
+	}
+	represented := make(map[uintptr]string, len(adapterSnippets))
+	for name, snippet := range adapterSnippets {
+		pointer := reflect.ValueOf(snippet.attempt).Pointer()
+		if previous := represented[pointer]; previous != "" {
+			t.Fatalf("adapter snippets %q and %q represent the same adapter", previous, name)
+		}
+		represented[pointer] = name
+	}
+	for _, attempt := range adapterChain() {
+		if represented[reflect.ValueOf(attempt).Pointer()] == "" {
+			t.Fatal("registered adapter has no composition snippet")
+		}
 	}
 }
 
@@ -88,7 +110,7 @@ func TestAdapterCompositionAllOrderedPairs(t *testing.T) {
 				continue
 			}
 			t.Run(firstName+"_then_"+secondName, func(t *testing.T) {
-				src := "#!/usr/bin/env zsh\n" + first + "\n" + second + "\n"
+				src := "#!/usr/bin/env zsh\n" + first.source + "\n" + second.source + "\n"
 				if err := parseString(t, src); err != nil {
 					t.Fatalf("composition must parse:\n%s\nerror: %v", src, err)
 				}
@@ -105,7 +127,7 @@ func TestAdapterCompositionAllFeaturesTogether(t *testing.T) {
 	// Map order is randomized by Go; that is deliberate extra coverage here,
 	// since no ordering may matter.
 	for _, snippet := range adapterSnippets {
-		b.WriteString(snippet)
+		b.WriteString(snippet.source)
 		b.WriteString("\n")
 	}
 	if err := parseString(t, b.String()); err != nil {

@@ -32,13 +32,13 @@ Tooling: `zsh-lint` `next` at `901f3f7`, Go 1.27.0, Zsh 5.9.2. File set is
 | `zunit`    | 15    | 14     | 1      |
 | **Total**  | 101   | 88     | 13     |
 
-Of the 13 failures, 11 are genuine parser gaps (`zsh -f -n` accepts the source)
+Of the 13 failures, 11 occur in native-valid sources (`zsh -f -n` accepts them)
 and 2 are correctly rejected by both native Zsh and zsh-lint.
 
 One of the 11, family F, turned out not to be a missing language feature at all
 but a composition defect in the adapter chain. It is fixed in this change; see
 family F below. Fixing it revealed one further real gap in `zi.zsh` that the
-defect had been masking (family K), so 11 gap families remain to be closed:
+defect had been masking (family K), so 10 gap families remain to be closed:
 A through E, G through K.
 
 ### Not parser gaps
