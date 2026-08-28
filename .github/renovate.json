@@ -1,6 +1,5 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "baseBranchPatterns": ["next"],
   "extends": [
     "local>z-shell/.github:renovate-config",
     ":dependencyDashboardApproval",

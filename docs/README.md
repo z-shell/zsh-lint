@@ -24,6 +24,10 @@ by hand on the wiki.
 The source-adjacent [project configuration contract](project/project-configuration.md)
 documents the explicit metadata available to project-aware rules.
 
+Create short-lived `feature-<id>`, `bug-<id>`, or `hotfix-<id>` branches from
+`main` and target pull requests back to `main`. Reviewed changes are
+squash-merged; annotated `vX.Y.Z` tags remain the publication boundary.
+
 ```sh
 go build ./... && go vet ./... && go test ./...
 go tool gomarkdoc --output ref.md \
