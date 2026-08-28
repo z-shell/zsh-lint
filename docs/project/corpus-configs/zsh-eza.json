@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "plugin",
     "minimum_zsh": "5.9.2",
-    "function_namespaces": ["zsh-eza"]
+    "identifier": "zsh-eza"
   },
   "sources": [
     { "root": "zsh-eza.plugin.zsh", "profile": "sourced-library" },

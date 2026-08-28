@@ -75,11 +75,14 @@ dispatch. It performs all of these checks:
 
 The independent `Configured corpus` job then runs one explicit configuration
 per repository and aggregates deterministic JSON. Every diagnostic must match
-the reviewed identity in `configured-corpus-expected.json`. Known Info and Hint
-findings remain advisory. Configuration errors, parser errors, error or warning
-diagnostics, unknown findings, disappeared findings, or line drift fail the
-job and require review. The expected file records a rationale for every known
-finding and no source suppression is introduced.
+the reviewed identity in `configured-corpus-expected.json`. Info and Hint
+findings remain advisory. Warning findings are admitted only as exact,
+issue-backed Standard 2 migration debt. Configuration errors, parser errors,
+error diagnostics, unknown findings, disappeared findings, or line drift fail
+the job and require review. The expected file records a non-empty rationale for
+every known finding and no source suppression is introduced. Removing an
+expected finding is part of completing its owning migration issue, not a
+compatibility promise.
 
 For a local run, arrange the repositories as siblings under `$CORPUS_ROOT`,
 build `cmd/zsh-lint-survey` and `cmd/zsh-lint`, then execute the same commands

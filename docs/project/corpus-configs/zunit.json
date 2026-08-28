@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "tool",
     "minimum_zsh": "5.5.1",
-    "function_namespaces": []
+    "identifier": "zunit"
   },
   "sources": [{ "root": "build.zsh", "profile": "standalone-executable" }]
 }

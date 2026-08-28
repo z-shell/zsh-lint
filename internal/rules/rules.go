@@ -12,17 +12,18 @@ import (
 type Profile string
 
 const (
-	// ProjectProfileV1 is the first configured Z-Shell project rule profile.
-	ProjectProfileV1 Profile = "z-shell/project@1"
+	// ProjectProfileV2 enforces the clean portable plugin architecture defined
+	// by Zsh Plugin Standard 2.
+	ProjectProfileV2 Profile = "z-shell/project@2"
 
 	// CurrentProjectProfile is selected for validated project configurations in
 	// this release.
-	CurrentProjectProfile = ProjectProfileV1
+	CurrentProjectProfile = ProjectProfileV2
 )
 
 // Default returns the default set of static analysis rules.
 func Default() []analyzer.Rule {
-	return append(genericRules(), legacyProjectRules()...)
+	return append(genericRules(), unconfiguredProjectRules()...)
 }
 
 // ForProfile returns the complete rule set associated with a configured rule
@@ -30,7 +31,7 @@ func Default() []analyzer.Rule {
 // configured rules.
 func ForProfile(profile Profile) ([]analyzer.Rule, error) {
 	switch profile {
-	case ProjectProfileV1:
+	case ProjectProfileV2:
 		return configuredProjectRules(), nil
 	default:
 		return nil, fmt.Errorf("unsupported rule profile %q", profile)
@@ -48,7 +49,7 @@ func genericRules() []analyzer.Rule {
 	}
 }
 
-func legacyProjectRules() []analyzer.Rule {
+func unconfiguredProjectRules() []analyzer.Rule {
 	return []analyzer.Rule{
 		FunctionScopedOptions{},
 		ZeroHandling{},
@@ -70,6 +71,9 @@ func configuredProjectRules() []analyzer.Rule {
 		ProjectUnloadLifecycle{},
 		FpathHygiene{},
 		FunctionNamespace{},
+		SharedPluginsRegistry{},
+		PersistentParameterNamespace{},
+		LoadOnlyHelper{},
 		RepeatedExternalCommand{},
 	}
 }

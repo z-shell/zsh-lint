@@ -56,9 +56,9 @@ import (
 // `# zsh-lint disable=plugin/unload-function -- <reason>` on the finding line or
 // immediately before the next non-comment, non-blank source line.
 //
-// Corpus evidence: `zsh-fancy-completions/lib/state.zsh:72` implements
-// `zsh-fancy-completions_plugin_unload` with full resource restoration and
-// self-unfunction.
+// Static boundary: This rule proves only unload entrypoint presence and narrow
+// syntax hygiene. Exact ownership-aware restoration requires a clean-process
+// runtime test and is outside static analysis.
 type UnloadFunction struct{}
 
 func (UnloadFunction) ID() diag.RuleID {
@@ -121,7 +121,7 @@ func (ProjectUnloadLifecycle) ID() diag.RuleID {
 }
 
 func (ProjectUnloadLifecycle) Name() string {
-	return "Project-wide unload lifecycle completeness"
+	return "Project-wide unload entrypoint presence"
 }
 
 func (ProjectUnloadLifecycle) Analyze(_ *analyzer.Context, _ syntax.Node) {}
@@ -163,7 +163,7 @@ func (rule ProjectUnloadLifecycle) AnalyzeProject(ctx *analyzer.ProjectContext) 
 			registration.call.End(),
 			rule.ID(),
 			diag.Hint,
-			"Project registers persistent hooks or widgets but no configured source defines an exact '<name>_plugin_unload' function",
+			"Project registers persistent hooks or widgets but no configured source defines an exact '<name>_plugin_unload' entrypoint; static presence does not prove runtime restoration",
 		)
 	}
 }

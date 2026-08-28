@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "library",
     "minimum_zsh": "5.8.1",
-    "function_namespaces": []
+    "identifier": "z-shell-src"
   },
   "sources": [{ "root": "public/zsh", "profile": "sourced-library" }]
 }

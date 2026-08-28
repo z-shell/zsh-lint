@@ -1,11 +1,131 @@
 [
   {
+    "repository": "z-a-meta-plugins",
+    "path": "functions/.za-meta-plugins-before-load-handler",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "functions/.za-meta-plugins-meta-cmd",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "functions/.za-meta-plugins-meta-cmd-help-handler",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "z-a-meta-plugins.plugin.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 19,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "z-a-meta-plugins.plugin.zsh",
+    "rule": "plugin/shared-plugins-registry",
+    "severity": "warning",
+    "line": 23,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "z-a-meta-plugins.plugin.zsh",
+    "rule": "plugin/shared-plugins-registry",
+    "severity": "warning",
+    "line": 24,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "z-a-meta-plugins.plugin.zsh",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": 31,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "z-a-meta-plugins.plugin.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 44,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "z-a-meta-plugins.plugin.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 102,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "z-a-meta-plugins",
+    "path": "z-a-meta-plugins.plugin.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 103,
+    "classification": "Standard 2 migration debt tracked by z-shell/z-a-meta-plugins#54"
+  },
+  {
+    "repository": "zsh-eza",
+    "path": "functions/.zsh-eza",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": null,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-eza#119"
+  },
+  {
     "repository": "zsh-eza",
     "path": "functions/.zsh-eza",
     "rule": "plugin/function-scoped-options",
     "severity": "hint",
     "line": 10,
-    "classification": "accepted legacy autoload body; advisory migration candidate"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-eza#119"
+  },
+  {
+    "repository": "zsh-eza",
+    "path": "zsh-eza.plugin.zsh",
+    "rule": "plugin/shared-plugins-registry",
+    "severity": "warning",
+    "line": 14,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-eza#119"
+  },
+  {
+    "repository": "zsh-eza",
+    "path": "zsh-eza.plugin.zsh",
+    "rule": "plugin/shared-plugins-registry",
+    "severity": "warning",
+    "line": 15,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-eza#119"
+  },
+  {
+    "repository": "zsh-eza",
+    "path": "zsh-eza.plugin.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 18,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-eza#119"
+  },
+  {
+    "repository": "zsh-eza",
+    "path": "zsh-eza.plugin.zsh",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": 37,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-eza#119"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -13,7 +133,7 @@
     "rule": "plugin/function-namespace",
     "severity": "hint",
     "line": null,
-    "classification": "accepted legacy autoload name; no source suppression"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -21,7 +141,7 @@
     "rule": "plugin/function-namespace",
     "severity": "hint",
     "line": null,
-    "classification": "accepted legacy autoload name; no source suppression"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -29,7 +149,7 @@
     "rule": "plugin/function-scoped-options",
     "severity": "hint",
     "line": 5,
-    "classification": "accepted legacy autoload body; advisory migration candidate"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -37,7 +157,7 @@
     "rule": "plugin/function-namespace",
     "severity": "hint",
     "line": null,
-    "classification": "accepted legacy autoload name; no source suppression"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -45,7 +165,7 @@
     "rule": "plugin/function-namespace",
     "severity": "hint",
     "line": null,
-    "classification": "accepted legacy autoload name; no source suppression"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -53,7 +173,7 @@
     "rule": "plugin/function-scoped-options",
     "severity": "hint",
     "line": 4,
-    "classification": "accepted legacy autoload body; advisory migration candidate"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -61,7 +181,263 @@
     "rule": "plugin/function-namespace",
     "severity": "hint",
     "line": null,
-    "classification": "accepted legacy autoload name; no source suppression"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 8,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 11,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 14,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 17,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 20,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 23,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 26,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 29,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 32,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 35,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 42,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/compatibility.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 46,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/completion.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 21,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/completion.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 25,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/completion.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 27,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/completion.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 28,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/completion.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 259,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 4,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 4,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 4,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 5,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 5,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 6,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 6,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 7,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 7,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 8,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/persistent-parameter-namespace",
+    "severity": "warning",
+    "line": 8,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": 10,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": 45,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": 57,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/function-namespace",
+    "severity": "hint",
+    "line": 72,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -69,7 +445,7 @@
     "rule": "security/eval",
     "severity": "info",
     "line": 81,
-    "classification": "accepted existing generic advisory in project-owned state restoration"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -77,7 +453,7 @@
     "rule": "security/eval",
     "severity": "info",
     "line": 86,
-    "classification": "accepted existing generic advisory in project-owned state restoration"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -85,7 +461,7 @@
     "rule": "security/eval",
     "severity": "info",
     "line": 93,
-    "classification": "accepted existing generic advisory in project-owned state restoration"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   },
   {
     "repository": "zsh-fancy-completions",
@@ -93,6 +469,30 @@
     "rule": "security/eval",
     "severity": "info",
     "line": 98,
-    "classification": "accepted existing generic advisory in project-owned state restoration"
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "lib/state.zsh",
+    "rule": "plugin/shared-plugins-registry",
+    "severity": "warning",
+    "line": 110,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "zsh-fancy-completions.plugin.zsh",
+    "rule": "plugin/shared-plugins-registry",
+    "severity": "warning",
+    "line": 20,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
+  },
+  {
+    "repository": "zsh-fancy-completions",
+    "path": "zsh-fancy-completions.plugin.zsh",
+    "rule": "plugin/shared-plugins-registry",
+    "severity": "warning",
+    "line": 23,
+    "classification": "Standard 2 migration debt tracked by z-shell/zsh-fancy-completions#59"
   }
 ]

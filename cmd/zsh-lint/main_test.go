@@ -9,11 +9,11 @@ import (
 )
 
 const cliConfig = `{
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "plugin",
     "minimum_zsh": "5.8",
-    "function_namespaces": ["example"]
+    "identifier": "example"
   },
   "sources": [
     {"root": ".", "profile": "sourced-library"},
@@ -70,7 +70,7 @@ func TestRunPreservesUnconfiguredBehavior(t *testing.T) {
 func TestRunWithConfiguration(t *testing.T) {
 	root := t.TempDir()
 	config := filepath.Join(root, "zsh-lint.json")
-	script := filepath.Join(root, "functions", "example-run")
+	script := filepath.Join(root, "functions", "example_run")
 	writeFile(t, config, cliConfig)
 	writeFile(t, script, "builtin emulate -L zsh\nprint ok\n")
 
@@ -213,11 +213,11 @@ func TestRunConfiguredProjectUnloadLifecycle(t *testing.T) {
 
 func TestRunConfiguredMetadataOverridesLegacyPathHeuristics(t *testing.T) {
 	const toolConfig = `{
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "tool",
     "minimum_zsh": "5.8",
-    "function_namespaces": []
+    "identifier": "zunit"
   },
   "sources": [
     {"root": "functions", "profile": "autoload-function"}

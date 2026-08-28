@@ -25,7 +25,7 @@ func TestResolveUsesMostSpecificSourceRoot(t *testing.T) {
 		wantRole    SourceRole
 	}{
 		{path: "plugin.zsh", wantRoot: ".", wantProfile: ProfileSourcedLibrary},
-		{path: "functions/example-run", wantRoot: "functions", wantProfile: ProfileAutoloadFunction},
+		{path: "functions/example_run", wantRoot: "functions", wantProfile: ProfileAutoloadFunction},
 		{path: "completions/_example", wantRoot: "completions", wantProfile: ProfileAutoloadFunction, wantRole: RoleCompletion},
 		{path: "tests/fixture.zsh", wantRoot: "tests", wantProfile: ProfileTestFixture},
 	}
@@ -45,7 +45,9 @@ func TestResolveUsesMostSpecificSourceRoot(t *testing.T) {
 				context.MinimumZsh != "5.8" || !context.Configured() {
 				t.Errorf("project context is incomplete: %+v", context)
 			}
-			context.FunctionNamespaces[0] = "mutated"
+			if context.ProjectIdentifier != "example" {
+				t.Errorf("ProjectIdentifier = %q, want example", context.ProjectIdentifier)
+			}
 		})
 	}
 
@@ -53,8 +55,8 @@ func TestResolveUsesMostSpecificSourceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() after mutation error = %v", err)
 	}
-	if context.FunctionNamespaces[0] != "example" {
-		t.Errorf("resolved namespace was mutated across calls: %q", context.FunctionNamespaces)
+	if context.ProjectIdentifier != "example" {
+		t.Errorf("resolved identifier changed across calls: %q", context.ProjectIdentifier)
 	}
 }
 

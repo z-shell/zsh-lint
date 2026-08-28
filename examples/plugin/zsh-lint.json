@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "project": {
     "kind": "plugin",
     "minimum_zsh": "5.8",
-    "function_namespaces": ["example"]
+    "identifier": "example"
   },
   "sources": [
     { "root": "example.plugin.zsh", "profile": "sourced-library" },

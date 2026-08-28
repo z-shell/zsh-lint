@@ -102,31 +102,26 @@ func TestAnalyzerIndexesScopeForOptInRule(t *testing.T) {
 }
 
 func TestAnalyzerSuppliesSourceContext(t *testing.T) {
-	file, err := parse.Parse(strings.NewReader("print ok\n"), "functions/example-run")
+	file, err := parse.Parse(strings.NewReader("print ok\n"), "functions/example_run")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
 
 	want := projectconfig.SourceContext{
-		ConfigVersion:      projectconfig.CurrentVersion,
-		ProjectKind:        projectconfig.KindPlugin,
-		MinimumZsh:         "5.8",
-		FunctionNamespaces: []string{"example"},
-		Profile:            projectconfig.ProfileAutoloadFunction,
-		SourceRoot:         "functions",
+		ConfigVersion:     projectconfig.CurrentVersion,
+		ProjectKind:       projectconfig.KindPlugin,
+		MinimumZsh:        "5.8",
+		ProjectIdentifier: "example",
+		Profile:           projectconfig.ProfileAutoloadFunction,
+		SourceRoot:        "functions",
 	}
 	rule := &sourceRule{}
-	analyzer.New(rule).AnalyzeSource(file, "functions/example-run", want)
+	analyzer.New(rule).AnalyzeSource(file, "functions/example_run", want)
 	if rule.source.ConfigVersion != want.ConfigVersion || rule.source.ProjectKind != want.ProjectKind ||
 		rule.source.MinimumZsh != want.MinimumZsh ||
-		rule.source.Profile != want.Profile || rule.source.SourceRoot != want.SourceRoot ||
-		len(rule.source.FunctionNamespaces) != 1 || rule.source.FunctionNamespaces[0] != "example" {
+		rule.source.ProjectIdentifier != want.ProjectIdentifier ||
+		rule.source.Profile != want.Profile || rule.source.SourceRoot != want.SourceRoot {
 		t.Errorf("source context = %+v, want %+v", rule.source, want)
-	}
-
-	want.FunctionNamespaces[0] = "mutated"
-	if rule.source.FunctionNamespaces[0] != "example" {
-		t.Errorf("analyzer retained caller-owned namespace storage: %q", rule.source.FunctionNamespaces)
 	}
 }
 

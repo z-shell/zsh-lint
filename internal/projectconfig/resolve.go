@@ -41,14 +41,14 @@ func (c *Config) Resolve(filename string) (SourceContext, error) {
 
 	source := c.Sources[best]
 	return SourceContext{
-		ConfigVersion:      c.Version,
-		ProjectKind:        c.Project.Kind,
-		MinimumZsh:         c.Project.MinimumZsh,
-		FunctionNamespaces: append([]string(nil), c.Project.FunctionNamespaces...),
-		Profile:            source.Profile,
-		Role:               source.Role,
-		ConfigRoot:         c.root,
-		SourceRoot:         source.Root,
+		ConfigVersion:     c.Version,
+		ProjectKind:       c.Project.Kind,
+		MinimumZsh:        c.Project.MinimumZsh,
+		ProjectIdentifier: c.Project.Identifier,
+		Profile:           source.Profile,
+		Role:              source.Role,
+		ConfigRoot:        c.root,
+		SourceRoot:        source.Root,
 	}, nil
 }
 

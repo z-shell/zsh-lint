@@ -270,9 +270,9 @@ jobs:
             diagnostics="$RUNNER_TEMP/configured-$repository.json"
             analyzer_status=0
             "$RUNNER_TEMP/zsh-lint" --format=json --config "$config" "${files[@]}" > "$diagnostics" || analyzer_status=$?
-            if [[ $analyzer_status -ne 0 ]]; then
+            if [[ $analyzer_status -gt 1 ]]; then
               jq . "$diagnostics"
-              echo "::error::Configured zsh-lint for $repository exited with status $analyzer_status."
+              echo "::error::Configured zsh-lint for $repository failed with status $analyzer_status."
               exit "$analyzer_status"
             fi
             diagnostic_files+=("$diagnostics")
@@ -292,8 +292,8 @@ jobs:
           }' "${diagnostic_files[@]}" > "$RUNNER_TEMP/configured-corpus.json"
           jq . "$RUNNER_TEMP/configured-corpus.json"
 
-          if ! jq -e '.summary.errors == 0 and .summary.warnings == 0' "$RUNNER_TEMP/configured-corpus.json" >/dev/null; then
-            echo "::error::The configured corpus contains error- or warning-level diagnostics."
+          if ! jq -e '.summary.errors == 0' "$RUNNER_TEMP/configured-corpus.json" >/dev/null; then
+            echo "::error::The configured corpus contains error-level diagnostics."
             exit 1
           fi
 

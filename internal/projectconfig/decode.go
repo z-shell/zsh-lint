@@ -149,11 +149,11 @@ func decodeConfig(data []byte) (*Config, error) {
 }
 
 func decodeProject(data []byte) (Project, error) {
-	object, err := decodeObject(data, "$.project", []string{"kind", "minimum_zsh", "function_namespaces"})
+	object, err := decodeObject(data, "$.project", []string{"kind", "minimum_zsh", "identifier"})
 	if err != nil {
 		return Project{}, err
 	}
-	if err := requireFields(object, "$.project", "kind", "minimum_zsh", "function_namespaces"); err != nil {
+	if err := requireFields(object, "$.project", "kind", "minimum_zsh", "identifier"); err != nil {
 		return Project{}, err
 	}
 
@@ -164,11 +164,8 @@ func decodeProject(data []byte) (Project, error) {
 	if err := json.Unmarshal(object["minimum_zsh"], &project.MinimumZsh); err != nil {
 		return Project{}, fmt.Errorf("$.project.minimum_zsh: %w", err)
 	}
-	if isJSONNull(object["function_namespaces"]) {
-		return Project{}, fmt.Errorf("$.project.function_namespaces: must be an array")
-	}
-	if err := json.Unmarshal(object["function_namespaces"], &project.FunctionNamespaces); err != nil {
-		return Project{}, fmt.Errorf("$.project.function_namespaces: %w", err)
+	if err := json.Unmarshal(object["identifier"], &project.Identifier); err != nil {
+		return Project{}, fmt.Errorf("$.project.identifier: %w", err)
 	}
 	return project, nil
 }

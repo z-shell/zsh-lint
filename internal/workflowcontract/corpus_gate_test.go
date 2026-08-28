@@ -84,7 +84,9 @@ func TestConfiguredCorpusContract(t *testing.T) {
 		`config_source="../zsh-lint/docs/project/corpus-configs/$repository.json"`,
 		`"$RUNNER_TEMP/zsh-lint" --format=json --config "$config" "${files[@]}"`,
 		`configured-corpus-expected.json`,
-		`.summary.errors == 0 and .summary.warnings == 0`,
+		`if [[ $analyzer_status -gt 1 ]]`,
+		`.summary.errors == 0`,
+		`Every configured corpus finding needs a non-empty classification.`,
 		`Configured corpus diagnostics changed; review and classify every difference.`,
 	} {
 		if !strings.Contains(workflow, required) {
