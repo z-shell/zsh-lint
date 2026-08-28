@@ -32,7 +32,7 @@ type forSourceMap struct {
 }
 
 func parseMultiNameFor(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseMultiNameForWithParser(src, name, firstErr, parseTree)
+	return parseMultiNameForWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseMultiNameForWithParser(

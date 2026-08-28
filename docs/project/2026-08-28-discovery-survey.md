@@ -35,6 +35,12 @@ Tooling: `zsh-lint` `next` at `901f3f7`, Go 1.27.0, Zsh 5.9.2. File set is
 Of the 13 failures, 11 are genuine parser gaps (`zsh -f -n` accepts the source)
 and 2 are correctly rejected by both native Zsh and zsh-lint.
 
+One of the 11, family F, turned out not to be a missing language feature at all
+but a composition defect in the adapter chain. It is fixed in this change; see
+family F below. Fixing it revealed one further real gap in `zi.zsh` that the
+defect had been masking (family K), so 11 gap families remain to be closed:
+A through E, G through K.
+
 ### Not parser gaps
 
 `zpmod/tests/command/zpmod_bundle_build.zsh` and
@@ -90,36 +96,55 @@ Error: `` a command can only contain words and redirects; encountered `(` ``.
 Manual: `zshmisc`, alternate loop forms. Real site:
 `zi/tests/fixtures/public-contract/foreach/zi.zsh:15`.
 
-### F. GLOB_SUBST `${~name}` after an alternate brace-form `if`
+### F. GLOB_SUBST `${~name}` after an alternate brace-form `if`, FIXED
 
     if (( 1 )) { x=1 }
     p=${~q}
 
 Error: `` not a valid parameter expansion operator: `~` ``. Manual: `zshexpn`,
-GLOB_SUBST `${~spec}`. Real site: `zi/zi.zsh:48`.
+GLOB_SUBST `${~spec}`. Real site: `zi/zi.zsh:51`.
 
-This one is different in kind from the others and is the most important finding
-in this run. `${~q}` on its own parses correctly, and the same statement after a
-classic `if ...; then ...; fi` also parses correctly. The failure appears only
-when an alternate brace-form `if` precedes it in the same file:
+This was not a parser gap. It was a composition defect in the adapter chain, and
+it has been fixed in this same change. `${~q}` parsed on its own, and after a
+classic `if ...; then ...; fi`, but not after an alternate brace-form `if`.
 
-    p=${~q}                          # parses
-    if (( 1 )); then x=1; fi         # parses
-    p=${~q}
-    if (( 1 )) { x=1 }               # FAILS
-    p=${~q}
+Root cause: each adapter re-parsed its masked source through a hardcoded list of
+peers rather than the full adapter set. `parseAfterAlternateIf` named exactly
+two peers, so any _other_ Zsh feature in the same file failed. Measured before
+the fix: **40 of 42 ordered pairs** of distinct adapter features failed to parse,
+though every feature parsed alone and native Zsh accepted every combination.
 
-So this is not a missing language feature. It is an interaction defect in the
-existing alternate brace-form `if` compatibility adapter
-(`ok-alternate-if-brace.zsh`), which appears to leave state that corrupts
-parsing of a later `${~...}`. Isolated by line-level delta debugging over
-`zi.zsh`, which reduced 48 lines to exactly these two.
+Fix: `internal/parse/adapter_chain.go` introduces one ordered chain that both
+`Parse` and every adapter retry through, so adapters compose in any order.
+Regression coverage in `internal/parse/adapter_chain_test.go` asserts all
+ordered pairs, all features together, original-text restoration, and continued
+rejection of invalid Zsh.
 
-This violates the adapter contract in `parser-gap-workflow.md`: an adapter must
-activate for one exact error and one construct, and must restore every
-transformed byte. It should be filed as an adapter-correctness bug rather than a
-`parser-gap`, and it should be fixed before further adapters are added, since
-the same class of latent interaction may already be masking other results.
+Fixing this exposed a second, opposite defect. Routing the grouped-case adapter
+through the chain let it re-enter itself, masking one extra `)` per pass until
+`case x in (x|y))) : ;; esac` parsed, which native Zsh rejects. Composition must
+therefore be permissive across _distinct_ adapters but not unbounded within one:
+most adapters mask a single occurrence per pass and legitimately re-enter
+themselves for a second occurrence, while an adapter whose masking would widen
+its own grammar opts out through `retryExcluding`. Both directions are pinned by
+tests.
+
+Confirming the masking this caused: `zi.zsh` previously reported its first error
+at line 51. With the chain fixed it parses past that point and reports a genuine,
+previously hidden gap at line 382, recorded as family K below.
+
+### K. Reverse-subscript pattern containing a parameter expansion
+
+    print -r -- ${a[(r)$d/*]}
+
+Error: `` `/` must be followed by an expression ``. Manual: `zshparam`,
+subscript flags. Real site: `zi/zi.zsh:382`
+(`${fpath[(r)$PLUGIN_DIR/*]}`).
+
+Related to the closed reverse-subscript work (#15) but distinct: the existing
+`(iIrR)` scanner only masks literal `-`, `*`, and `?` pattern bytes and bails
+out on anything else, so a `$name` expansion inside the search pattern is never
+handled. This gap was invisible until family F was fixed.
 
 ### G. Anonymous function with a process-substitution redirect
 
@@ -158,14 +183,16 @@ ranges. Real site: `zunit/src/commands/run.zsh:268`.
 
 ## Recommended handling
 
-Families A through E and G through J are one `parser-gap` + `corpus` issue each,
+Families A through E and G through K are one `parser-gap` + `corpus` issue each,
 per the workflow's one-feature-per-issue rule. Minimized sources become
 `gap-<issue>-<slug>.zsh` fixtures once the issue numbers exist.
 
-Family F is not a parser gap and must not be filed as one. It is a correctness
-bug in an already-shipped adapter and should be prioritized above the new
-feature work, because an adapter that corrupts later parsing can produce both
-false failures and, more dangerously, masked findings anywhere in the corpus.
+Family F needed no issue: it was an adapter-composition defect, not a language
+gap, and it is fixed in this change with regression coverage. Its lesson is
+worth keeping, though. A defective adapter does not only produce false
+failures, it silently _masks_ real ones, because the survey reports just the
+first error per file. Family K was hidden behind it. Any future adapter work
+should assume more findings are masked and re-run this survey after each fix.
 
 Do **not** add these repositories to `corpus-paths.txt` yet. The strict gate
 requires zero errors and zero warnings, and these sources currently carry 11

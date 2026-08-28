@@ -16,15 +16,7 @@ func isIdentStartByte(b byte) bool {
 // feature. The retry masks the {varname} delimiter with a same-width numeric file
 // descriptor and restores the AST literal node on the resulting syntax.Redirect.
 func parseFdVarRedirect(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseFdVarRedirectWithParser(src, name, firstErr, parseFdVarRedirects)
-}
-
-func parseFdVarRedirects(src []byte, name string) (*syntax.File, error) {
-	tree, err := parseTree(src, name)
-	if err != nil {
-		return parseFdVarRedirectWithParser(src, name, err, parseFdVarRedirects)
-	}
-	return tree, nil
+	return parseFdVarRedirectWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseFdVarRedirectWithParser(

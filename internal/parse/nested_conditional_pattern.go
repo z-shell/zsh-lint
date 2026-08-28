@@ -158,7 +158,7 @@ type nestedPatternCompatibilityBatch struct {
 }
 
 func parseNestedConditionalAlternation(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseNestedConditionalAlternationWithParser(src, name, firstErr, parseTree)
+	return parseNestedConditionalAlternationWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseNestedConditionalAlternationWithParser(

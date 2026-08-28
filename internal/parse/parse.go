@@ -66,38 +66,6 @@ func parseTree(src []byte, name string) (*syntax.File, error) {
 	return parser.Parse(bytes.NewReader(src), name)
 }
 
-type compatibilityParser func([]byte, string, error) (*syntax.File, error)
-
-// parseCompatibleTree applies the established byte-preserving adapters in
-// order. Anonymous-function invocation arguments are handled separately
-// because their words live in File metadata rather than the upstream AST.
-func parseCompatibleTree(src []byte, name string) (*syntax.File, error) {
-	tree, err := parseTree(src, name)
-	if err == nil {
-		return tree, nil
-	}
-	adapters := []compatibilityParser{
-		parseNestedConditionalAlternation,
-		parseAlternateIfBrace,
-		parseAssociativeSubscript,
-		parseRCExpandCaret,
-		parseReverseSubscript,
-		parseParamGlobToggle,
-		parseFdVarRedirect,
-		parseMultiNameFor,
-		parseTryAlways,
-		parseGroupedCasePattern,
-		parseANSICHeredocDelimiter,
-	}
-	for _, adapter := range adapters {
-		tree, err = adapter(src, name, err)
-		if err == nil {
-			return tree, nil
-		}
-	}
-	return nil, err
-}
-
 // Parse parses a single Zsh source read from r, using name in error
 // messages. It returns the parsed source or a parse error.
 func Parse(r io.Reader, name string) (*File, error) {
@@ -105,7 +73,7 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	tree, err := parseCompatibleTree(src, name)
+	tree, err := parseWithAdapters(src, name)
 	var anonymousInvocations []AnonymousInvocation
 	if err != nil {
 		tree, anonymousInvocations, err = parseAnonymousFunctionArgs(src, name, err)

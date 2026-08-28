@@ -12,7 +12,7 @@ const tryAlwaysParseError = "statements must be separated by &, ; or a newline"
 // try/always boundary. The fixed-width transformation keeps every original
 // byte offset valid for the returned syntax tree.
 func parseTryAlways(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseTryAlwaysWithParser(src, name, firstErr, parseTree)
+	return parseTryAlwaysWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseTryAlwaysWithParser(

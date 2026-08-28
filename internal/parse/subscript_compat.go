@@ -16,15 +16,7 @@ const (
 // mvdan/sh mistakes for arithmetic syntax. The retry masks punctuation with
 // same-width identifier bytes and restores every changed AST literal.
 func parseAssociativeSubscript(src []byte, name string, firstErr error) (*syntax.File, error) {
-	return parseAssociativeSubscriptWithParser(src, name, firstErr, parseAssociativeSubscripts)
-}
-
-func parseAssociativeSubscripts(src []byte, name string) (*syntax.File, error) {
-	tree, err := parseTree(src, name)
-	if err != nil {
-		return parseAssociativeSubscriptWithParser(src, name, err, parseAssociativeSubscripts)
-	}
-	return tree, nil
+	return parseAssociativeSubscriptWithParser(src, name, firstErr, parseWithAdapters)
 }
 
 func parseAssociativeSubscriptWithParser(

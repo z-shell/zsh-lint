@@ -43,7 +43,7 @@ func parseAnonymousFunctionArgs(
 			}
 		}
 
-		tree, err := parseCompatibleTree(masked, name)
+		tree, err := parseWithAdapters(masked, name)
 		if err != nil {
 			currentErr = err
 			continue
@@ -92,7 +92,7 @@ func prefixEndsWithAnonymousFunction(src []byte, name string, close int) bool {
 			prefix[offset] = ' '
 		}
 	}
-	tree, err := parseCompatibleTree(prefix, name)
+	tree, err := parseWithAdapters(prefix, name)
 	if err != nil {
 		return false
 	}
@@ -222,7 +222,7 @@ func parseAnonymousInvocationWords(src []byte, name string, close, end int) ([]*
 	}
 	island[close] = ':'
 	copy(island[close+1:end], src[close+1:end])
-	tree, err := parseCompatibleTree(island, name)
+	tree, err := parseWithAdapters(island, name)
 	if err != nil {
 		return nil, false
 	}

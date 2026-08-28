@@ -92,6 +92,42 @@ If recognition or restoration is uncertain, return the parser error. Do not
 use generic error suppression, recovery ASTs, or a compatibility adapter to
 absorb a second untracked language feature.
 
+### Adapter composition
+
+Register every adapter in `adapterChain` (`internal/parse/adapter_chain.go`)
+and route its masked retry through `parseWithAdapters`. Never call `parseTree`
+directly for a retry, and never hand-write a list of peer adapters to compose
+with.
+
+A masked retry is an ordinary parse of a whole file. Any unrelated Zsh
+construct elsewhere in that file must still parse, so an adapter that retries
+through a subset of its peers makes correctness depend on which adapter happens
+to run first. That defect shipped once: `parseAfterAlternateIf` named exactly
+two peers, and 40 of 42 ordered pairs of adapter features failed to parse even
+though each parsed alone. It surfaced as `${~ZI[BIN_DIR]}` failing in
+`z-shell/zi` `zi.zsh` only because an alternate brace-form `if` appeared earlier
+in the file.
+
+Composition is permissive across distinct adapters, but it is not unbounded
+within one. Most adapters mask a single occurrence of their feature per pass and
+rely on re-entering themselves to reach a second occurrence, which is correct.
+An adapter whose repeated masking would widen its own accepted grammar must opt
+out by handing `retryExcluding(itself)` to its `*WithParser` helper. The
+grouped-case adapter needs this: allowed to recurse, it masked one extra `)` per
+pass and accepted `case x in (x|y))) : ;; esac`, which native Zsh rejects.
+
+Because the survey reports only the first error per file, this class of defect
+masks real gaps rather than merely reporting false ones. Fixing it immediately
+exposed a further genuine gap in the same file. Re-run the discovery survey
+after any adapter change and expect the reported set to shift.
+
+`internal/parse/adapter_chain_test.go` enforces all of this: every ordered pair
+of adapter features and all features together must parse; original text must be
+restored; invalid Zsh must still be rejected; self-recursion must not widen the
+grammar; and every snippet must genuinely require its adapter, so a snippet the
+base parser already accepts cannot make its cases vacuously pass. Adding an
+adapter to the chain extends that matrix automatically.
+
 A bounded local island may use source-mapped synthetic terminators only when
 the adapter verifies the original AST structure, invalid-syntax behavior, and
 every source position before returning the complete tree. This exception does
