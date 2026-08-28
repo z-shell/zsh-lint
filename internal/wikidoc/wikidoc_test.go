@@ -277,11 +277,16 @@ func TestSanitize_FenceIndentedCode(t *testing.T) {
 func TestSanitize_FenceIndentedCodeLanguages(t *testing.T) {
 	input := "## func Run\n\n\tfunc Run() int\n\n" +
 		"Bad:\n\n\tprint -r -- $value\n\n" +
-		"Good:\n\n\tprint -r -- \"$value\""
+		"Good:\n\n\tprint -r -- \"$value\"\n\n" +
+		"Good \\(configured sourced entrypoint\\):\n\n\t() { print -r -- \"$1\" } \"$value\"\n\n" +
+		"Bad (unconfigured script):\n\n\t0=$PWD/script.zsh"
 	got := wikidoc.Sanitize(input)
 	want := "##### func Run\n\n```go\nfunc Run() int\n```\n\n" +
 		"Bad:\n\n```zsh\nprint -r -- $value\n```\n\n" +
-		"Good:\n\n```zsh\nprint -r -- \"$value\"\n```"
+		"Good:\n\n```zsh\nprint -r -- \"$value\"\n```\n\n" +
+		"Good \\(configured sourced entrypoint\\):\n\n```zsh\n" +
+		"() { print -r -- \"$1\" } \"$value\"\n```\n\n" +
+		"Bad (unconfigured script):\n\n```zsh\n0=$PWD/script.zsh\n```"
 	if got != want {
 		t.Errorf("Sanitize(%q) = %q; want %q", input, got, want)
 	}
