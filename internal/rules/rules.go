@@ -67,6 +67,7 @@ func configuredProjectRules() []analyzer.Rule {
 		FunctionScopedOptions{},
 		ZeroHandling{},
 		UnloadFunction{},
+		ProjectUnloadLifecycle{},
 		FpathHygiene{},
 		FunctionNamespace{},
 		RepeatedExternalCommand{},
