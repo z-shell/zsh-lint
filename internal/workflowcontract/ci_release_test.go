@@ -145,7 +145,19 @@ func TestZshMatrixPreservesNewlineFilename(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	for _, name := range []string{"line\nbreak.zsh", "ordinary.zsh"} {
+	for _, subdir := range []string{"legacy/functions", "examples/plugin"} {
+		if err := os.MkdirAll(filepath.Join(dir, subdir), 0o700); err != nil {
+			t.Fatalf("create matrix fixture directory %q: %v", subdir, err)
+		}
+	}
+	for _, name := range []string{
+		"line\nbreak.zsh",
+		"ordinary.zsh",
+		"legacy/functions/zsh-lint",
+		"legacy/functions/.zsh-lint-worker",
+		"legacy/functions/@zsh-lint-process-buffer",
+		"examples/plugin/zsh-lint.json",
+	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("true\n"), 0o600); err != nil {
 			t.Fatalf("write matrix fixture %q: %v", name, err)
 		}
@@ -189,7 +201,13 @@ func TestZshMatrixPreservesNewlineFilename(t *testing.T) {
 		got = append(got, item.File)
 	}
 	sort.Strings(got)
-	want := []string{"./line\nbreak.zsh", "./ordinary.zsh"}
+	want := []string{
+		"./line\nbreak.zsh",
+		"./ordinary.zsh",
+		"./legacy/functions/zsh-lint",
+		"./legacy/functions/.zsh-lint-worker",
+		"./legacy/functions/@zsh-lint-process-buffer",
+	}
 	sort.Strings(want)
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("matrix must preserve each filename as one JSON entry:\nwant: %q\ngot:  %q", want, got)

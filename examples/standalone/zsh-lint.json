@@ -5,7 +5,5 @@
     "minimum_zsh": "5.8",
     "function_namespaces": []
   },
-  "sources": [
-    { "root": "script.zsh", "profile": "standalone-executable" }
-  ]
+  "sources": [{ "root": "script.zsh", "profile": "standalone-executable" }]
 }
