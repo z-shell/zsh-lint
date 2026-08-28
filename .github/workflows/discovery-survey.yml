@@ -1,0 +1,149 @@
+---
+name: Discovery Survey
+
+# Non-gating parser coverage for Z-Shell repositories that are NOT in the
+# strict reference corpus (docs/project/corpus.md). Its purpose is to surface
+# parser gaps early, so it reports findings and always succeeds. Promotion of
+# any repository below into corpus-paths.txt is a separate, gated change that
+# must satisfy the full strict gate in corpus-gate.yml.
+
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discovery:
+    name: Uncovered repository survey
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out zsh-lint
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: zsh-lint
+          persist-credentials: false
+
+      - name: Check out zi
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zi
+          ref: main
+          path: discovery/zi
+          persist-credentials: false
+
+      - name: Check out zpmod
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zpmod
+          ref: main
+          path: discovery/zpmod
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.25"
+          cache-dependency-path: zsh-lint/go.sum
+
+      - name: Set up Zsh
+        uses: z-shell/.github/actions/setup-zsh@4403e5a200c63596f641966dfb64e08a7a655ffa # main
+
+      - name: Build survey tool
+        working-directory: zsh-lint
+        run: go build -o "$RUNNER_TEMP/zsh-lint-survey" ./cmd/zsh-lint-survey
+
+      - name: Record discovery revisions
+        working-directory: discovery
+        run: |
+          for repository in zi zpmod; do
+            printf '%s ' "$repository"
+            git -C "$repository" rev-parse HEAD
+          done
+
+      - name: Survey uncovered repositories
+        working-directory: discovery
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # Discovery is intentionally non-gating: a parse failure here is a
+          # finding to triage, not a build break. Only an infrastructure fault
+          # (missing tree, no files discovered) fails this job.
+          for repository in zi zpmod; do
+            if [[ ! -d $repository ]]; then
+              echo "::error::Discovery checkout missing: $repository"
+              exit 1
+            fi
+          done
+
+          mapfile -d '' files < <(
+            find zi zpmod \
+              -name .git -prune -o \
+              -type f \( -name '*.zsh' -o -name 'zshrc' -o -name 'zshenv' \) \
+              -print0 | sort -z
+          )
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "::error::Discovery found no Zsh sources; check the find filter."
+            exit 1
+          fi
+          echo "Discovered ${#files[@]} candidate source(s)."
+
+          # A source that native Zsh also rejects is a broken or non-Zsh file
+          # (for example the ZUnit TEST DSL), not a parser gap. Partition first
+          # so the reported gap count stays honest.
+          native_valid=()
+          native_invalid=()
+          for file in "${files[@]}"; do
+            if zsh -f -n -- "$file" 2>/dev/null; then
+              native_valid+=("$file")
+            else
+              native_invalid+=("$file")
+            fi
+          done
+
+          if [[ ${#native_invalid[@]} -gt 0 ]]; then
+            echo "::notice::${#native_invalid[@]} source(s) rejected by native zsh -f -n; excluded from gap analysis."
+            printf '  %s\n' "${native_invalid[@]}"
+          fi
+
+          survey_status=0
+          "$RUNNER_TEMP/zsh-lint-survey" "${native_valid[@]}" \
+            > "$RUNNER_TEMP/discovery-survey.txt" 2>&1 || survey_status=$?
+          cat "$RUNNER_TEMP/discovery-survey.txt"
+
+          gaps=$(grep -c '^FAIL' "$RUNNER_TEMP/discovery-survey.txt" || true)
+          {
+            echo "## Discovery survey"
+            echo
+            echo "- Native-valid sources surveyed: ${#native_valid[@]}"
+            echo "- Excluded as native-invalid: ${#native_invalid[@]}"
+            echo "- Parser gaps (native-valid but unparsed): ${gaps}"
+            echo
+            echo "Non-gating. See docs/project/parser-gap-workflow.md to triage."
+            if [[ $gaps -gt 0 ]]; then
+              echo
+              echo '```text'
+              grep -A1 '^FAIL' "$RUNNER_TEMP/discovery-survey.txt" || true
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ $gaps -gt 0 ]]; then
+            echo "::notice::${gaps} parser gap(s) found in uncovered repositories."
+          fi
+          echo "Survey tool exit status: ${survey_status} (not gating)."
+
+      - name: Upload discovery survey
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: discovery-survey
+          path: ${{ runner.temp }}/discovery-survey.txt
+          if-no-files-found: warn

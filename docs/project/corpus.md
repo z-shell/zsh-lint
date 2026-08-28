@@ -96,3 +96,16 @@ survey is insufficient: every corpus change must re-run the complete native,
 parser, unconfigured analyzer, configured analyzer, classification, and
 no-suppression gates. Reports under `docs/project/` record the revisions they
 ran against, so older reports stay interpretable.
+
+## Repositories outside the strict corpus
+
+`zi`, `zpmod`, and the untracked parts of `zunit` are deliberately not in the
+strict corpus yet: they still contain open parser gaps and warning-level
+findings, and adding them would turn a passing gate into a permanently failing
+one. `.github/workflows/discovery-survey.yml` surveys them on a non-gating
+weekly schedule so those gaps stay visible without blocking the gate. See
+[2026-08-28-discovery-survey.md](2026-08-28-discovery-survey.md).
+
+Promotion is the same sequence used for the current members: close the parser
+gaps, remediate consumer findings in the owning repository, then add the roots
+here and re-run the complete gate.
