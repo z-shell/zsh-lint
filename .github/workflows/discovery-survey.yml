@@ -61,7 +61,7 @@ jobs:
           cache-dependency-path: zsh-lint/go.sum
 
       - name: Set up Zsh
-        uses: z-shell/.github/actions/setup-zsh@4403e5a200c63596f641966dfb64e08a7a655ffa # main
+        uses: z-shell/.github/actions/setup-zsh@aa802adb4713acee89d4b95b04b04a1abf9a9377 # main
 
       - name: Build survey tool
         working-directory: zsh-lint
@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload discovery survey
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: discovery-survey
           path: ${{ runner.temp }}/discovery-survey.txt
