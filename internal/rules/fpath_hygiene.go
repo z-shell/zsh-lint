@@ -100,8 +100,9 @@ func (rule FpathHygiene) analyzeCall(ctx *analyzer.Context, call *syntax.CallExp
 			continue
 		}
 
-		// 1. Check for destructive overwrite: fpath=( ... ) without preserving $fpath
-		if !assign.Append && assign.Array != nil {
+		// 1. Check for destructive overwrite: fpath=( ... ) without preserving $fpath.
+		// An indexed assignment such as fpath[$index]=() changes only one element.
+		if assign.Index == nil && !assign.Append && assign.Array != nil {
 			if !arrayContainsFpathReference(assign.Array) {
 				ctx.Report(
 					assign.Pos(),

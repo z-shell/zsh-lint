@@ -56,7 +56,7 @@ func TestConfiguredZeroHandlingPreservesCallerState(t *testing.T) {
 		want int
 	}{
 		{name: "top-level zero assignment is rejected", src: "0=\"${(%):-%N}\"\nfpath+=( \"${0:h}/functions\" )\n", want: 1},
-		{name: "canonical anonymous function argument is accepted", src: "() {\n  local source_path=$1\n  fpath+=( \"${source_path:h}/functions\" )\n} \"${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}\"\n"},
+		{name: "canonical anonymous function argument is accepted", src: "() {\n  builtin emulate -L zsh\n  local -r source_path=${1:a}\n  local -r plugin_dir=${source_path:h}\n  fpath+=( \"${plugin_dir}/functions\" )\n} \"${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}\"\n"},
 		{name: "named function zero is not entrypoint location", src: "helper() { print -r -- \"$0\" }\n"},
 		{name: "literal tokens do not initialize zero", src: "print -r -- 'ZERO %N %x'\nfpath+=( \"${0:h}/functions\" )\n", want: 1},
 	}
