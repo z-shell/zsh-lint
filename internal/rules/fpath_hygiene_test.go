@@ -53,6 +53,20 @@ func TestFpathHygiene(t *testing.T) {
 			wantDiag: 0,
 		},
 		{
+			name: "indexed element removal preserves other paths",
+			src: `fpath[$index]=()
+`,
+			path:     "my-plugin.plugin.zsh",
+			wantDiag: 0,
+		},
+		{
+			name: "indexed element replacement preserves other paths",
+			src: `fpath[1]="${0:h}/functions"
+`,
+			path:     "my-plugin.plugin.zsh",
+			wantDiag: 0,
+		},
+		{
 			name: "suppressed destructive fpath assignment",
 			src: `# zsh-lint disable=plugin/fpath-hygiene -- test runner isolation
 fpath=( "${0:h}/functions" )

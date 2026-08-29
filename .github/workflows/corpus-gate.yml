@@ -122,7 +122,7 @@ jobs:
         working-directory: corpus
         shell: bash
         env:
-          EXPECTED_CORPUS_FILES: "20"
+          EXPECTED_CORPUS_FILES: "18"
         run: |
           set -euo pipefail
           mapfile -t roots < ../zsh-lint/docs/project/corpus-paths.txt

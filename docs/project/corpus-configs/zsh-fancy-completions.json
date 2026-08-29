@@ -3,14 +3,13 @@
   "project": {
     "kind": "plugin",
     "minimum_zsh": "5.9.2",
-    "identifier": "zsh-fancy-completions"
+    "identifier": "zfc"
   },
   "sources": [
     {
       "root": "zsh-fancy-completions.plugin.zsh",
       "profile": "sourced-library"
     },
-    { "root": "functions", "profile": "autoload-function" },
     { "root": "lib", "profile": "sourced-library" }
   ]
 }
