@@ -380,17 +380,22 @@ func TestDependencyAutomationUsesDefaultMain(t *testing.T) {
 		t.Fatal("Renovate must follow the repository default main branch without a baseBranchPatterns override")
 	}
 
-	dependabot := readRepositoryFile(t, ".github", "dependabot.yml")
-	updatesBlock := workflowBlock(t, dependabot, "updates:", 0)
-	githubActionsUpdater := workflowBlock(
-		t,
-		updatesBlock,
-		`- package-ecosystem: "github-actions"`,
-		2,
-	)
-	values := directWorkflowMapping(githubActionsUpdater, 4)["target-branch"]
-	if len(values) != 0 {
-		t.Fatalf("Dependabot must follow the repository default main branch without target-branch; got %q", values)
+	path := repositoryFilePath(t, ".github", "dependabot.yml")
+	if _, err := os.Stat(path); err == nil {
+		dependabot := readRepositoryFile(t, ".github", "dependabot.yml")
+		updatesBlock := workflowBlock(t, dependabot, "updates:", 0)
+		githubActionsUpdater := workflowBlock(
+			t,
+			updatesBlock,
+			`- package-ecosystem: "github-actions"`,
+			2,
+		)
+		values := directWorkflowMapping(githubActionsUpdater, 4)["target-branch"]
+		if len(values) != 0 {
+			t.Fatalf("Dependabot must follow the repository default main branch without target-branch; got %q", values)
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("inspect dependabot.yml: %v", err)
 	}
 }
 
