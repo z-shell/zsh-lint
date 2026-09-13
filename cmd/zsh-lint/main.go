@@ -233,7 +233,7 @@ func resolveSourceContexts(names []string, configFlag singleValue) ([]sourceReso
 			if projectconfig.IsUnmatchedSource(err) {
 				continue
 			}
-			contexts[index].err = err
+			contexts[index].err = fmt.Errorf("discover %q using %q: %w", name, filename, err)
 			failed = true
 			continue
 		}
