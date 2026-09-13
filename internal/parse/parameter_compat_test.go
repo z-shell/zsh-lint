@@ -138,6 +138,11 @@ func TestIsRCExpandCaretCandidate(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "flagged rc expand with quoted close paren in flags",
+			src:  `${(x"foo)bar")^name}`,
+			want: true,
+		},
+		{
 			name: "nested close paren before caret",
 			src:  "${(s..)foo$(echo hi)^}",
 			want: false,

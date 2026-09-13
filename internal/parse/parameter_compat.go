@@ -93,25 +93,65 @@ func isRCExpandCaretCandidate(src []byte, offset int) bool {
 	if offset < 1 || src[offset-1] != ')' {
 		return false
 	}
-	depth := 0
+	start := -1
+searchStart:
 	for index := offset - 2; index >= 2; index-- {
 		switch src[index] {
 		case '\n', '}':
 			return false
-		case ')':
-			depth++
 		case '(':
-			if depth > 0 {
-				depth--
-				continue
-			}
 			if src[index-1] == '{' && src[index-2] == '$' {
-				return true
+				start = index
+				break searchStart
 			}
-			return false
 		}
 	}
-	return false
+	if start < 0 {
+		return false
+	}
+	depth := 0
+	inSingle := false
+	inDouble := false
+	escaped := false
+	for index := start + 1; index < offset-1; index++ {
+		ch := src[index]
+		if inSingle {
+			if ch == '\'' {
+				inSingle = false
+			}
+			continue
+		}
+		if inDouble {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inDouble = false
+			}
+			continue
+		}
+		switch ch {
+		case '\n', '}':
+			return false
+		case '\'':
+			inSingle = true
+		case '"':
+			inDouble = true
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				return false
+			}
+			depth--
+		}
+	}
+	return !inSingle && !inDouble && depth == 0
 }
 
 func parseReverseSubscript(src []byte, name string, firstErr error) (*syntax.File, error) {
