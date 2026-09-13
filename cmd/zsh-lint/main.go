@@ -224,7 +224,7 @@ func resolveSourceContexts(names []string, configFlag singleValue) ([]sourceReso
 			configs[filename] = cached
 		}
 		if cached.err != nil {
-			contexts[index].err = cached.err
+			contexts[index].err = fmt.Errorf("discover %q using %q: %w", name, filename, cached.err)
 			failed = true
 			continue
 		}
