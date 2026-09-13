@@ -93,16 +93,22 @@ func isRCExpandCaretCandidate(src []byte, offset int) bool {
 	if offset < 1 || src[offset-1] != ')' {
 		return false
 	}
+	depth := 0
 	for index := offset - 2; index >= 2; index-- {
 		switch src[index] {
 		case '\n', '}':
 			return false
 		case ')':
-			return false
+			depth++
 		case '(':
+			if depth > 0 {
+				depth--
+				continue
+			}
 			if src[index-1] == '{' && src[index-2] == '$' {
 				return true
 			}
+			return false
 		}
 	}
 	return false
