@@ -66,7 +66,7 @@ func TestCorpusGateRunsTheFullReadinessContract(t *testing.T) {
 		`grep -n -F 'zsh-lint disable=' "${files[@]}"`,
 		`zsh -f -n -- "$file"`,
 		`"$RUNNER_TEMP/zsh-lint-survey" "${files[@]}"`,
-		`"$RUNNER_TEMP/zsh-lint" --format=json "${files[@]}"`,
+		`"$RUNNER_TEMP/zsh-lint" --format=json --no-config "${files[@]}"`,
 		`.summary.errors == 0 and .summary.warnings == 0`,
 	} {
 		if !strings.Contains(workflow, required) {

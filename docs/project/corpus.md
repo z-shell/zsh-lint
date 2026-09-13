@@ -71,7 +71,8 @@ dispatch. It performs all of these checks:
 - no source contains a `zsh-lint disable=` suppression;
 - native `zsh -f -n` accepts every file;
 - the parser survey reports no failures; and
-- the semantic analyzer reports zero errors and zero warnings.
+- the semantic analyzer runs with `--no-config` and reports zero errors and
+  zero warnings.
 
 The independent `Configured corpus` job then runs one explicit configuration
 per repository and aggregates deterministic JSON. Every diagnostic must match
@@ -83,6 +84,11 @@ the job and require review. The expected file records a non-empty rationale for
 every known finding and no source suppression is introduced. Removing an
 expected finding is part of completing its owning migration issue, not a
 compatibility promise.
+
+The expected identities track the current `main` revisions recorded by each
+run. When a consumer fixes or moves an admitted finding, refresh the expected
+file only after comparing the old and new consumer revisions and confirming
+that the analyzer change did not cause the difference.
 
 For a local run, arrange the repositories as siblings under `$CORPUS_ROOT`,
 build `cmd/zsh-lint-survey` and `cmd/zsh-lint`, then execute the same commands

@@ -18,7 +18,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/rules"
 )
 
-const usage = "usage: zsh-lint [--format=json] [--config PATH] <file.zsh> [file.zsh ...]"
+const usage = "usage: zsh-lint [--format=json] [--config PATH | --no-config] <file.zsh> [file.zsh ...]"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -29,11 +29,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	formatFlag.name = "format"
 	var configFlag singleValue
 	configFlag.name = "config"
+	var noConfig bool
 
 	flags := flag.NewFlagSet("zsh-lint", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.Var(&formatFlag, "format", "output format (json)")
 	flags.Var(&configFlag, "config", "explicit project configuration path")
+	flags.BoolVar(&noConfig, "no-config", false, "disable automatic project configuration discovery")
 	if err := flags.Parse(args); err != nil {
 		_, _ = fmt.Fprintf(stderr, "zsh-lint: %v\n%s\n", err, usage)
 		return 2
@@ -46,6 +48,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "zsh-lint: --config requires a non-empty path\n%s\n", usage)
 		return 2
 	}
+	if configFlag.set && noConfig {
+		_, _ = fmt.Fprintf(stderr, "zsh-lint: --config and --no-config are mutually exclusive\n%s\n", usage)
+		return 2
+	}
 	names := flags.Args()
 	if len(names) == 0 {
 		_, _ = fmt.Fprintln(stderr, usage)
@@ -53,7 +59,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	jsonOut := formatFlag.value == "json"
 
-	sourceContexts, err := resolveSourceContexts(names, configFlag)
+	sourceContexts, err := resolveSourceContexts(names, configFlag, noConfig)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
 		return 2
@@ -70,6 +76,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	var all diag.Diagnostics
 	var exitNonZero bool
+	inspectedFiles := 0
 	type configuredProject struct {
 		root   string
 		inputs []analyzer.ProjectInput
@@ -92,6 +99,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 		file, err := parse.Parse(f, name)
 		_ = f.Close()
+		inspectedFiles++
 
 		if err != nil {
 			exitNonZero = true
@@ -107,7 +115,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 
 		if len(sourceContexts) != 0 && sourceContexts[index].context.Configured() {
-			root := sourceContexts[index].context.ConfigRoot
+			root := projectconfig.PathKey(sourceContexts[index].context.ConfigRoot)
 			projectIndex, ok := configuredProjectIndex[root]
 			if !ok {
 				configuredProjects = append(configuredProjects, configuredProject{root: root})
@@ -164,7 +172,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	if jsonOut {
 		all.Sort()
-		if err := diag.WriteJSON(stdout, len(names), all); err != nil {
+		if err := diag.WriteJSON(stdout, inspectedFiles, all); err != nil {
 			_, _ = fmt.Fprintf(stderr, "zsh-lint: encoding JSON: %v\n", err)
 			return 2
 		}
@@ -181,7 +189,10 @@ type sourceResolution struct {
 	err     error
 }
 
-func resolveSourceContexts(names []string, configFlag singleValue) ([]sourceResolution, error) {
+func resolveSourceContexts(names []string, configFlag singleValue, noConfig bool) ([]sourceResolution, error) {
+	if noConfig {
+		return nil, nil
+	}
 	if configFlag.set {
 		config, err := projectconfig.Load(configFlag.value)
 		if err != nil {
@@ -227,11 +238,12 @@ func resolveSourceContexts(names []string, configFlag singleValue) ([]sourceReso
 			continue
 		}
 		found = true
-		cached, ok := configs[filename]
+		key := projectconfig.PathKey(filename)
+		cached, ok := configs[key]
 		if !ok {
 			config, err := projectconfig.Load(filename)
 			cached = loadedConfig{config: config, err: err}
-			configs[filename] = cached
+			configs[key] = cached
 		}
 		if cached.err != nil {
 			contexts[index].err = fmt.Errorf("discover %q using %q: %w", name, filename, cached.err)

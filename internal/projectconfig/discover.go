@@ -2,6 +2,7 @@ package projectconfig
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -36,7 +37,7 @@ func Discover(filename string) (string, error) {
 				return candidate, nil
 			}
 		case !errors.Is(err, os.ErrNotExist):
-			return "", err
+			return "", fmt.Errorf("inspect configuration %q: %w", candidate, err)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

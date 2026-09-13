@@ -151,7 +151,7 @@ jobs:
           "$RUNNER_TEMP/zsh-lint-survey" "${files[@]}"
 
           analyzer_status=0
-          "$RUNNER_TEMP/zsh-lint" --format=json "${files[@]}" > "$RUNNER_TEMP/corpus-diagnostics.json" || analyzer_status=$?
+          "$RUNNER_TEMP/zsh-lint" --format=json --no-config "${files[@]}" > "$RUNNER_TEMP/corpus-diagnostics.json" || analyzer_status=$?
           jq . "$RUNNER_TEMP/corpus-diagnostics.json"
           if ! jq -e '.summary.errors == 0 and .summary.warnings == 0' "$RUNNER_TEMP/corpus-diagnostics.json" >/dev/null; then
             echo "::error::The corpus contains error- or warning-level diagnostics."

@@ -32,6 +32,7 @@ func TestRunUsageErrors(t *testing.T) {
 		{name: "unknown format", args: []string{"--format=text", "test.zsh"}, want: "unsupported output format"},
 		{name: "empty config", args: []string{"--config=", "test.zsh"}, want: "requires a non-empty path"},
 		{name: "duplicate config", args: []string{"--config=one", "--config=two", "test.zsh"}, want: "may be specified only once"},
+		{name: "config with no config", args: []string{"--config=one", "--no-config", "test.zsh"}, want: "mutually exclusive"},
 	}
 
 	for _, test := range tests {
@@ -64,6 +65,21 @@ func TestRunPreservesUnconfiguredBehavior(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunNoConfigDisablesDiscovery(t *testing.T) {
+	root := t.TempDir()
+	script := filepath.Join(root, "functions", "refresh")
+	writeFile(t, filepath.Join(root, "zsh-lint.json"), cliConfig)
+	writeFile(t, script, "builtin emulate -L zsh\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{"--no-config", script}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("run() exit = %d, want 0; stderr = %q", exit, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "[plugin/function-namespace]") {
+		t.Errorf("stdout = %q, want discovery disabled", stdout.String())
 	}
 }
 
@@ -134,6 +150,31 @@ func TestRunAutoDiscoversPerProject(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunAutoDiscoveryKeepsProjectRulesWithinEachProject(t *testing.T) {
+	completeRoot := filepath.Join(t.TempDir(), "complete")
+	incompleteRoot := filepath.Join(t.TempDir(), "incomplete")
+	completeEntry := filepath.Join(completeRoot, "complete.plugin.zsh")
+	completeUnload := filepath.Join(completeRoot, "lib", "state.zsh")
+	incompleteEntry := filepath.Join(incompleteRoot, "incomplete.plugin.zsh")
+	for root, identifier := range map[string]string{completeRoot: "complete", incompleteRoot: "incomplete"} {
+		writeFile(t, filepath.Join(root, "zsh-lint.json"), strings.ReplaceAll(cliConfig, "example", identifier))
+	}
+	writeFile(t, completeEntry, "add-zsh-hook precmd _complete_tick\n")
+	writeFile(t, completeUnload, "complete_plugin_unload() { unfunction complete_plugin_unload }\n")
+	writeFile(t, incompleteEntry, "add-zsh-hook precmd _incomplete_tick\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{completeEntry, completeUnload, incompleteEntry}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("run() exit = %d, want 0 for hint-only findings; stderr = %q", exit, stderr.String())
+	}
+	if strings.Contains(stdout.String(), completeEntry+":1:1: [plugin/project-unload-lifecycle]") {
+		t.Errorf("stdout = %q, complete project must see its unload source", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), incompleteEntry+":1:1: [plugin/project-unload-lifecycle]") {
+		t.Errorf("stdout = %q, incomplete project must remain isolated", stdout.String())
 	}
 }
 
@@ -213,6 +254,36 @@ func TestRunDiscoveryFallsBackWhenNoSourceMatches(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunJSONDoesNotCountConfigurationFailuresAsInspected(t *testing.T) {
+	badRoot := t.TempDir()
+	badScript := filepath.Join(badRoot, "bad.zsh")
+	writeFile(t, filepath.Join(badRoot, "zsh-lint.json"), `{}`)
+	writeFile(t, badScript, "print bad\n")
+	goodScript := filepath.Join(t.TempDir(), "good.zsh")
+	writeFile(t, goodScript, "print good\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{"--format=json", badScript, goodScript}, &stdout, &stderr); exit != 1 {
+		t.Fatalf("run() exit = %d, want 1", exit)
+	}
+	if !strings.Contains(stdout.String(), `"files":1`) {
+		t.Errorf("stdout = %q, want one inspected file", stdout.String())
+	}
+}
+
+func TestRunDirectoryInputDoesNotDiscoverConfiguration(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "zsh-lint.json"), `{}`)
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{root}, &stdout, &stderr); exit != 1 {
+		t.Fatalf("run() exit = %d, want unreadable-input status 1", exit)
+	}
+	if strings.Contains(stderr.String(), "configuration:") {
+		t.Errorf("stderr = %q, directory input must not discover configuration", stderr.String())
 	}
 }
 

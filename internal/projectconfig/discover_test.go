@@ -3,6 +3,7 @@ package projectconfig
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -16,6 +17,9 @@ func TestDiscoverFindsNearestAncestorConfiguration(t *testing.T) {
 	}
 	if err := os.WriteFile(want, []byte(validConfig), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "zsh-lint.json"), []byte(validConfig), 0o600); err != nil {
+		t.Fatalf("write farther config: %v", err)
 	}
 
 	got, err := Discover(filename)
@@ -57,5 +61,18 @@ func TestDiscoverAcceptsDirectoryInput(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("Discover() = %q, want %q", got, want)
+	}
+}
+
+func TestDiscoverErrorNamesCandidateConfiguration(t *testing.T) {
+	root := t.TempDir()
+	candidate := filepath.Join(root, "zsh-lint.json")
+	if err := os.Symlink("zsh-lint.json", candidate); err != nil {
+		t.Skipf("create symlink loop: %v", err)
+	}
+
+	_, err := Discover(filepath.Join(root, "script.zsh"))
+	if err == nil || !strings.Contains(err.Error(), candidate) {
+		t.Fatalf("Discover() error = %v, want candidate path %q", err, candidate)
 	}
 }
