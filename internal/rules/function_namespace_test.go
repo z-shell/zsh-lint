@@ -20,6 +20,7 @@ func TestFunctionNamespaceDeclarations(t *testing.T) {
 		{name: "public underscore", source: "example_refresh() { :; }\n", want: 0},
 		{name: "portable private", source: "_example_precmd() { :; }\n", want: 0},
 		{name: "hyphenated identifier", source: "_zsh_fancy_completions_state() { :; }\n", identifier: "zsh-fancy-completions", want: 0},
+		{name: "hyphenated unload hook", source: "z-a-meta-plugins_plugin_unload() { :; }\n", identifier: "z-a-meta-plugins", want: 0},
 		{name: "legacy private role", source: "function .example_private { :; }\n", want: 1},
 		{name: "legacy hook role", source: "function →example_hook { :; }\n", want: 1},
 		{name: "legacy output role", source: "function +example_output { :; }\n", want: 1},

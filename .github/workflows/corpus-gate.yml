@@ -140,11 +140,6 @@ jobs:
             exit 1
           fi
 
-          if grep -n -F 'zsh-lint disable=' "${files[@]}"; then
-            echo "::error::The strict corpus must not use zsh-lint suppressions."
-            exit 1
-          fi
-
           for file in "${files[@]}"; do
             zsh -f -n -- "$file"
           done

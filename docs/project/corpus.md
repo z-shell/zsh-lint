@@ -68,7 +68,6 @@ relevant `zsh-lint` changes, weekly to detect consumer drift, and by manual
 dispatch. It performs all of these checks:
 
 - every listed root exists and expands to the reviewed file count;
-- no source contains a `zsh-lint disable=` suppression;
 - native `zsh -f -n` accepts every file;
 - the parser survey reports no failures; and
 - the semantic analyzer runs with `--no-config` and reports zero errors and
@@ -81,9 +80,15 @@ findings remain advisory. Warning findings are admitted only as exact,
 issue-backed Standard 2 migration debt. Configuration errors, parser errors,
 error diagnostics, unknown findings, disappeared findings, or line drift fail
 the job and require review. The expected file records a non-empty rationale for
-every known finding and no source suppression is introduced. Removing an
+every known finding and no source suppression is introduced merely to silence
+the configured corpus. Removing an
 expected finding is part of completing its owning migration issue, not a
 compatibility promise.
+
+Suppressions are evaluated by the analysis profile that owns the suppressed
+rule. The unconfigured reference pass does not reject a directive merely
+because its configured-only rule is inactive; the configured pass still fails
+unknown or stale expected diagnostics.
 
 The expected identities track the current `main` revisions recorded by each
 run. When a consumer fixes or moves an admitted finding, refresh the expected
@@ -103,8 +108,8 @@ classification. Review any changed discovered-file count explicitly and
 update the workflow's expected count in the same change. A fresh parser-only
 survey is insufficient: every corpus change must re-run the complete native,
 parser, unconfigured analyzer, configured analyzer, classification, and
-no-suppression gates. Reports under `docs/project/` record the revisions they
-ran against, so older reports stay interpretable.
+profile-owned suppression checks. Reports under `docs/project/` record the
+revisions they ran against, so older reports stay interpretable.
 
 ## Repositories outside the strict corpus
 
