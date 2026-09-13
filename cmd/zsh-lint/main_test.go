@@ -83,6 +83,90 @@ func TestRunWithConfiguration(t *testing.T) {
 	}
 }
 
+func TestRunAutoDiscoversConfiguration(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "zsh-lint.json")
+	script := filepath.Join(root, "functions", "refresh")
+	writeFile(t, config, cliConfig)
+	writeFile(t, script, "builtin emulate -L zsh\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{script}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("run() exit = %d, want 0 for hint-only finding; stderr = %q", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "[plugin/function-namespace]") {
+		t.Errorf("stdout = %q, want auto-discovered project-profile diagnostic", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunAutoDiscoversPerProject(t *testing.T) {
+	pluginRoot := filepath.Join(t.TempDir(), "plugin")
+	toolRoot := filepath.Join(t.TempDir(), "tool")
+	pluginScript := filepath.Join(pluginRoot, "functions", "refresh")
+	toolScript := filepath.Join(toolRoot, "functions", "handler")
+	writeFile(t, filepath.Join(pluginRoot, "zsh-lint.json"), cliConfig)
+	writeFile(t, filepath.Join(toolRoot, "zsh-lint.json"), `{
+  "version": 2,
+  "project": {
+    "kind": "tool",
+    "minimum_zsh": "5.8",
+    "identifier": "zunit"
+  },
+  "sources": [
+    {"root": ".", "profile": "sourced-library"}
+  ]
+}`)
+	writeFile(t, pluginScript, "builtin emulate -L zsh\n")
+	writeFile(t, toolScript, "builtin emulate -L zsh\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{pluginScript, toolScript}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("run() exit = %d, want 0 for hint-only findings; stderr = %q", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), pluginScript+": [plugin/function-namespace]") {
+		t.Errorf("stdout = %q, want plugin project diagnostic", stdout.String())
+	}
+	if strings.Contains(stdout.String(), toolScript+": [plugin/function-namespace]") {
+		t.Errorf("stdout = %q, want no plugin diagnostic for tool project", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunExplicitConfigurationOverridesDiscovery(t *testing.T) {
+	parent := t.TempDir()
+	child := filepath.Join(parent, "plugin")
+	script := filepath.Join(child, "functions", "refresh")
+	writeFile(t, filepath.Join(parent, "zsh-lint.parent.json"), `{
+  "version": 2,
+  "project": {
+    "kind": "tool",
+    "minimum_zsh": "5.8",
+    "identifier": "zunit"
+  },
+  "sources": [
+    {"root": ".", "profile": "sourced-library"}
+  ]
+}`)
+	writeFile(t, filepath.Join(child, "zsh-lint.json"), cliConfig)
+	writeFile(t, script, "builtin emulate -L zsh\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{"--config", filepath.Join(parent, "zsh-lint.parent.json"), script}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("run() exit = %d, want 0; stdout = %q, stderr = %q", exit, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "[plugin/function-namespace]") {
+		t.Errorf("stdout = %q, want explicit config to override discovered config", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
 func TestRunRejectsConfigurationBeforeAnalysis(t *testing.T) {
 	root := t.TempDir()
 	config := filepath.Join(root, "zsh-lint.json")
@@ -168,7 +252,10 @@ func TestRunConfigurationActivatesProjectProfile(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if exit := run([]string{script}, &stdout, &stderr); exit != 0 {
+	stderr.Reset()
+	unconfigured := filepath.Join(t.TempDir(), "functions", "refresh")
+	writeFile(t, unconfigured, "builtin emulate -L zsh\n")
+	if exit := run([]string{unconfigured}, &stdout, &stderr); exit != 0 {
 		t.Fatalf("unconfigured run() exit = %d, want 0; stderr = %q", exit, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "[plugin/function-namespace]") {
@@ -239,7 +326,9 @@ func TestRunConfiguredMetadataOverridesLegacyPathHeuristics(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if exit := run([]string{script}, &stdout, &stderr); exit != 0 {
+	unconfigured := filepath.Join(t.TempDir(), "functions", "handler")
+	writeFile(t, unconfigured, "rehash\n")
+	if exit := run([]string{unconfigured}, &stdout, &stderr); exit != 0 {
 		t.Fatalf("unconfigured run() exit = %d, want 0; stderr = %q", exit, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "[plugin/function-scoped-options]") {

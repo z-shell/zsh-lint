@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"mvdan.cc/sh/v3/syntax"
 
@@ -52,36 +53,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	jsonOut := formatFlag.value == "json"
 
-	var sourceContexts []projectconfig.SourceContext
-	activeRules := rules.Default()
-	if configFlag.set {
-		config, err := projectconfig.Load(configFlag.value)
-		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
-			return 2
-		}
-		activeRules, err = rules.ForProfile(rules.CurrentProjectProfile)
+	sourceContexts, err := resolveSourceContexts(names, configFlag)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
+		return 2
+	}
+	defaultAnalyzer := analyzer.New(rules.Default()...)
+	configuredAnalyzer := defaultAnalyzer
+	if sourceContexts != nil {
+		activeRules, err := rules.ForProfile(rules.CurrentProjectProfile)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "zsh-lint: rule profile: %v\n", err)
 			return 2
 		}
-		sourceContexts = make([]projectconfig.SourceContext, len(names))
-		for index, name := range names {
-			context, err := config.Resolve(name)
-			if err != nil {
-				_, _ = fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", err)
-				return 2
-			}
-			sourceContexts[index] = context
-		}
-	}
-
-	an := analyzer.New(activeRules...)
-	if sourceContexts != nil {
-		return runConfiguredProject(an, names, sourceContexts, jsonOut, stdout, stderr)
+		configuredAnalyzer = analyzer.New(activeRules...)
 	}
 	var all diag.Diagnostics
 	var exitNonZero bool
+	type configuredProject struct {
+		root   string
+		inputs []analyzer.ProjectInput
+	}
+	configuredProjects := make([]configuredProject, 0, len(names))
 
 	for index, name := range names {
 		f, err := os.Open(name)
@@ -107,12 +100,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 
-		var diags diag.Diagnostics
-		if sourceContexts == nil {
-			diags = an.Analyze(file, name)
-		} else {
-			diags = an.AnalyzeSource(file, name, sourceContexts[index])
+		if sourceContexts != nil && sourceContexts[index].Configured() {
+			root := sourceContexts[index].ConfigRoot
+			projectIndex := slices.IndexFunc(configuredProjects, func(project configuredProject) bool {
+				return project.root == root
+			})
+			if projectIndex < 0 {
+				configuredProjects = append(configuredProjects, configuredProject{root: root})
+				projectIndex = len(configuredProjects) - 1
+			}
+			configuredProjects[projectIndex].inputs = append(configuredProjects[projectIndex].inputs, analyzer.ProjectInput{
+				File:   file,
+				Path:   name,
+				Source: sourceContexts[index],
+			})
+			continue
 		}
+		diags := defaultAnalyzer.Analyze(file, name)
 		for _, d := range diags {
 			// Errors and warnings cause a non-zero exit; Info/Hint do not.
 			if d.Severity <= diag.Warning {
@@ -133,6 +137,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 			all = append(all, diags...)
 		}
 	}
+	for _, project := range configuredProjects {
+		diagnostics := configuredAnalyzer.AnalyzeProject(project.inputs)
+		for _, diagnostic := range diagnostics {
+			if diagnostic.Severity <= diag.Warning {
+				exitNonZero = true
+			}
+			if jsonOut {
+				continue
+			}
+			if diagnostic.Range.IsValid() {
+				_, _ = fmt.Fprintf(stdout, "%s:%d:%d: [%s] %s\n", diagnostic.File, diagnostic.Range.Start.Line, diagnostic.Range.Start.Column, diagnostic.RuleID, diagnostic.Message)
+			} else {
+				_, _ = fmt.Fprintf(stdout, "%s: [%s] %s\n", diagnostic.File, diagnostic.RuleID, diagnostic.Message)
+			}
+		}
+		if jsonOut {
+			all = append(all, diagnostics...)
+		}
+	}
 
 	if jsonOut {
 		all.Sort()
@@ -148,63 +171,53 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runConfiguredProject(
-	an *analyzer.Analyzer,
-	names []string,
-	contexts []projectconfig.SourceContext,
-	jsonOut bool,
-	stdout io.Writer,
-	stderr io.Writer,
-) int {
-	inputs := make([]analyzer.ProjectInput, 0, len(names))
-	var all diag.Diagnostics
-	exitNonZero := false
-	for index, name := range names {
-		fileHandle, err := os.Open(name)
+func resolveSourceContexts(names []string, configFlag singleValue) ([]projectconfig.SourceContext, error) {
+	if configFlag.set {
+		config, err := projectconfig.Load(configFlag.value)
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
-			exitNonZero = true
-			continue
+			return nil, err
 		}
-		file, err := parse.Parse(fileHandle, name)
-		_ = fileHandle.Close()
-		if err != nil {
-			exitNonZero = true
-			if jsonOut {
-				all = append(all, parseErrDiag(name, err))
-			} else {
-				_, _ = fmt.Fprintln(stdout, formatErr(name, err))
+		contexts := make([]projectconfig.SourceContext, len(names))
+		for index, name := range names {
+			context, err := config.Resolve(name)
+			if err != nil {
+				return nil, err
 			}
+			contexts[index] = context
+		}
+		return contexts, nil
+	}
+
+	contexts := make([]projectconfig.SourceContext, len(names))
+	configs := make(map[string]*projectconfig.Config, len(names))
+	found := false
+	for index, name := range names {
+		filename, err := projectconfig.Discover(name)
+		if err != nil {
+			return nil, fmt.Errorf("discover %q: %w", name, err)
+		}
+		if filename == "" {
 			continue
 		}
-		inputs = append(inputs, analyzer.ProjectInput{File: file, Path: name, Source: contexts[index]})
-	}
-	diagnostics := an.AnalyzeProject(inputs)
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Severity <= diag.Warning {
-			exitNonZero = true
+		config := configs[filename]
+		if config == nil {
+			config, err = projectconfig.Load(filename)
+			if err != nil {
+				return nil, err
+			}
+			configs[filename] = config
 		}
-		if jsonOut {
-			continue
+		context, err := config.Resolve(name)
+		if err != nil {
+			return nil, err
 		}
-		if diagnostic.Range.IsValid() {
-			_, _ = fmt.Fprintf(stdout, "%s:%d:%d: [%s] %s\n", diagnostic.File, diagnostic.Range.Start.Line, diagnostic.Range.Start.Column, diagnostic.RuleID, diagnostic.Message)
-		} else {
-			_, _ = fmt.Fprintf(stdout, "%s: [%s] %s\n", diagnostic.File, diagnostic.RuleID, diagnostic.Message)
-		}
+		contexts[index] = context
+		found = true
 	}
-	if jsonOut {
-		all = append(all, diagnostics...)
-		all.Sort()
-		if err := diag.WriteJSON(stdout, len(names), all); err != nil {
-			_, _ = fmt.Fprintf(stderr, "zsh-lint: encoding JSON: %v\n", err)
-			return 2
-		}
+	if !found {
+		return nil, nil
 	}
-	if exitNonZero {
-		return 1
-	}
-	return 0
+	return contexts, nil
 }
 
 type singleValue struct {
