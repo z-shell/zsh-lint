@@ -115,3 +115,39 @@ func TestParameterCompatibilityRejectsMalformedForms(t *testing.T) {
 		}
 	}
 }
+
+func TestIsRCExpandCaretCandidate(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{
+			name: "direct rc expand",
+			src:  "${^name}",
+			want: true,
+		},
+		{
+			name: "flagged rc expand",
+			src:  "${(s..)^:-'ab'}",
+			want: true,
+		},
+		{
+			name: "nested close paren before caret",
+			src:  "${(s..)foo$(echo hi)^}",
+			want: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			offset := strings.IndexByte(test.src, '^')
+			if offset < 0 {
+				t.Fatalf("test case %q has no caret", test.src)
+			}
+			if got := isRCExpandCaretCandidate([]byte(test.src), offset); got != test.want {
+				t.Fatalf("isRCExpandCaretCandidate(%q) = %v, want %v", test.src, got, test.want)
+			}
+		})
+	}
+}
