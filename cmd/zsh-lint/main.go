@@ -206,6 +206,13 @@ func resolveSourceContexts(names []string, configFlag singleValue) ([]sourceReso
 	found := false
 	failed := false
 	for index, name := range names {
+		if info, err := os.Stat(name); err == nil && info.IsDir() {
+			continue
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			contexts[index].err = fmt.Errorf("discover %q: %w", name, err)
+			failed = true
+			continue
+		}
 		filename, err := projectconfig.Discover(name)
 		if err != nil {
 			contexts[index].err = fmt.Errorf("discover %q: %w", name, err)
