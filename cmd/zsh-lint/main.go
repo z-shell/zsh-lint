@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
 
@@ -206,6 +207,9 @@ func resolveSourceContexts(names []string, configFlag singleValue) ([]sourceReso
 	found := false
 	failed := false
 	for index, name := range names {
+		if strings.HasSuffix(name, "/") || strings.HasSuffix(name, string(os.PathSeparator)) {
+			continue
+		}
 		if info, err := os.Stat(name); err == nil && info.IsDir() {
 			continue
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
