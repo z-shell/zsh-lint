@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 
 	"mvdan.cc/sh/v3/syntax"
 
@@ -75,6 +74,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		inputs []analyzer.ProjectInput
 	}
 	configuredProjects := make([]configuredProject, 0, len(names))
+	configuredProjectIndex := make(map[string]int, len(names))
 
 	for index, name := range names {
 		if len(sourceContexts) != 0 && sourceContexts[index].err != nil {
@@ -107,12 +107,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 		if len(sourceContexts) != 0 && sourceContexts[index].context.Configured() {
 			root := sourceContexts[index].context.ConfigRoot
-			projectIndex := slices.IndexFunc(configuredProjects, func(project configuredProject) bool {
-				return project.root == root
-			})
-			if projectIndex < 0 {
+			projectIndex, ok := configuredProjectIndex[root]
+			if !ok {
 				configuredProjects = append(configuredProjects, configuredProject{root: root})
 				projectIndex = len(configuredProjects) - 1
+				configuredProjectIndex[root] = projectIndex
 			}
 			configuredProjects[projectIndex].inputs = append(configuredProjects[projectIndex].inputs, analyzer.ProjectInput{
 				File:   file,
