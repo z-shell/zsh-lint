@@ -22,10 +22,10 @@ func Discover(filename string) (string, error) {
 		if !info.IsDir() {
 			dir = filepath.Dir(dir)
 		}
-	} else if errors.Is(err, os.ErrNotExist) {
-		dir = filepath.Dir(dir)
 	} else {
-		return "", err
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
 	}
 	for {
 		candidate := filepath.Join(dir, defaultConfigName)
