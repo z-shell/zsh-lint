@@ -167,6 +167,27 @@ func TestRunExplicitConfigurationOverridesDiscovery(t *testing.T) {
 	}
 }
 
+func TestRunDiscoveryConfigurationErrorDoesNotBlockUnrelatedInputs(t *testing.T) {
+	badRoot := t.TempDir()
+	badScript := filepath.Join(badRoot, "script.zsh")
+	writeFile(t, filepath.Join(badRoot, "zsh-lint.json"), `{}`)
+	writeFile(t, badScript, "print ok\n")
+
+	goodScript := filepath.Join(t.TempDir(), "standalone.zsh")
+	writeFile(t, goodScript, "eval $value\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{badScript, goodScript}, &stdout, &stderr); exit != 1 {
+		t.Fatalf("run() exit = %d, want 1", exit)
+	}
+	if !strings.Contains(stdout.String(), goodScript+":1:1: [security/eval]") {
+		t.Errorf("stdout = %q, want diagnostics for unaffected input", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), `missing required field "version"`) {
+		t.Errorf("stderr = %q, want discovered configuration error", stderr.String())
+	}
+}
+
 func TestRunRejectsConfigurationBeforeAnalysis(t *testing.T) {
 	root := t.TempDir()
 	config := filepath.Join(root, "zsh-lint.json")

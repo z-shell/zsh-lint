@@ -60,7 +60,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	defaultAnalyzer := analyzer.New(rules.Default()...)
 	configuredAnalyzer := defaultAnalyzer
-	if sourceContexts != nil {
+	if hasConfiguredInputs(sourceContexts) {
 		activeRules, err := rules.ForProfile(rules.CurrentProjectProfile)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "zsh-lint: rule profile: %v\n", err)
@@ -77,6 +77,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	configuredProjects := make([]configuredProject, 0, len(names))
 
 	for index, name := range names {
+		if len(sourceContexts) != 0 && sourceContexts[index].err != nil {
+			_, _ = fmt.Fprintf(stderr, "zsh-lint: configuration: %v\n", sourceContexts[index].err)
+			exitNonZero = true
+			continue
+		}
 		f, err := os.Open(name)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
@@ -100,8 +105,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 
-		if sourceContexts != nil && sourceContexts[index].Configured() {
-			root := sourceContexts[index].ConfigRoot
+		if len(sourceContexts) != 0 && sourceContexts[index].context.Configured() {
+			root := sourceContexts[index].context.ConfigRoot
 			projectIndex := slices.IndexFunc(configuredProjects, func(project configuredProject) bool {
 				return project.root == root
 			})
@@ -112,7 +117,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			configuredProjects[projectIndex].inputs = append(configuredProjects[projectIndex].inputs, analyzer.ProjectInput{
 				File:   file,
 				Path:   name,
-				Source: sourceContexts[index],
+				Source: sourceContexts[index].context,
 			})
 			continue
 		}
@@ -171,53 +176,79 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func resolveSourceContexts(names []string, configFlag singleValue) ([]projectconfig.SourceContext, error) {
+type sourceResolution struct {
+	context projectconfig.SourceContext
+	err     error
+}
+
+func resolveSourceContexts(names []string, configFlag singleValue) ([]sourceResolution, error) {
 	if configFlag.set {
 		config, err := projectconfig.Load(configFlag.value)
 		if err != nil {
 			return nil, err
 		}
-		contexts := make([]projectconfig.SourceContext, len(names))
+		contexts := make([]sourceResolution, len(names))
 		for index, name := range names {
 			context, err := config.Resolve(name)
 			if err != nil {
 				return nil, err
 			}
-			contexts[index] = context
+			contexts[index].context = context
 		}
 		return contexts, nil
 	}
 
-	contexts := make([]projectconfig.SourceContext, len(names))
-	configs := make(map[string]*projectconfig.Config, len(names))
+	contexts := make([]sourceResolution, len(names))
+	type loadedConfig struct {
+		config *projectconfig.Config
+		err    error
+	}
+	configs := make(map[string]loadedConfig, len(names))
 	found := false
+	failed := false
 	for index, name := range names {
 		filename, err := projectconfig.Discover(name)
 		if err != nil {
-			return nil, fmt.Errorf("discover %q: %w", name, err)
+			contexts[index].err = fmt.Errorf("discover %q: %w", name, err)
+			failed = true
+			continue
 		}
 		if filename == "" {
 			continue
 		}
-		config := configs[filename]
-		if config == nil {
-			config, err = projectconfig.Load(filename)
-			if err != nil {
-				return nil, err
-			}
-			configs[filename] = config
-		}
-		context, err := config.Resolve(name)
-		if err != nil {
-			return nil, err
-		}
-		contexts[index] = context
 		found = true
+		cached, ok := configs[filename]
+		if !ok {
+			config, err := projectconfig.Load(filename)
+			cached = loadedConfig{config: config, err: err}
+			configs[filename] = cached
+		}
+		if cached.err != nil {
+			contexts[index].err = cached.err
+			failed = true
+			continue
+		}
+		context, err := cached.config.Resolve(name)
+		if err != nil {
+			contexts[index].err = err
+			failed = true
+			continue
+		}
+		contexts[index].context = context
 	}
-	if !found {
+	if !found && !failed {
 		return nil, nil
 	}
 	return contexts, nil
+}
+
+func hasConfiguredInputs(contexts []sourceResolution) bool {
+	for _, context := range contexts {
+		if context.context.Configured() {
+			return true
+		}
+	}
+	return false
 }
 
 type singleValue struct {
