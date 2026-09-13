@@ -188,6 +188,34 @@ func TestRunDiscoveryConfigurationErrorDoesNotBlockUnrelatedInputs(t *testing.T)
 	}
 }
 
+func TestRunDiscoveryFallsBackWhenNoSourceMatches(t *testing.T) {
+	root := t.TempDir()
+	script := filepath.Join(root, "functions", "handler")
+	writeFile(t, filepath.Join(root, "zsh-lint.json"), `{
+  "version": 2,
+  "project": {
+    "kind": "tool",
+    "minimum_zsh": "5.8",
+    "identifier": "zunit"
+  },
+  "sources": [
+    {"root": "tests", "profile": "test-fixture"}
+  ]
+}`)
+	writeFile(t, script, "rehash\n")
+
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{script}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("run() exit = %d, want 0; stdout = %q, stderr = %q", exit, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "[plugin/function-scoped-options]") {
+		t.Errorf("stdout = %q, want fallback legacy-path diagnostic", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
 func TestRunRejectsConfigurationBeforeAnalysis(t *testing.T) {
 	root := t.TempDir()
 	config := filepath.Join(root, "zsh-lint.json")

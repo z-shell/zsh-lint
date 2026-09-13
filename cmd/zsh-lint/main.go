@@ -230,6 +230,9 @@ func resolveSourceContexts(names []string, configFlag singleValue) ([]sourceReso
 		}
 		context, err := cached.config.Resolve(name)
 		if err != nil {
+			if projectconfig.IsUnmatchedSource(err) {
+				continue
+			}
 			contexts[index].err = err
 			failed = true
 			continue
