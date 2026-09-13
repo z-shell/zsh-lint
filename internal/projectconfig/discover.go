@@ -17,7 +17,11 @@ func Discover(filename string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for dir := filepath.Dir(filepath.Clean(abs)); ; {
+	dir := filepath.Clean(abs)
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+	for {
 		candidate := filepath.Join(dir, defaultConfigName)
 		info, err := os.Stat(candidate)
 		switch {
