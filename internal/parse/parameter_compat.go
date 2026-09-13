@@ -113,6 +113,7 @@ searchStart:
 	inSingle := false
 	inDouble := false
 	escaped := false
+	escapedInDouble := false
 	for index := start + 1; index < offset-1; index++ {
 		ch := src[index]
 		if inSingle {
@@ -122,17 +123,25 @@ searchStart:
 			continue
 		}
 		if inDouble {
-			if escaped {
-				escaped = false
+			if escapedInDouble {
+				escapedInDouble = false
 				continue
 			}
 			if ch == '\\' {
-				escaped = true
+				escapedInDouble = true
 				continue
 			}
 			if ch == '"' {
 				inDouble = false
 			}
+			continue
+		}
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
 			continue
 		}
 		switch ch {
