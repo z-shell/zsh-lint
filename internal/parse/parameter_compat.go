@@ -61,7 +61,7 @@ func parseRCExpandCaretWithParser(
 	seed := int(langErr.Pos.Offset())
 	offset := -1
 	for candidate := seed - 1; candidate <= seed+1; candidate++ {
-		if candidate >= 2 && candidate < len(src) && src[candidate] == '^' && src[candidate-1] == '{' && src[candidate-2] == '$' {
+		if isRCExpandCaretCandidate(src, candidate) {
 			offset = candidate
 			break
 		}
@@ -81,6 +81,29 @@ func parseRCExpandCaretWithParser(
 		return nil, err
 	}
 	return tree, nil
+}
+
+func isRCExpandCaretCandidate(src []byte, offset int) bool {
+	if offset < 0 || offset >= len(src) || src[offset] != '^' {
+		return false
+	}
+	if offset >= 2 && src[offset-1] == '{' && src[offset-2] == '$' {
+		return true
+	}
+	if offset < 1 || src[offset-1] != ')' {
+		return false
+	}
+	for index := offset - 2; index >= 2; index-- {
+		switch src[index] {
+		case '\n', '}':
+			return false
+		case '(':
+			if src[index-1] == '{' && src[index-2] == '$' {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func parseReverseSubscript(src []byte, name string, firstErr error) (*syntax.File, error) {

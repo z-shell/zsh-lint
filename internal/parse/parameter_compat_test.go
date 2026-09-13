@@ -21,6 +21,11 @@ func TestParseNativeParameterExpansionCompatibility(t *testing.T) {
 			want: "${^manpath}",
 		},
 		{
+			name: "rc expand caret after split flag with default",
+			src:  "for x in {a,i}${(s..)^:-'ab'}; do print -r -- \"$x\"; done\n",
+			want: "${(s..)^:-'ab'}",
+		},
+		{
 			name: "reverse subscript pattern",
 			src:  "print -r -- ${_comps[(I)-value-*]}\n",
 			want: "[(I)-value-*]",
