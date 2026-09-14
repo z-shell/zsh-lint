@@ -21,10 +21,10 @@ hand.
 - [`examples/plugin`](../examples/plugin) classifies a plugin entrypoint,
   autoloaded function, completion, and test fixture.
 
-The example configurations use the `--config` support currently on `main`.
-That option is not part of the published v1.1.0 CLI. Users of v1.1.0 should
-pass files explicitly without `--config`; the wiki keeps this stable path
-separate from the unreleased project-configuration guide.
+The example configurations use the project-configuration support currently on
+`main`, including automatic `zsh-lint.json` discovery. This behavior is newer
+than the published v1.2.0 CLI; the wiki keeps the published path separate from
+the unreleased project-configuration guide.
 
 ## Commands
 
@@ -35,7 +35,8 @@ separate from the unreleased project-configuration guide.
 ## For contributors
 
 The source-adjacent [project configuration contract](project/project-configuration.md)
-documents the explicit metadata available to project-aware rules.
+documents discovery, explicit overrides, and the metadata available to
+project-aware rules.
 
 Create short-lived `feature-<id>`, `bug-<id>`, or `hotfix-<id>` branches from
 `main` and target pull requests back to `main`. Reviewed changes are

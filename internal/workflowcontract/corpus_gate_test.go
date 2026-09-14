@@ -58,15 +58,17 @@ func TestCorpusGateUsesReadOnlyMainCheckouts(t *testing.T) {
 
 func TestCorpusGateRunsTheFullReadinessContract(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github", "workflows", "corpus-gate.yml")
+	if strings.Contains(workflow, `grep -n -F 'zsh-lint disable='`) {
+		t.Fatal("corpus gate must not reject suppressions before the owning analysis profile evaluates them")
+	}
 	for _, required := range []string{
 		"permissions:\n  contents: read",
 		`mapfile -t roots < ../zsh-lint/docs/project/corpus-paths.txt`,
 		`mapfile -d '' files < <(find "${roots[@]}" -type f -print0 | sort -z)`,
 		`EXPECTED_CORPUS_FILES: "18"`,
-		`grep -n -F 'zsh-lint disable=' "${files[@]}"`,
 		`zsh -f -n -- "$file"`,
 		`"$RUNNER_TEMP/zsh-lint-survey" "${files[@]}"`,
-		`"$RUNNER_TEMP/zsh-lint" --format=json "${files[@]}"`,
+		`"$RUNNER_TEMP/zsh-lint" --format=json --no-config "${files[@]}"`,
 		`.summary.errors == 0 and .summary.warnings == 0`,
 	} {
 		if !strings.Contains(workflow, required) {

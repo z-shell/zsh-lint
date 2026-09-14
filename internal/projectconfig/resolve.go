@@ -1,10 +1,13 @@
 package projectconfig
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 )
+
+var errNoMatchingSourceRoot = errors.New("input matches no configured source root")
 
 // Resolve classifies filename using the most-specific matching source root.
 // Both the configuration root and input path use lexical absolute paths;
@@ -36,7 +39,7 @@ func (c *Config) Resolve(filename string) (SourceContext, error) {
 		}
 	}
 	if best < 0 {
-		return SourceContext{}, fmt.Errorf("resolve %q: input matches no configured source root", filename)
+		return SourceContext{}, fmt.Errorf("resolve %q: %w", filename, errNoMatchingSourceRoot)
 	}
 
 	source := c.Sources[best]
@@ -50,6 +53,12 @@ func (c *Config) Resolve(filename string) (SourceContext, error) {
 		ConfigRoot:        c.root,
 		SourceRoot:        source.Root,
 	}, nil
+}
+
+// IsUnmatchedSource reports whether Resolve rejected an input because the
+// configuration declares no matching source root for it.
+func IsUnmatchedSource(err error) bool {
+	return errors.Is(err, errNoMatchingSourceRoot)
 }
 
 func pathContains(root, candidate string) bool {
