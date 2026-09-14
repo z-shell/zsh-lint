@@ -135,6 +135,9 @@ func functionDeclarationNames(declaration *syntax.FuncDecl) []*syntax.Lit {
 }
 
 func namespacedFunction(name, identifier string) bool {
+	if name == identifier+"_plugin_unload" {
+		return true
+	}
 	prefix := projectconfig.ShellPrefix(identifier) + "_"
 	return strings.HasPrefix(name, prefix) || strings.HasPrefix(name, "_"+prefix)
 }
