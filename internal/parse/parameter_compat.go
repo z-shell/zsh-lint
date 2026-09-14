@@ -61,7 +61,7 @@ func parseRCExpandCaretWithParser(
 	seed := int(langErr.Pos.Offset())
 	offset := -1
 	for candidate := seed - 1; candidate <= seed+1; candidate++ {
-		if candidate >= 2 && candidate < len(src) && src[candidate] == '^' && src[candidate-1] == '{' && src[candidate-2] == '$' {
+		if isRCExpandCaretCandidate(src, candidate) {
 			offset = candidate
 			break
 		}
@@ -81,6 +81,27 @@ func parseRCExpandCaretWithParser(
 		return nil, err
 	}
 	return tree, nil
+}
+
+// isRCExpandCaretCandidate reports whether the caret at offset is the
+// rc-expand operator: either directly after `${` or directly after the `)`
+// that closes a flag group opened at `${(`. It mirrors mvdan/sh, which reads
+// the flag group as a plain literal ending at the first `)`, so quotes,
+// escapes, and nested parentheses inside the flags are deliberately not
+// interpreted here; the parser has already rejected any such source before
+// the compatibility path runs.
+func isRCExpandCaretCandidate(src []byte, offset int) bool {
+	if offset < 2 || offset >= len(src) || src[offset] != '^' {
+		return false
+	}
+	if src[offset-1] == '{' && src[offset-2] == '$' {
+		return true
+	}
+	if src[offset-1] != ')' {
+		return false
+	}
+	open := bytes.LastIndex(src[:offset-1], []byte("${("))
+	return open >= 0 && bytes.IndexByte(src[open+3:offset-1], ')') < 0
 }
 
 func parseReverseSubscript(src []byte, name string, firstErr error) (*syntax.File, error) {
