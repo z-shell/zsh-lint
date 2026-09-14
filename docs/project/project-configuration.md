@@ -53,8 +53,9 @@ In project profile version 2:
   `plugin/fpath-hygiene` apply to plugin and Zi annex `sourced-library`
   sources; and
 - `plugin/function-namespace` accepts only the derived public
-  `project_name_...` and private `_project_name_...` forms, plus native
-  `_command` completion names;
+  `project_name_...` and private `_project_name_...` forms, native `_command`
+  completion names, and the exact `<identifier>_plugin_unload` loader hook
+  with the literal project identifier (including hyphens);
 - `plugin/shared-plugins-registry` rejects writes to the ownerless `Plugins`
   parameter;
 - `plugin/persistent-parameter-namespace` requires persistent typed state to

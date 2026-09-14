@@ -49,6 +49,8 @@ import (
 // a plugin or Zi annex project kind, a sourced-library or autoload-function
 // source profile, and one explicit project identifier. Completion
 // basenames use `_command` only when the source role is `completion`.
+// The exact `<identifier>_plugin_unload` loader hook retains the literal
+// project identifier, including hyphens, for manager interoperability.
 // Repository names and directory names are never inferred as identifiers.
 //
 // Suppression: Use
