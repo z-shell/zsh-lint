@@ -83,84 +83,25 @@ func parseRCExpandCaretWithParser(
 	return tree, nil
 }
 
+// isRCExpandCaretCandidate reports whether the caret at offset is the
+// rc-expand operator: either directly after `${` or directly after the `)`
+// that closes a flag group opened at `${(`. It mirrors mvdan/sh, which reads
+// the flag group as a plain literal ending at the first `)`, so quotes,
+// escapes, and nested parentheses inside the flags are deliberately not
+// interpreted here; the parser has already rejected any such source before
+// the compatibility path runs.
 func isRCExpandCaretCandidate(src []byte, offset int) bool {
-	if offset < 0 || offset >= len(src) || src[offset] != '^' {
+	if offset < 2 || offset >= len(src) || src[offset] != '^' {
 		return false
 	}
-	if offset >= 2 && src[offset-1] == '{' && src[offset-2] == '$' {
+	if src[offset-1] == '{' && src[offset-2] == '$' {
 		return true
 	}
-	if offset < 1 || src[offset-1] != ')' {
+	if src[offset-1] != ')' {
 		return false
 	}
-	start := -1
-searchStart:
-	for index := offset - 2; index >= 2; index-- {
-		switch src[index] {
-		case '\n', '}':
-			return false
-		case '(':
-			if src[index-1] == '{' && src[index-2] == '$' {
-				start = index
-				break searchStart
-			}
-		}
-	}
-	if start < 0 {
-		return false
-	}
-	depth := 0
-	inSingle := false
-	inDouble := false
-	escaped := false
-	escapedInDouble := false
-	for index := start + 1; index < offset-1; index++ {
-		ch := src[index]
-		if inSingle {
-			if ch == '\'' {
-				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if escapedInDouble {
-				escapedInDouble = false
-				continue
-			}
-			if ch == '\\' {
-				escapedInDouble = true
-				continue
-			}
-			if ch == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		if escaped {
-			escaped = false
-			continue
-		}
-		if ch == '\\' {
-			escaped = true
-			continue
-		}
-		switch ch {
-		case '\n', '}':
-			return false
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case '(':
-			depth++
-		case ')':
-			if depth == 0 {
-				return false
-			}
-			depth--
-		}
-	}
-	return !inSingle && !inDouble && depth == 0
+	open := bytes.LastIndex(src[:offset-1], []byte("${("))
+	return open >= 0 && bytes.IndexByte(src[open+3:offset-1], ')') < 0
 }
 
 func parseReverseSubscript(src []byte, name string, firstErr error) (*syntax.File, error) {
