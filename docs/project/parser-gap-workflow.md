@@ -75,6 +75,30 @@ so it becomes permanent regression coverage, update `requiredFixtures`, and
 close the issue with a link to the survey run confirming the originating
 real file now parses.
 
+### Front-end strategy
+
+`zsh-lint` owns its parser coverage. The mvdan/sh front end is a source of
+fixes to take and test, not a dependency to wait on
+([ADR-0023](https://github.com/z-shell/.github/blob/main/decisions/0023-zsh-lint-parser-front-end-strategy.md)).
+This replaces the upstream-first wording in the 2026-06-12 records and
+supersedes the upstream-first acceptance criterion recorded in #125 (closed;
+its text is historical).
+
+- Fix a proven valid-Zsh gap locally, under the adapter contract below, without
+  conditioning on an upstream response. Prioritize by corpus evidence.
+- Link an existing upstream issue as a reference. Filing new upstream issues is
+  optional and never appears in acceptance criteria.
+- A front-end bump is a parser behavior change. Land it with tree-shape
+  assertions for every corpus fixture the release affects and a survey run
+  before and after. A `gap-*` fixture that stops erroring must fail on tree
+  shape, not pass vacuously: v3.14.1 turns `foreach ... end` (#214) from a parse
+  error into a silent three-command tree.
+- Fork the `syntax` package only when a tracked gap needs an AST node the
+  upstream tree lacks and the metadata exception below cannot carry it (#208
+  `repeat` is the first candidate), or when the adapter composition matrix
+  becomes the bottleneck. The fork then replaces adapters for the constructs it
+  covers.
+
 ### Local compatibility adapters
 
 A narrowly scoped adapter in `internal/parse` may close a proven valid-Zsh gap
