@@ -111,24 +111,12 @@ func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 	}
 
 	// 4. ${=spec} explicitly requests SH_WORD_SPLIT behavior in native Zsh.
-	// mvdan/sh represents the leading split toggle as an omitted parameter name
-	// plus AssignUnset. A second leading '=' in the expansion word represents
-	// ${==spec}, which disables splitting and therefore retains the ordinary
+	// mvdan/sh v3.14 carries the prefix as a typed field; ${==spec} sets it to
+	// OptOff, which disables splitting and therefore retains the ordinary
 	// unquoted-empty-elision risk covered by this rule.
-	if isExplicitZshWordSplit(param) {
+	if param.Split == syntax.OptOn {
 		return true
 	}
 
 	return false
-}
-
-func isExplicitZshWordSplit(param *syntax.ParamExp) bool {
-	if param.Param != nil || param.NestedParam != nil || param.Exp == nil || param.Exp.Op != syntax.AssignUnset {
-		return false
-	}
-	if param.Exp.Word == nil || len(param.Exp.Word.Parts) == 0 {
-		return true
-	}
-	first, ok := param.Exp.Word.Parts[0].(*syntax.Lit)
-	return !ok || !strings.HasPrefix(first.Value, "=")
 }
