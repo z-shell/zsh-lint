@@ -56,12 +56,12 @@ func parseAlternateIfBraceWithParser(
 	}
 
 	transformed, sourceMap := applyAlternateIfEdits(src, edits)
+	lineStarts := originalLineStarts(src)
 	tree, err := parse(transformed, name)
 	if err != nil {
-		return nil, err
+		return nil, rebaseAlternateIfError(err, sourceMap, lineStarts)
 	}
 
-	lineStarts := originalLineStarts(src)
 	if err := rebaseAlternateIfPositions(reflect.ValueOf(tree), sourceMap, lineStarts); err != nil {
 		return nil, fmt.Errorf("%s: rebasing alternate if positions: %w", name, err)
 	}
@@ -157,6 +157,13 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		}
 
 		if b == '\\' {
+			// A line continuation is removed by the lexer, so it changes
+			// neither the word nor the command position: `} \` newline
+			// `else {` is the same chain as `} else {`.
+			if i+1 < len(src) && src[i+1] == '\n' {
+				i += 2
+				continue
+			}
 			escaped = true
 			atWordStart = false
 			atCommandStart = false
@@ -318,7 +325,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		}
 
 		if currentIf == ifSawElse {
-			braceOffset := skipSpacesAndComments(src, i)
+			braceOffset := skipAlternateConditionSpaces(src, i)
 			if braceOffset < len(src) && src[braceOffset] == '{' {
 				if braceOffset == seedOffset {
 					seedRecognized = true
@@ -345,7 +352,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			if len(blockStack) > 0 {
 				top := blockStack[len(blockStack)-1]
 				blockStack = blockStack[:len(blockStack)-1]
-				nextWordOffset := skipSpacesAndComments(src, i+1)
+				nextWordOffset := skipAlternateConditionSpaces(src, i+1)
 				if top.kind == kindWhileDo {
 					edits = append(edits, alternateIfEdit{offset: i, kind: editDone})
 					i++
@@ -590,23 +597,11 @@ func rebaseAlternateIfPositions(value reflect.Value, sm alternateIfSourceMap, li
 		if !position.IsValid() {
 			return nil
 		}
-		transformedOffset := int(position.Offset())
-		if transformedOffset < 0 || transformedOffset >= len(sm.origByTransformed) {
-			return fmt.Errorf("transformed position %d is outside source map", transformedOffset)
+		rebased, err := rebaseAlternateIfPos(position, sm, lineStarts)
+		if err != nil {
+			return err
 		}
-		origOffset := sm.origByTransformed[transformedOffset]
-		if origOffset < 0 {
-			origOffset = 0
-		}
-		lineIndex := sort.Search(len(lineStarts), func(index int) bool {
-			return lineStarts[index] > origOffset
-		}) - 1
-		if lineIndex < 0 {
-			lineIndex = 0
-		}
-		line := lineIndex + 1
-		col := origOffset - lineStarts[lineIndex] + 1
-		value.Set(reflect.ValueOf(syntax.NewPos(uint(origOffset), uint(line), uint(col))))
+		value.Set(reflect.ValueOf(rebased))
 		return nil
 	}
 
@@ -633,4 +628,51 @@ func rebaseAlternateIfPositions(value reflect.Value, sm alternateIfSourceMap, li
 		}
 	}
 	return nil
+}
+
+// rebaseAlternateIfPos maps one transformed position back to the original
+// source.
+func rebaseAlternateIfPos(position syntax.Pos, sm alternateIfSourceMap, lineStarts []int) (syntax.Pos, error) {
+	transformedOffset := int(position.Offset())
+	if transformedOffset < 0 || transformedOffset >= len(sm.origByTransformed) {
+		return syntax.Pos{}, fmt.Errorf("transformed position %d is outside source map", transformedOffset)
+	}
+	origOffset := sm.origByTransformed[transformedOffset]
+	if origOffset < 0 {
+		origOffset = 0
+	}
+	lineIndex := sort.Search(len(lineStarts), func(index int) bool {
+		return lineStarts[index] > origOffset
+	}) - 1
+	if lineIndex < 0 {
+		lineIndex = 0
+	}
+	line := lineIndex + 1
+	col := origOffset - lineStarts[lineIndex] + 1
+	return syntax.NewPos(uint(origOffset), uint(line), uint(col)), nil
+}
+
+// rebaseAlternateIfError rewrites the position of a parser error raised on
+// the transformed source so it points into the original file. The synthetic
+// `; then`, `fi`, and `done` lines otherwise shift every later line number,
+// and the retry error is the useful one: it names the gap that remains after
+// the brace-form if was accepted. An error the mapping cannot place is
+// returned unchanged rather than dropped.
+func rebaseAlternateIfError(err error, sm alternateIfSourceMap, lineStarts []int) error {
+	var parseErr syntax.ParseError
+	if errors.As(err, &parseErr) && parseErr.Pos.IsValid() {
+		if rebased, mapErr := rebaseAlternateIfPos(parseErr.Pos, sm, lineStarts); mapErr == nil {
+			parseErr.Pos = rebased
+			return parseErr
+		}
+		return err
+	}
+	var langErr syntax.LangError
+	if errors.As(err, &langErr) && langErr.Pos.IsValid() {
+		if rebased, mapErr := rebaseAlternateIfPos(langErr.Pos, sm, lineStarts); mapErr == nil {
+			langErr.Pos = rebased
+			return langErr
+		}
+	}
+	return err
 }

@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -146,5 +147,68 @@ func TestParseAlternateIfPositions(t *testing.T) {
 	// "  print -r -- "hello"" is on line 2, starting at column 3
 	if thenStmt.Pos().Line() != 2 || thenStmt.Pos().Col() != 3 {
 		t.Errorf("thenStmt.Pos() = %v, want 2:3", thenStmt.Pos())
+	}
+}
+
+// A `\`-newline before else or elif is removed by the lexer, so the chain is
+// the same as on one line. Issue #207: the scanner used to end the if at the
+// `}` and orphan the else. Both sources are `zsh -f -n` valid.
+func TestParseAlternateIfChainAcrossLineContinuation(t *testing.T) {
+	tests := []struct {
+		name     string
+		src      string
+		wantElse bool
+	}{
+		{
+			name:     "else after continuation",
+			src:      "if (( x == y )) { success } \\\nelse { failure }\n",
+			wantElse: true,
+		},
+		{
+			name:     "elif after continuation",
+			src:      "if (( x )) { a } \\\nelif (( y )) { b }\n",
+			wantElse: true,
+		},
+		{
+			name:     "continuation before every brace",
+			src:      "if [[ -n $y ]] \\\n{ c } \\\nelif (( z )) \\\n{ d } \\\nelse \\\n{ e }\n",
+			wantElse: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+			if len(file.AST().Stmts) != 1 {
+				t.Fatalf("len(Stmts) = %d, want 1", len(file.AST().Stmts))
+			}
+			ifc, ok := file.AST().Stmts[0].Cmd.(*syntax.IfClause)
+			if !ok {
+				t.Fatalf("Cmd is not *syntax.IfClause: %T", file.AST().Stmts[0].Cmd)
+			}
+			if (ifc.Else != nil) != test.wantElse {
+				t.Errorf("Else present = %v, want %v", ifc.Else != nil, test.wantElse)
+			}
+			if ifc.Else != nil && ifc.Else.Pos().Line() < 2 {
+				t.Errorf("Else.Pos() = %v, want the continuation line", ifc.Else.Pos())
+			}
+		})
+	}
+}
+
+// When the retry on the transformed source fails, the error must point into
+// the original file. The synthetic `; then` and `fi` lines used to shift it
+// (issue #207: a 2-line file reported line 5).
+func TestParseAlternateIfRetryErrorKeepsOriginalPosition(t *testing.T) {
+	src := "if (( x )) { a }\nprint one\nfi\n"
+	_, err := Parse(strings.NewReader(src), "retry.zsh")
+	var perr syntax.ParseError
+	if !errors.As(err, &perr) {
+		t.Fatalf("Parse() error = %v, want syntax.ParseError", err)
+	}
+	if perr.Pos.Line() != 3 || perr.Pos.Col() != 1 {
+		t.Errorf("position = %d:%d, want 3:1 (the stray fi)", perr.Pos.Line(), perr.Pos.Col())
 	}
 }
