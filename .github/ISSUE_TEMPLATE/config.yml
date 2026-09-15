@@ -1,0 +1,21 @@
+---
+# A repository with its own .github/ISSUE_TEMPLATE folder loses the
+# organization default forms and contact links entirely, so the links are
+# restated here. Generic bug and feature reports use a blank issue on purpose:
+# the organization keeps issue metadata centralized, and only intake with
+# repository-specific fields (rule proposal, parser gap) gets a local form.
+# Source of the links: z-shell/.github:.github/ISSUE_TEMPLATE/config.yml
+blank_issues_enabled: true
+contact_links:
+  - name: Wiki
+    url: https://wiki.zshell.dev/community/zsh_lint
+    about: Installation, file selection, rules, suppressions, CI, and troubleshooting
+  - name: Discussions
+    url: https://discussions.zshell.dev
+    about: Please ask and answer questions here
+  - name: Matrix
+    url: https://matrix.zshell.dev
+    about: An open network for secure, decentralized communication
+  - name: Slack
+    url: https://join.slack.com/t/z-shell/shared_invite/zt-16twpopd2-p08ROUeT2aGZ5njJwysawA
+    about: Workspace to collaborate, ask and answer questions

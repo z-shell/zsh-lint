@@ -8,7 +8,9 @@ reports greppable static-analysis diagnostics.
 **[wiki.zshell.dev — Zsh Lint](https://wiki.zshell.dev/community/zsh_lint)**
 
 For repo-local pointers and the contributor quickstart, see
-[`docs/README.md`](docs/README.md).
+[`docs/README.md`](docs/README.md). To contribute, open a
+[parser gap or rule proposal](https://github.com/z-shell/zsh-lint/issues/new/choose)
+first; every pull request links its issue.
 
 ## License
 

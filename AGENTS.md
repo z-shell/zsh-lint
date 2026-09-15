@@ -10,8 +10,8 @@ Go code under `cmd/` and `internal/`; the parser front end uses
 [`mvdan/sh`](https://github.com/mvdan/sh). The CLI runs a default set of
 static-analysis rules and reports greppable diagnostics.
 
-The original interactive Zi/`.zshrc` plugin lives under `legacy/` and is **not**
-part of the active product surface.
+The original interactive Zi/`.zshrc` plugin was removed from the tree; the
+Go analyzer is the whole product surface.
 
 ## Branch model
 
@@ -28,7 +28,6 @@ part of the active product surface.
 - `internal/parse/` — parser front end (mvdan/sh, swappable).
 - `internal/survey/` — parser-survey core (greppable diagnostics + exit code).
 - `internal/wikidoc/`, `cmd/wikidoc/` — docs-sync tooling (not product code).
-- `legacy/` — archived interactive plugin.
 
 ## Documentation
 
@@ -39,12 +38,22 @@ hand-edit the generated region there. Regenerate locally with:
 
     go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
 
-## Writing Lint Rules
+## Scoped guidance
 
-If you are implementing logic for the semantic analyzer, you must adopt the persona and guidelines specified in:
+Read the matching file before changing code under its path; Copilot loads them
+by `applyTo`, other runtimes must open them explicitly.
 
-- `.github/agents/static-analysis-engineer.agent.md`
-- `.github/instructions/go-ast-linting.instructions.md`
+- `.github/instructions/go-ast-linting.instructions.md` for rules and the
+  analyzer (`internal/analyzer/`, `internal/rules/`): visitor pattern, safe
+  text extraction, table-driven tests. Rule intake follows
+  `docs/project/rule-policy.md`.
+- `.github/instructions/parser-front-end.instructions.md` for the parser
+  (`internal/parse/`, `internal/survey/`): dual-oracle proof, adapter
+  invariants, fixture naming. The full contract is
+  `docs/project/parser-gap-workflow.md`.
+
+`docs/project/README.md` separates the living contracts from dated survey
+reports.
 
 The root `README.md` is a minimal signpost for the GitHub landing page;
 `docs/README.md` holds the repo-local pointers and contributor quickstart. Both

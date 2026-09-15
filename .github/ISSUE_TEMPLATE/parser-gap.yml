@@ -1,0 +1,65 @@
+name: Parser gap
+description: Report valid Zsh that zsh-lint fails to parse, per docs/project/parser-gap-workflow.md
+title: "Parser gap: <construct>"
+labels:
+  - parser-gap
+  - type:bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A parser gap is source that native Zsh accepts and zsh-lint rejects.
+        The two oracle fields below are what make a report actionable: a
+        script that `zsh -f -n` accepts and `zsh-lint` rejects is a gap; a
+        script both reject is a broken script, not a gap. If you are not
+        sure, file anyway and say so; the maintainer runs both oracles.
+  - type: textarea
+    id: script
+    attributes:
+      label: Minimized script
+      description: The smallest script that still reproduces the failure. Start from the real file and delete everything unrelated.
+      render: zsh
+    validations:
+      required: true
+  - type: dropdown
+    id: native
+    attributes:
+      label: "`zsh -f -n` on that script"
+      description: Native Zsh must accept it for this to be a parser gap.
+      options:
+        - passes (no output, exit 0)
+        - fails
+        - not checked
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: zsh-lint output
+      description: "The `path:line:col: message` line from `zsh-lint` or `go run ./cmd/zsh-lint-survey <file>`."
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: manual
+    attributes:
+      label: Zsh manual section
+      description: Where the construct is documented (zshmisc, zshexpn, zshparam, zshoptions), so the issue names one language feature.
+      placeholder: "zshmisc, Alternate Forms For Complex Commands"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: zsh-lint version
+      description: Release tag or commit.
+      placeholder: v1.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: seen
+    attributes:
+      label: Where it occurs
+      description: A path in the survey corpus (docs/project/corpus.md) or a link to real-world Zsh that uses the construct. Optional; corpus evidence sets priority.
+    validations:
+      required: false

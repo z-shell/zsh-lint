@@ -90,7 +90,7 @@ body:
     id: parser-dependencies
     attributes:
       label: Parser dependencies
-      description: Open parser gaps (#11, #12, #13, #15, #16, #53) that mask the target construct, if any. Rules blocked by a gap are deferred until the gap is resolved.
+      description: Open issues labeled `parser-gap` (https://github.com/z-shell/zsh-lint/issues?q=is%3Aopen+label%3Aparser-gap) that mask the target construct, if any. Rules blocked by a gap are deferred until the gap is resolved.
     validations:
       required: false
   - type: textarea

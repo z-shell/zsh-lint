@@ -9,27 +9,16 @@ These instructions dictate how to build the semantic analyzer engine and lint ru
 
 ## 1. The Rule Interface
 
-All linting rules must conform to a standard, context-aware interface. The engine will drive the traversal and pass the AST nodes to the rules.
+Rules implement `analyzer.Rule` in `internal/analyzer/rule.go`: `ID()` returns
+the stable `category/rule-name` slug, `Name()` the human-readable name, and
+`Analyze(ctx *Context, node syntax.Node)` reports diagnostics through the
+context. Optional interfaces in the same file extend a rule: `FileRule` for
+file-level findings, `ScopeAwareRule` to opt into the declaration index, and
+`ProjectRule` for invariants across configured sources. Read that file rather
+than a copy here; it is the contract the engine drives.
 
-```go
-// Example structural pattern (subject to ADR 0011 implementation)
-type Diagnostic struct {
-    Pos     syntax.Pos
-    Message string
-    Code    string
-    Rule    string
-}
-
-type Rule interface {
-    // ID returns the stable, unique identifier for the rule
-    // (by convention a "category/rule-name" slug, e.g. "quoting/unquoted-var").
-    ID() diag.RuleID
-    // Name returns a human-readable name for the rule.
-    Name() string
-    // Analyze evaluates a node and reports diagnostics to the Context.
-    Analyze(ctx *Context, node syntax.Node)
-}
-```
+Register new rules in `internal/rules/rules.go` (`Default()` or a versioned
+profile) and document them per `docs/project/rule-policy.md`.
 
 ## 2. AST Traversal (The Visitor Pattern)
 

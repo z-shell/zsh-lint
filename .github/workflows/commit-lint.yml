@@ -1,0 +1,27 @@
+---
+name: Commit Lint
+
+# Thin caller for the organization policy suite: Conventional Commit messages
+# and PR title (decisions/0003), banned bot/AI-agent Co-authored-by trailers
+# (AGENTS.md), branch-name shape (decisions/0019), and issue traceability on
+# the pull request (decisions/0022). Runs on `edited` too, so fixing a title
+# or adding the issue link re-evaluates without a push.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Policy
+    permissions:
+      contents: read
+    uses: z-shell/.github/.github/workflows/commit-lint.yml@bbb8cd629b4190374cbce5677ec083af2eddbcca # main

@@ -34,9 +34,10 @@ the unreleased project-configuration guide.
 
 ## For contributors
 
-The source-adjacent [project configuration contract](project/project-configuration.md)
-documents discovery, explicit overrides, and the metadata available to
-project-aware rules.
+[`project/README.md`](project/README.md) indexes the source-adjacent
+contracts (rule policy, parser-gap workflow, suppression, output, project
+configuration, corpus) and the dated survey records. File a parser gap or a
+rule proposal through the issue forms; each form mirrors its contract.
 
 Create short-lived `feature-<id>`, `bug-<id>`, or `hotfix-<id>` branches from
 `main` and target pull requests back to `main`. Reviewed changes are
@@ -47,8 +48,6 @@ go build ./... && go vet ./... && go test ./...
 go tool gomarkdoc --output ref.md \
   ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
 ```
-
-The legacy interactive Zi/`.zshrc` plugin is archived under [`../legacy/`](../legacy/).
 
 ## License
 
