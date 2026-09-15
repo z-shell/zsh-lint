@@ -47,9 +47,7 @@ func TestParseReverseSubscriptPatternWithSlash(t *testing.T) {
 				t.Fatalf("X is %T, want *syntax.Word", flagged.X)
 			}
 			if got := word.Lit(); got != test.wantPattern {
-				var sb strings.Builder
-				syntax.NewPrinter().Print(&sb, word)
-				t.Errorf("pattern = %q (printed %q), want %q", got, sb.String(), test.wantPattern)
+				t.Errorf("pattern = %q, want %q", got, test.wantPattern)
 			}
 		})
 	}
