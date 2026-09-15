@@ -7,7 +7,6 @@ on:
       - main
     paths:
       - "**/*.zsh"
-      - "legacy/functions/**"
       - ".github/workflows/zsh-n.yml"
   # Deliberately unfiltered. A path-filtered pull_request trigger never reports
   # on a pull request that touches no Zsh, and a required check that never
@@ -36,7 +35,7 @@ jobs:
       - name: "Set matrix output"
         id: set-matrix
         run: |
-          MATRIX="$(find . -type d -name 'doc' -prune -o -type f \( -name '*.zsh' -o -path './legacy/functions/zsh-lint' -o -path './legacy/functions/.zsh-lint-worker' -o -path './legacy/functions/@zsh-lint-process-buffer' \) -print0 | jq -Rsc 'split("\u0000") | map(select(length > 0) | {"file": .}) | {"include": .}')"
+          MATRIX="$(find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0 | jq -Rsc 'split("\u0000") | map(select(length > 0) | {"file": .}) | {"include": .}')"
           echo "MATRIX=${MATRIX}" >&2
           echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
   zsh-n:
