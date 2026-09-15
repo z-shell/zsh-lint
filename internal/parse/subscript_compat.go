@@ -3,6 +3,7 @@ package parse
 import (
 	"bytes"
 	"errors"
+	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -10,6 +11,7 @@ import (
 const (
 	invalidSubscriptExpression = "`[` must be followed by an expression"
 	invalidSubscriptTernary    = "ternary operator missing `?` before `:`"
+	invalidSubscriptArithmetic = "not a valid arithmetic operator:"
 )
 
 // parseAssociativeSubscript retries only native-Zsh bare associative keys that
@@ -27,7 +29,9 @@ func parseAssociativeSubscriptWithParser(
 ) (*syntax.File, error) {
 	var parseErr syntax.ParseError
 	if !errors.As(firstErr, &parseErr) ||
-		(parseErr.Text != invalidSubscriptExpression && parseErr.Text != invalidSubscriptTernary) {
+		(parseErr.Text != invalidSubscriptExpression &&
+			parseErr.Text != invalidSubscriptTernary &&
+			!strings.HasPrefix(parseErr.Text, invalidSubscriptArithmetic)) {
 		return nil, firstErr
 	}
 
@@ -87,15 +91,21 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (int, int, b
 		}
 	}
 
-	switch errorText {
-	case invalidSubscriptExpression:
+	switch {
+	case errorText == invalidSubscriptExpression:
 		if key[0] != '.' || seed != open {
 			return 0, 0, false
 		}
-	case invalidSubscriptTernary:
+	case errorText == invalidSubscriptTernary:
 		if relativeSeed < 0 || relativeSeed >= len(key) || key[relativeSeed] != ':' {
 			return 0, 0, false
 		}
+	case strings.HasPrefix(errorText, invalidSubscriptArithmetic):
+		if key[0] != '@' || len(key) <= 1 {
+			return 0, 0, false
+		}
+	default:
+		return 0, 0, false
 	}
 	return open, close, true
 }

@@ -25,6 +25,26 @@ func TestParseNativeAssociativeSubscriptKeys(t *testing.T) {
 			src:  "print -r -- ${functions[.foo]}\n",
 			want: ".foo",
 		},
+		{
+			name: "leading at expansion key",
+			src:  "print -r -- ${functions[@zi-register-annex]}\n",
+			want: "@zi-register-annex",
+		},
+		{
+			name: "leading at expansion key foo",
+			src:  "print -r -- ${functions[@foo]}\n",
+			want: "@foo",
+		},
+		{
+			name: "leading at hash expansion key",
+			src:  "print -r -- ${myhash[@zi]}\n",
+			want: "@zi",
+		},
+		{
+			name: "annex guard parameter expansion",
+			src:  "(( ${+functions[@zi-register-annex]} ))\n",
+			want: "@zi-register-annex",
+		},
 	}
 
 	for _, test := range tests {
