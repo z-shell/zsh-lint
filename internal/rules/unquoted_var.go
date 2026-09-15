@@ -36,8 +36,10 @@ import (
 // Severity: Warning. Losing an empty argument or inheriting `SH_WORD_SPLIT`
 // can change command behavior, while intentional elision remains realistic.
 //
-// False positives: Explicit native-Zsh splitting forms such as `${=words}` and
-// flag-guided array or field splitting are excluded. Other code may
+// False positives: Explicit native-Zsh splitting forms such as `${=words}`,
+// flag-guided array or field splitting, and glob substitution `${~pattern}`
+// (whose value must stay unquoted to match as a pattern) are excluded. Other
+// code may
 // intentionally omit an empty argument, rely on `SH_WORD_SPLIT`, or expand a
 // value guaranteed to be non-empty. Those cases should use a reasoned
 // suppression rather than weakening unrelated diagnostics.
@@ -111,24 +113,18 @@ func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 	}
 
 	// 4. ${=spec} explicitly requests SH_WORD_SPLIT behavior in native Zsh.
-	// mvdan/sh represents the leading split toggle as an omitted parameter name
-	// plus AssignUnset. A second leading '=' in the expansion word represents
-	// ${==spec}, which disables splitting and therefore retains the ordinary
+	// mvdan/sh v3.14 carries the prefix as a typed field; ${==spec} sets it to
+	// OptOff, which disables splitting and therefore retains the ordinary
 	// unquoted-empty-elision risk covered by this rule.
-	if isExplicitZshWordSplit(param) {
+	if param.Split == syntax.OptOn {
+		return true
+	}
+
+	// 5. ${~spec} asks Zsh to treat the value as a glob pattern. Quoting it
+	// would defeat the expansion, so the unquoted form is the only correct one.
+	if param.GlobSubst == syntax.OptOn {
 		return true
 	}
 
 	return false
-}
-
-func isExplicitZshWordSplit(param *syntax.ParamExp) bool {
-	if param.Param != nil || param.NestedParam != nil || param.Exp == nil || param.Exp.Op != syntax.AssignUnset {
-		return false
-	}
-	if param.Exp.Word == nil || len(param.Exp.Word.Parts) == 0 {
-		return true
-	}
-	first, ok := param.Exp.Word.Parts[0].(*syntax.Lit)
-	return !ok || !strings.HasPrefix(first.Value, "=")
 }

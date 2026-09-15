@@ -31,11 +31,7 @@ type adapterSnippet struct {
 var adapterSnippets = map[string]adapterSnippet{
 	"nestedConditional": {attempt: parseNestedConditionalAlternation, source: "[[ $line == ((a|b)|c) ]]"},
 	"alternateIf":       {attempt: parseAlternateIfBrace, source: "if (( 1 )) { x=1 }"},
-	"paramGlobToggle":   {attempt: parseParamGlobToggle, source: "p=${~q}"},
-	"rcExpandCaret":     {attempt: parseRCExpandCaret, source: "print -- ${^manpath}"},
-	"reverseSubscript":  {attempt: parseReverseSubscript, source: "print -r -- ${_comps[(I)-value-*]}"},
 	"assocSubscript":    {attempt: parseAssociativeSubscript, source: "print ${functions[.foo]}"},
-	"fdVarRedirect":     {attempt: parseFdVarRedirect, source: "exec {fd}>&-"},
 	"tryAlways":         {attempt: parseTryAlways, source: "{ true } always { true }"},
 	"multiNameFor":      {attempt: parseMultiNameFor, source: "for a b in 1 2; do print $a$b; done"},
 	"groupedCase":       {attempt: parseGroupedCasePattern, source: "case x in\n  (x|y)) : ;;\nesac"},

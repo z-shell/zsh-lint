@@ -1,7 +1,7 @@
 // Package parse wraps the mvdan.cc/sh parser as the analyzer's front end.
 //
 // The front end uses mvdan/sh's Zsh dialect (LangZsh, available since
-// v3.13.x), which on the documented survey corpus parses roughly twice as
+// v3.13.x, pinned at v3.14.1), which on the documented survey corpus parses roughly twice as
 // many real Z-Shell files as the Bash variant the reboot started with
 // (issues #11, #53). Isolating the front end here lets it be swapped without
 // touching callers. Remaining Zsh gaps are tracked as corpus fixtures. Narrow
@@ -28,7 +28,7 @@ type File struct {
 }
 
 // AnonymousInvocation pairs an anonymous function declaration with the words
-// passed when Zsh invokes it immediately. mvdan/sh v3.13.1 has no AST field
+// passed when Zsh invokes it immediately. mvdan/sh (through v3.14.1) has no AST field
 // for these words, so the compatibility front end retains them as typed syntax
 // nodes with their original source positions.
 type AnonymousInvocation struct {
@@ -82,6 +82,9 @@ func Parse(r io.Reader, name string) (*File, error) {
 		}
 	}
 	if err := validateConditionalPatterns(src, name); err != nil {
+		return nil, err
+	}
+	if err := rejectUnsupportedLoopWords(tree, name); err != nil {
 		return nil, err
 	}
 	text := strings.TrimSuffix(string(src), "\n")
