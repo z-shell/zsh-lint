@@ -2,6 +2,7 @@ package parse
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -245,5 +246,57 @@ func TestParseAlternateIfEndsAtNewlineBeforeElse(t *testing.T) {
 		if _, err := Parse(strings.NewReader(src), "invalid.zsh"); err == nil {
 			t.Errorf("Parse(%q) error = nil, want a parse error (native Zsh rejects it)", src)
 		}
+	}
+}
+
+// Issue #220: native Zsh rejects `if [[ x ]]` newline `{ : }`, while
+// accepting `while (( x ))` newline `{ : }` and `\`-newline continuations.
+func TestParseAlternateIfRejectsNewlineBeforeBrace(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/invalid-220-newline-if-brace.txt")
+	if err != nil {
+		t.Fatalf("read invalid fixture: %v", err)
+	}
+	if _, err := Parse(strings.NewReader(string(fixture)), "invalid-220.zsh"); err == nil {
+		t.Fatal("Parse() unexpectedly accepted invalid-220 fixture with newline before brace")
+	}
+
+	invalidSources := []struct {
+		name string
+		src  string
+	}{
+		{"double bracket newline", "if [[ x ]]\n{ : }\n"},
+		{"arithmetic newline", "if (( x ))\n{ : }\n"},
+		{"elif double bracket newline", "if [[ x ]] { : } elif [[ y ]]\n{ : }\n"},
+		{"brace condition newline", "if { true }\n{ : }\n"},
+	}
+	for _, tc := range invalidSources {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Parse(strings.NewReader(tc.src), tc.name+".zsh"); err == nil {
+				t.Errorf("Parse(%q) error = nil, want a parse error (native Zsh rejects it)", tc.src)
+			}
+		})
+	}
+}
+
+func TestParseAlternateIfAllowsWhileAndContinuationNewlines(t *testing.T) {
+	validSources := []struct {
+		name string
+		src  string
+	}{
+		{"while arithmetic condition", "while (( count < 3 )) {\n  (( count++ ))\n}\n"},
+		{"if double bracket continuation", "if [[ x ]] \\\n{ : }\n"},
+		{"if arithmetic continuation", "if (( x )) \\\n{ : }\n"},
+		{"else newline", "if [[ x ]] { : } else\n{ : }\n"},
+	}
+	for _, tc := range validSources {
+		t.Run(tc.name, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(tc.src), tc.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse(%q) failed: %v", tc.src, err)
+			}
+			if len(file.AST().Stmts) != 1 {
+				t.Fatalf("len(Stmts) = %d, want 1", len(file.AST().Stmts))
+			}
+		})
 	}
 }
