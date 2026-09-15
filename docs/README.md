@@ -34,10 +34,7 @@ the unreleased project-configuration guide.
 
 ## For contributors
 
-[`project/README.md`](project/README.md) indexes the source-adjacent
-contracts (rule policy, parser-gap workflow, suppression, output, project
-configuration, corpus) and the dated survey records. File a parser gap or a
-rule proposal through the issue forms; each form mirrors its contract.
+[`project/README.md`](project/README.md) indexes the source-adjacent contracts (rule policy, parser-gap workflow, suppression, output, project configuration, corpus) and the dated survey records. File a parser gap or a rule proposal through the issue forms; each form mirrors its contract.
 
 Create short-lived `feature-<id>`, `bug-<id>`, or `hotfix-<id>` branches from
 `main` and target pull requests back to `main`. Reviewed changes are

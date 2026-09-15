@@ -10,8 +10,7 @@ Go code under `cmd/` and `internal/`; the parser front end uses
 [`mvdan/sh`](https://github.com/mvdan/sh). The CLI runs a default set of
 static-analysis rules and reports greppable diagnostics.
 
-The original interactive Zi/`.zshrc` plugin was removed from the tree; the
-Go analyzer is the whole product surface.
+The original interactive Zi/`.zshrc` plugin was removed from the tree; the Go analyzer is the whole product surface.
 
 ## Branch model
 
@@ -40,20 +39,12 @@ hand-edit the generated region there. Regenerate locally with:
 
 ## Scoped guidance
 
-Read the matching file before changing code under its path; Copilot loads them
-by `applyTo`, other runtimes must open them explicitly.
+Read the matching file before changing code under its path; Copilot loads them by `applyTo`, other runtimes must open them explicitly.
 
-- `.github/instructions/go-ast-linting.instructions.md` for rules and the
-  analyzer (`internal/analyzer/`, `internal/rules/`): visitor pattern, safe
-  text extraction, table-driven tests. Rule intake follows
-  `docs/project/rule-policy.md`.
-- `.github/instructions/parser-front-end.instructions.md` for the parser
-  (`internal/parse/`, `internal/survey/`): dual-oracle proof, adapter
-  invariants, fixture naming. The full contract is
-  `docs/project/parser-gap-workflow.md`.
+- `.github/instructions/go-ast-linting.instructions.md` for rules and the analyzer (`internal/analyzer/`, `internal/rules/`): visitor pattern, safe text extraction, table-driven tests. Rule intake follows `docs/project/rule-policy.md`.
+- `.github/instructions/parser-front-end.instructions.md` for the parser (`internal/parse/`, `internal/survey/`): dual-oracle proof, adapter invariants, fixture naming. The full contract is `docs/project/parser-gap-workflow.md`.
 
-`docs/project/README.md` separates the living contracts from dated survey
-reports.
+`docs/project/README.md` separates the living contracts from dated survey reports.
 
 The root `README.md` is a minimal signpost for the GitHub landing page;
 `docs/README.md` holds the repo-local pointers and contributor quickstart. Both

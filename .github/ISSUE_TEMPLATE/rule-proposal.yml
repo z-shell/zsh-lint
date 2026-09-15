@@ -7,10 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Proposals are evaluated against the first-wave rule policy
-        (`docs/project/rule-policy.md`). All fields below are required by
-        that policy — proposals without corpus evidence or a
-        false-positive analysis are deferred, not reviewed.
+        Proposals are evaluated against the first-wave rule policy (`docs/project/rule-policy.md`). All fields below are required by that policy; proposals without corpus evidence or a false-positive analysis are deferred, not reviewed.
   - type: input
     id: rule-id
     attributes:

@@ -8,11 +8,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        A parser gap is source that native Zsh accepts and zsh-lint rejects.
-        The two oracle fields below are what make a report actionable: a
-        script that `zsh -f -n` accepts and `zsh-lint` rejects is a gap; a
-        script both reject is a broken script, not a gap. If you are not
-        sure, file anyway and say so; the maintainer runs both oracles.
+        A parser gap is source that native Zsh accepts and zsh-lint rejects. The two oracle fields below are what make a report actionable: a script that `zsh -f -n` accepts and `zsh-lint` rejects is a gap; a script both reject is a broken script, not a gap. If you are not sure, file anyway and say so; the maintainer runs both oracles.
   - type: textarea
     id: script
     attributes:
