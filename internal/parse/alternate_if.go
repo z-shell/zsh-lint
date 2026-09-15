@@ -235,7 +235,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 				end := scanClosingDoubleBracket(src, i)
 				if end > i {
 					i = end
-					braceOffset := scanAlternateConditionBrace(src, i)
+					braceOffset := scanAlternateConditionBrace(src, i, currentIf == ifSawWhile)
 					if braceOffset < len(src) && src[braceOffset] == '{' {
 						if braceOffset == seedOffset {
 							seedRecognized = true
@@ -267,7 +267,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 				end := scanClosingDoubleParen(src, i)
 				if end > i {
 					i = end
-					braceOffset := scanAlternateConditionBrace(src, i)
+					braceOffset := scanAlternateConditionBrace(src, i, currentIf == ifSawWhile)
 					if braceOffset < len(src) && src[braceOffset] == '{' {
 						if braceOffset == seedOffset {
 							seedRecognized = true
@@ -298,7 +298,12 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			if b == '{' {
 				end := scanClosingBrace(src, i)
 				if end > i {
-					braceOffset := skipSpacesAndComments(src, end)
+					var braceOffset int
+					if currentIf == ifSawWhile {
+						braceOffset = skipSpacesAndComments(src, end)
+					} else {
+						braceOffset = skipInlineSpaces(src, end)
+					}
 					if braceOffset < len(src) && src[braceOffset] == '{' {
 						if braceOffset == seedOffset {
 							seedRecognized = true
@@ -447,18 +452,22 @@ func skipSpacesAndComments(src []byte, i int) int {
 	return i
 }
 
-func scanAlternateConditionBrace(src []byte, i int) int {
+func scanAlternateConditionBrace(src []byte, i int, allowNewline bool) int {
+	skipSpaces := skipInlineSpaces
+	if allowNewline {
+		skipSpaces = skipAlternateConditionSpaces
+	}
 	for {
-		i = skipAlternateConditionSpaces(src, i)
+		i = skipSpaces(src, i)
 		if i < len(src) && src[i] == '{' {
 			return i
 		}
 		if i+1 >= len(src) || (src[i] != '&' || src[i+1] != '&') && (src[i] != '|' || src[i+1] != '|') {
 			return i
 		}
-		i = skipAlternateConditionSpaces(src, i+2)
+		i = skipSpaces(src, i+2)
 		for i < len(src) && src[i] == '!' {
-			i = skipAlternateConditionSpaces(src, i+1)
+			i = skipSpaces(src, i+1)
 		}
 		switch {
 		case i+1 < len(src) && src[i] == '[' && src[i+1] == '[':
