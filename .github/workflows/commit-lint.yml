@@ -15,9 +15,9 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+# No concurrency block here: the called workflow declares its own group from
+# github.workflow and github.ref, which resolve to the caller's values, so a
+# second declaration at this level deadlocks against it.
 
 jobs:
   policy:
