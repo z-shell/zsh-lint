@@ -96,5 +96,8 @@ OK   zunit/build.zsh
   prefer tracking/contributing upstream over local preprocessing. Bump to
   the next mvdan/sh release when it ships to pick up #15 and further
   statement-separation fixes.
+  Superseded 2026-09-15 by ADR-0023: gaps are fixed locally by default and
+  upstream releases are taken as tested fixes (`parser-gap-workflow.md`,
+  Front-end strategy).
 - tree-sitter-zsh (#17) is now measurably behind on this corpus and stays
   a tracking-only option.

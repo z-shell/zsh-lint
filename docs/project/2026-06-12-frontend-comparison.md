@@ -53,6 +53,8 @@ regenerate per-file data against the then-current grammar revision.
   mvdan/sh issues, bump on release) has already retired gaps #11, #16,
   #53 and the function-body case of #12 without local preprocessing
   (`docs/project/2026-06-12-langzsh-switch.md`).
+  Superseded 2026-09-15 by ADR-0023, which records the local-first practice
+  that replaced it (`parser-gap-workflow.md`, Front-end strategy).
 
 tree-sitter-zsh remains **tracking-only**. Re-evaluate — a fresh per-file
 run, then an ADR — if mvdan/sh ships two consecutive releases without
