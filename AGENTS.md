@@ -54,4 +54,5 @@ point at the wiki as the canonical reading surface.
 
     go build ./... && go vet ./... && go test ./...
 
-Go 1.25 (`GOTOOLCHAIN=auto` auto-fetches the toolchain).
+Go 1.26, the `go` directive in `go.mod` (`GOTOOLCHAIN=auto` auto-fetches the
+toolchain; CI reads the version from `go.mod`). mvdan/sh v3.14 dropped Go 1.25.
