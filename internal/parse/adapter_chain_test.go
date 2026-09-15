@@ -36,6 +36,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"multiNameFor":      {attempt: parseMultiNameFor, source: "for a b in 1 2; do print $a$b; done"},
 	"groupedCase":       {attempt: parseGroupedCasePattern, source: "case x in\n  (x|y)) : ;;\nesac"},
 	"ansiCHeredoc":      {attempt: parseANSICHeredocDelimiter, source: "cat <<$'E\\x4fF'\nbody\nEOF"},
+	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
 }
 
 func parseString(t *testing.T, src string) error {

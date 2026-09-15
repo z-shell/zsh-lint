@@ -44,6 +44,7 @@ func adapterChain() []adapterAttempt {
 		parseTryAlways,
 		parseGroupedCasePattern,
 		parseANSICHeredocDelimiter,
+		parseFunctionSemicolonBody,
 	}
 }
 
