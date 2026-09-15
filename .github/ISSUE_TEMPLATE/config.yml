@@ -1,9 +1,11 @@
 ---
 # A repository with its own .github/ISSUE_TEMPLATE folder loses the
-# organization default forms and contact links entirely, so the links are
-# restated here. Generic bug and feature reports use a blank issue on purpose:
-# the organization keeps issue metadata centralized, and only intake with
-# repository-specific fields (rule proposal, parser gap) gets a local form.
+# organization default forms and contact links entirely, so the support links
+# are restated here. The organization's Crowdin link is omitted on purpose:
+# zsh-lint has no translated content. Generic bug and feature reports use a
+# blank issue on purpose: the organization keeps issue metadata centralized,
+# and only intake with repository-specific fields (rule proposal, parser gap)
+# gets a local form.
 # Source of the links: z-shell/.github:.github/ISSUE_TEMPLATE/config.yml
 blank_issues_enabled: true
 contact_links:
