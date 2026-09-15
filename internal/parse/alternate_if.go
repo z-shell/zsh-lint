@@ -352,7 +352,11 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			if len(blockStack) > 0 {
 				top := blockStack[len(blockStack)-1]
 				blockStack = blockStack[:len(blockStack)-1]
-				nextWordOffset := skipAlternateConditionSpaces(src, i+1)
+				// Native Zsh continues a brace-form if with else or elif
+				// only on the same logical line as the closing brace. After a
+				// newline, `;`, or comment the if is complete and a following
+				// else or elif belongs to an enclosing classic if.
+				nextWordOffset := skipInlineSpaces(src, i+1)
 				if top.kind == kindWhileDo {
 					edits = append(edits, alternateIfEdit{offset: i, kind: editDone})
 					i++
@@ -468,6 +472,22 @@ func scanAlternateConditionBrace(src []byte, i int) int {
 			return len(src)
 		}
 	}
+}
+
+// skipInlineSpaces skips spaces, tabs, and line continuations, stopping at a
+// newline, comment, or any other byte.
+func skipInlineSpaces(src []byte, i int) int {
+	for i < len(src) {
+		switch {
+		case src[i] == ' ' || src[i] == '\t':
+			i++
+		case src[i] == '\\' && i+1 < len(src) && src[i+1] == '\n':
+			i += 2
+		default:
+			return i
+		}
+	}
+	return i
 }
 
 func skipAlternateConditionSpaces(src []byte, i int) int {

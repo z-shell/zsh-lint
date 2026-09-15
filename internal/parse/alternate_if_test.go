@@ -212,3 +212,37 @@ func TestParseAlternateIfRetryErrorKeepsOriginalPosition(t *testing.T) {
 		t.Errorf("position = %d:%d, want 3:1 (the stray fi)", perr.Pos.Line(), perr.Pos.Col())
 	}
 }
+
+// A newline, `;`, or comment after the closing brace ends a brace-form if;
+// an else or elif on the next line belongs to the enclosing classic if.
+// Native Zsh rejects `if [[ x ]] { : }` newline `else { : }`, so the chain
+// cannot continue there. Minimized from z-shell/zi zi.zsh:523-558.
+func TestParseAlternateIfEndsAtNewlineBeforeElse(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{"classic else after nested brace if", "if [[ $x = 2 ]]; then\n  if (( y )) { : }\nelse\n  :\nfi\n"},
+		{"classic elif after nested brace chain", "if [[ a ]]; then\n  if (( y )) { : } else { : }\nelif [[ b ]]; then\n  :\nfi\n"},
+		{"loop body", "for f; do\n  if [[ a ]]; then\n    if (( y )) { : } else { : }\n  else\n    :\n  fi\ndone\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+			if len(file.AST().Stmts) != 1 {
+				t.Fatalf("len(Stmts) = %d, want 1", len(file.AST().Stmts))
+			}
+		})
+	}
+	for _, src := range []string{
+		"if [[ x ]] { : }\nelse { : }\n",
+		"if [[ x ]] { : } ; else { : }\n",
+	} {
+		if _, err := Parse(strings.NewReader(src), "invalid.zsh"); err == nil {
+			t.Errorf("Parse(%q) error = nil, want a parse error (native Zsh rejects it)", src)
+		}
+	}
+}
