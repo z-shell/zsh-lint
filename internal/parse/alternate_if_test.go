@@ -240,6 +240,7 @@ func TestParseAlternateIfEndsAtNewlineBeforeElse(t *testing.T) {
 	for _, src := range []string{
 		"if [[ x ]] { : }\nelse { : }\n",
 		"if [[ x ]] { : } ; else { : }\n",
+		"if [[ x ]] { : } # comment\nelse { : }\n",
 	} {
 		if _, err := Parse(strings.NewReader(src), "invalid.zsh"); err == nil {
 			t.Errorf("Parse(%q) error = nil, want a parse error (native Zsh rejects it)", src)
