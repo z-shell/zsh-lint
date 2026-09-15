@@ -36,8 +36,10 @@ import (
 // Severity: Warning. Losing an empty argument or inheriting `SH_WORD_SPLIT`
 // can change command behavior, while intentional elision remains realistic.
 //
-// False positives: Explicit native-Zsh splitting forms such as `${=words}` and
-// flag-guided array or field splitting are excluded. Other code may
+// False positives: Explicit native-Zsh splitting forms such as `${=words}`,
+// flag-guided array or field splitting, and glob substitution `${~pattern}`
+// (whose value must stay unquoted to match as a pattern) are excluded. Other
+// code may
 // intentionally omit an empty argument, rely on `SH_WORD_SPLIT`, or expand a
 // value guaranteed to be non-empty. Those cases should use a reasoned
 // suppression rather than weakening unrelated diagnostics.
@@ -115,6 +117,12 @@ func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 	// OptOff, which disables splitting and therefore retains the ordinary
 	// unquoted-empty-elision risk covered by this rule.
 	if param.Split == syntax.OptOn {
+		return true
+	}
+
+	// 5. ${~spec} asks Zsh to treat the value as a glob pattern. Quoting it
+	// would defeat the expansion, so the unquoted form is the only correct one.
+	if param.GlobSubst == syntax.OptOn {
 		return true
 	}
 

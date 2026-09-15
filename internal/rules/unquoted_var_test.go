@@ -72,6 +72,16 @@ func TestUnquotedVarExplicitSplitting(t *testing.T) {
 			src:       "print -r -- ${value=default}\n",
 			wantDiags: 1,
 		},
+		{
+			name:      "glob substitution",
+			src:       "[[ $str == ${~pattern} ]] && print -r -- ${~pattern}\n",
+			wantDiags: 0,
+		},
+		{
+			name:      "glob substitution disabled",
+			src:       "print -r -- ${~~pattern}\n",
+			wantDiags: 1,
+		},
 	}
 
 	for _, test := range tests {
