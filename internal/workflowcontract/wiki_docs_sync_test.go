@@ -536,7 +536,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		setupGoInputs,
 		10,
 		[]workflowMappingField{
-			{name: "go-version", value: `"1.25"`},
+			{name: "go-version", value: `"1.26"`},
 			{name: "cache-dependency-path", value: "zsh-lint/go.sum"},
 		},
 	)...)

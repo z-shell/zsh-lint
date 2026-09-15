@@ -566,7 +566,7 @@ func releaseSetupGoViolations(t *testing.T, setupStep string) []string {
 		"release Go setup inputs",
 		withBlock,
 		10,
-		[]workflowMappingField{{name: "go-version", value: `"1.25"`}},
+		[]workflowMappingField{{name: "go-version", value: `"1.26"`}},
 	)...)
 	return violations
 }
@@ -759,11 +759,11 @@ func TestReleaseSetupGoRejectsVersionDecoy(t *testing.T) {
 	mutated := strings.Replace(
 		setupStep,
 		`        with:
-          go-version: "1.25"`,
+          go-version: "1.26"`,
 		`        if: false
         with:
           go-version: "1.24"
-          # go-version: "1.25"`,
+          # go-version: "1.26"`,
 		1,
 	)
 	if mutated == setupStep {
