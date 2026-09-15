@@ -80,7 +80,9 @@ real file now parses.
 `zsh-lint` owns its parser coverage. The mvdan/sh front end is a source of
 fixes to take and test, not a dependency to wait on
 ([ADR-0023](https://github.com/z-shell/.github/blob/main/decisions/0023-zsh-lint-parser-front-end-strategy.md)).
-This replaces the upstream-first wording in the 2026-06-12 records and in #125.
+This replaces the upstream-first wording in the 2026-06-12 records and
+supersedes the upstream-first acceptance criterion recorded in #125 (closed;
+its text is historical).
 
 - Fix a proven valid-Zsh gap locally, under the adapter contract below, without
   conditioning on an upstream response. Prioritize by corpus evidence.
