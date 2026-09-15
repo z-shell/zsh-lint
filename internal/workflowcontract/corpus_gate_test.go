@@ -118,8 +118,8 @@ func TestConfiguredCorpusContract(t *testing.T) {
 	if err := json.Unmarshal([]byte(readRepositoryFile(t, "docs", "project", "configured-corpus-expected.json")), &expected); err != nil {
 		t.Fatalf("decode configured corpus classifications: %v", err)
 	}
-	if len(expected) == 0 {
-		t.Fatal("configured corpus classifications must not be empty")
+	if expected == nil {
+		t.Fatal("configured corpus classifications must be a JSON array; [] records a clean corpus")
 	}
 	for index, finding := range expected {
 		if finding.Repository == "" || finding.Path == "" || finding.Rule == "" || finding.Severity == "" || finding.Classification == "" {

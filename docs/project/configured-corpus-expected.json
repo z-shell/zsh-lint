@@ -1,10 +1,1 @@
-[
-  {
-    "repository": "z-a-meta-plugins",
-    "path": "z-a-meta-plugins.plugin.zsh",
-    "rule": "meta/unused-suppression",
-    "severity": "info",
-    "line": 254,
-    "classification": "Stale suppression exposed after z-shell/z-a-meta-plugins#54 adopted the exact Standard 2 unload hook"
-  }
-]
+[]
