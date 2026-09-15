@@ -136,6 +136,10 @@ type activePatternState struct {
 	openings            []int
 	pairs               []patternPair
 	inBracketExpression bool
+	bracketQuote        byte
+	bracketEscaped      bool
+	bracketANSIC        bool
+	bracketANSICOpen    bool
 	numericRangeEnd     int
 	seed                bool
 	invalid             bool
@@ -774,6 +778,49 @@ func activePatternByteConsumed(
 		return true
 	}
 	if pattern.inBracketExpression {
+		if pattern.bracketEscaped {
+			pattern.bracketEscaped = false
+			return true
+		}
+		if pattern.bracketQuote == '\'' {
+			if pattern.bracketANSICOpen {
+				pattern.bracketANSICOpen = false
+				return true
+			}
+			if pattern.bracketANSIC && b == '\\' {
+				pattern.bracketEscaped = true
+				return true
+			}
+			if b == '\'' {
+				pattern.bracketQuote = 0
+				pattern.bracketANSIC = false
+			}
+			return true
+		}
+		if pattern.bracketQuote == '"' {
+			if b == '\\' {
+				pattern.bracketEscaped = true
+				return true
+			}
+			if b == '"' {
+				pattern.bracketQuote = 0
+			}
+			return true
+		}
+		if b == '\\' {
+			pattern.bracketEscaped = true
+			return true
+		}
+		if b == '$' && offset+1 < len(src) && src[offset+1] == '\'' {
+			pattern.bracketQuote = '\''
+			pattern.bracketANSIC = true
+			pattern.bracketANSICOpen = true
+			return true
+		}
+		if b == '"' || b == '\'' {
+			pattern.bracketQuote = b
+			return true
+		}
 		if b == ']' {
 			pattern.inBracketExpression = false
 		}
@@ -797,6 +844,10 @@ func activePatternByteConsumed(
 	}
 	if b == '[' {
 		pattern.inBracketExpression = true
+		pattern.bracketQuote = 0
+		pattern.bracketEscaped = false
+		pattern.bracketANSIC = false
+		pattern.bracketANSICOpen = false
 		return true
 	}
 	if b == '<' {
