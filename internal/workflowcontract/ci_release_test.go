@@ -144,6 +144,9 @@ func TestZshMatrixPreservesNewlineFilename(t *testing.T) {
 		t.Skip("jq is required for the workflow behavior test")
 	}
 
+	// Extensionless function files and the JSON fixture are on disk to prove
+	// the matrix selects by the .zsh extension only; the legacy/ subtree it
+	// once enumerated by path is no longer in the repository.
 	dir := t.TempDir()
 	for _, subdir := range []string{"legacy/functions", "examples/plugin"} {
 		if err := os.MkdirAll(filepath.Join(dir, subdir), 0o700); err != nil {
@@ -204,9 +207,6 @@ func TestZshMatrixPreservesNewlineFilename(t *testing.T) {
 	want := []string{
 		"./line\nbreak.zsh",
 		"./ordinary.zsh",
-		"./legacy/functions/zsh-lint",
-		"./legacy/functions/.zsh-lint-worker",
-		"./legacy/functions/@zsh-lint-process-buffer",
 	}
 	sort.Strings(want)
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
