@@ -1062,6 +1062,54 @@ func TestParseNestedConditionalAlternation(t *testing.T) {
 			src:  "print 'λ'\n[[ $line == ((a|b)|c) ]]\nprint after\n",
 			want: []string{"((a|b)|c)"},
 		},
+		// Nested groups after literal text lex as one literal up to the first
+		// `)`, so the parser reports an unmatched `[[` at the clause instead
+		// of an operator error at the `|` (#202).
+		{
+			name: "nested group after alternative",
+			src:  "print ok\n[[ $x == (a|(c|d)) ]]\nprint after\n",
+			want: []string{"(a|(c|d))"},
+		},
+		{
+			name: "nested group after literal text",
+			src:  "[[ $x == (a|b(c|d)e) ]]\n",
+			want: []string{"(a|b(c|d)e)"},
+		},
+		{
+			name: "nested group after glob text",
+			src:  "[[ $x != (b*/(c|d)) ]]\n",
+			want: []string{"(b*/(c|d))"},
+		},
+		{
+			name: "platform check reproduction",
+			src:  "[[ $OSTYPE/$CPUTYPE != (linux*/x86_64|darwin*/(x86_64|aarch64|arm64)) ]]\n",
+			want: []string{"(linux*/x86_64|darwin*/(x86_64|aarch64|arm64))"},
+		},
+		{
+			name: "nested group without alternation",
+			src:  "[[ $x == (a(b)) ]]\n",
+			want: []string{"(a(b))"},
+		},
+		{
+			name: "nested group in second comparison",
+			src:  "[[ $x == (a|b) && $y == (c(d)) ]]\n",
+			want: []string{"(a|b)", "(c(d))"},
+		},
+		{
+			name: "nested group inside paren test",
+			src:  "[[ ( $x == (a|(b|c)) ) || $x == c ]]\n",
+			want: []string{"(a|(b|c))", "c"},
+		},
+		{
+			name: "glob flag after word-internal paren",
+			src:  "[[ $x == (a|(c|d)) ]]\nfiles=( ${x//(#s)/y} )\n",
+			want: []string{"(a|(c|d))"},
+		},
+		{
+			name: "glob flag word inside array assignment",
+			src:  "[[ $x == (a|(c|d)) ]]\nfiles=( (#i)**/*.zip(-.DN) )\n",
+			want: []string{"(a|(c|d))"},
+		},
 	}
 
 	for _, test := range tests {
@@ -1084,6 +1132,10 @@ func TestNestedConditionalAlternationFailsClosed(t *testing.T) {
 		"[[ a | b ]]\n",
 		"[[ $line == ((a|b)|c) ]\n",
 		"[[ $line == [abc|] ]]\n",
+		"[[ $line == (a|(c|d)) ) ]]\n",
+		"[[ $line == (a|(c|d)) \n",
+		"(#comment\n",
+		"x=(#comment)\n",
 	}
 	for _, src := range tests {
 		if _, err := Parse(strings.NewReader(src), "invalid.zsh"); err == nil {

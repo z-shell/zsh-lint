@@ -11,6 +11,11 @@ import (
 )
 
 const invalidAlternationOperator = "not a valid test operator: `|`"
+
+// unmatchedConditionalClose is what mvdan reports when a nested group closes
+// after literal text: `(a|(c|d))` lexes as one literal up to the first `)`,
+// and the second `)` then ends the `[[` clause. Its offset is the `[[`.
+const unmatchedConditionalClose = "reached `)` without matching `[[` with `]]`"
 const nestedPatternMask byte = 'x'
 
 type patternEdit struct {
@@ -132,7 +137,6 @@ type activePatternState struct {
 	pairs               []patternPair
 	inBracketExpression bool
 	numericRangeEnd     int
-	nestedAlternation   bool
 	seed                bool
 	invalid             bool
 }
@@ -169,7 +173,8 @@ func parseNestedConditionalAlternationWithParser(
 	probes ...legacyBacktickWorkProbe,
 ) (*syntax.File, error) {
 	var parseErr syntax.ParseError
-	if !errors.As(firstErr, &parseErr) || parseErr.Text != invalidAlternationOperator {
+	if !errors.As(firstErr, &parseErr) ||
+		(parseErr.Text != invalidAlternationOperator && parseErr.Text != unmatchedConditionalClose) {
 		return nil, firstErr
 	}
 	batch, ok := nestedPatternBatch(src, int(parseErr.Pos.Offset()))
@@ -479,7 +484,12 @@ func scanConditionalPatterns(
 
 		if frame.conditional != nil && frame.conditional.pattern == nil {
 			if operatorEnd, ok := activePatternOperatorEnd(src, i); ok {
-				frame.conditional.pattern = &activePatternState{rhsStart: -1}
+				// An unmatched-close seed points at the `[[`; a `|` seed is matched
+				// below when the byte is consumed.
+				frame.conditional.pattern = &activePatternState{
+					rhsStart: -1,
+					seed:     frame.conditional.start == seedOffset,
+				}
 				i = operatorEnd - 1
 				frame.atWordStart = false
 				frame.atCommandStart = false
@@ -549,7 +559,9 @@ func scanConditionalPatterns(
 			i++
 			continue
 		}
-		if (b == '<' || b == '>' || b == '=') && i+1 < len(src) && src[i+1] == '(' {
+		// `=(` opens a process substitution only at a word start; `name=(`
+		// opens an array assignment, whose elements are ordinary words.
+		if (b == '<' || b == '>' || (b == '=' && frame.atWordStart)) && i+1 < len(src) && src[i+1] == '(' {
 			invalidateActivePattern(frame, i)
 			frame.atWordStart = false
 			frame.atCommandStart = false
@@ -624,8 +636,11 @@ func scanConditionalPatterns(
 				frame.atWordStart = false
 				frame.atCommandStart = false
 			} else {
-				frame.atWordStart = true
-				frame.atCommandStart = true
+				// In command position `(` opens a subshell, so the next byte
+				// starts a word and `(#comment` comments. In argument position
+				// it starts a glob group or flag word such as `print (#i)*` or
+				// `${x//(#s)/y}`, where `#` is not a comment.
+				frame.atWordStart = frame.atCommandStart
 			}
 			continue
 		}
@@ -811,11 +826,8 @@ func activePatternByteConsumed(
 			})
 		}
 	case '|':
-		if len(pattern.openings) > 0 {
-			pattern.nestedAlternation = true
-			if offset == seedOffset {
-				pattern.seed = true
-			}
+		if len(pattern.openings) > 0 && offset == seedOffset {
+			pattern.seed = true
 		}
 	}
 	return false
@@ -865,7 +877,7 @@ func finalizeActivePattern(
 		}
 		return
 	}
-	if !pattern.nestedAlternation || len(pattern.pairs) == 0 {
+	if len(pattern.pairs) == 0 {
 		return
 	}
 	edits := make([]patternEdit, 0, len(pattern.pairs)*2)
