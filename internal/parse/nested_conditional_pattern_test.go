@@ -1174,3 +1174,32 @@ func TestRestorePatternEditsRejectsMaskMismatch(t *testing.T) {
 		t.Fatal("restorePatternEdits() unexpectedly succeeded")
 	}
 }
+
+// Issue #204: a quoted `]` inside a bracket expression should not end the bracket early.
+func TestNestedConditionalAlternationBracketExpressionQuotes(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{"double quoted closing bracket", "[[ $w = (([\"]\"])|x) ]]\n"},
+		{"double quoted bracket pair in bracket", "[[ $w = (([\"[]\"])|x) ]]\n"},
+		{"double quoted open bracket in bracket", "[[ $w = (([\"[\"])|x) ]]\n"},
+		{"double quoted pair", "[[ $w = ((\"[]\")|x) ]]\n"},
+		{"negated double quoted bracket", "[[ $w = ([^\"]\"]#|x) ]]\n"},
+		{"single quoted bracket", "[[ $w = (([']'])|x) ]]\n"},
+		{"escaped bracket in pattern", "[[ $w = (([\\]])|x) ]]\n"},
+		{"install.zsh:62 originating shape", "while [[ $___workbuf = (#b)[^\"{}[]\\\\\\\"'\":,]#(([\"{[]}\\\\\\\"'\":,])|[\\\\](*))(*) ]]; do :; done\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(tc.src), tc.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse(%q) failed: %v", tc.src, err)
+			}
+			if len(file.AST().Stmts) != 1 {
+				t.Fatalf("len(Stmts) = %d, want 1", len(file.AST().Stmts))
+			}
+		})
+	}
+}
