@@ -2,7 +2,7 @@ package parse
 
 import (
 	"bytes"
-	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -186,17 +186,26 @@ func TestArithmeticSubscriptKeepsOperators(t *testing.T) {
 }
 
 func TestAssociativeSubscriptCompatibilityPreservesLaterErrorPosition(t *testing.T) {
-	const src = "print -r -- ${functions[.foo]}\n)\n"
-	_, err := Parse(strings.NewReader(src), "later-error.zsh")
-	if err == nil {
-		t.Fatal("Parse() unexpectedly accepted a trailing unmatched parenthesis")
+	tests := []struct {
+		name string
+		src  string
+		text string
+	}{
+		{
+			name: "unmatched parenthesis after bare key",
+			src:  "print -r -- ${functions[.foo]}\n)\n",
+			text: "`)` can only be used to close a subshell",
+		},
+		{
+			name: "unterminated if after expansion key",
+			src:  "x=${map[${M}:b]}\nif true\n",
+			text: "`if <cond>` must be followed by `then`",
+		},
 	}
-	var parseErr syntax.ParseError
-	if !errors.As(err, &parseErr) {
-		t.Fatalf("error type = %T, want syntax.ParseError: %v", err, err)
-	}
-	if parseErr.Pos.Line() != 2 || parseErr.Pos.Col() != 1 {
-		t.Errorf("error position = %d:%d, want 2:1", parseErr.Pos.Line(), parseErr.Pos.Col())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertParseErrorAt(t, []byte(test.src), test.text, 2, 1)
+		})
 	}
 }
 
@@ -211,5 +220,199 @@ func TestAssociativeSubscriptCompatibilityRejectsMalformedKeys(t *testing.T) {
 		if _, err := Parse(strings.NewReader(src), "malformed.zsh"); err == nil {
 			t.Fatalf("Parse(%q) unexpectedly succeeded", src)
 		}
+	}
+}
+
+// keyPart is one expected part of a subscript Word: a `$` parameter
+// expansion or a literal, with the column where it starts.
+type keyPart struct {
+	param string
+	lit   string
+	col   uint
+}
+
+func TestAssociativeSubscriptKeyKeepsExpansionParts(t *testing.T) {
+	tests := []struct {
+		name  string
+		src   string
+		parts []keyPart
+	}{
+		{
+			name:  "bare parameter before colon",
+			src:   "x=${map[$M:b]}\n",
+			parts: []keyPart{{param: "M", col: 9}, {lit: ":b", col: 11}},
+		},
+		{
+			name:  "braced parameter before trailing colon",
+			src:   "x=${map[${M}:]}\n",
+			parts: []keyPart{{param: "M", col: 9}, {lit: ":", col: 13}},
+		},
+		{
+			name:  "colon between bare parameters",
+			src:   "x=${map[$M:$N]}\n",
+			parts: []keyPart{{param: "M", col: 9}, {lit: ":", col: 11}, {param: "N", col: 12}},
+		},
+		{
+			name:  "double colon between braced parameters",
+			src:   "x=${map[${M}::${N}]}\n",
+			parts: []keyPart{{param: "M", col: 9}, {lit: "::", col: 13}, {param: "N", col: 15}},
+		},
+		{
+			name:  "literal before colon before parameter",
+			src:   "x=${map[a:${M}]}\n",
+			parts: []keyPart{{lit: "a:", col: 9}, {param: "M", col: 11}},
+		},
+		{
+			name:  "expansion with its own colon inside",
+			src:   "print -r -- ${map[${MATCH%:}:]}\n",
+			parts: []keyPart{{param: "MATCH", col: 19}, {lit: ":", col: 29}},
+		},
+		{
+			name:  "zi snippet key with positional and nested subscript",
+			src:   "print -r -- ${ZI_SNIPPETS[PZT::modules/$1${ICE[svn]-/init.zsh}]}\n",
+			parts: []keyPart{{lit: "PZT::modules/", col: 27}, {param: "1", col: 40}, {param: "ICE", col: 42}},
+		},
+		{
+			name:  "leading angle before parameter",
+			src:   "x=${map[<styles>_free${style}]-}\n",
+			parts: []keyPart{{lit: "<styles>_free", col: 9}, {param: "style", col: 22}},
+		},
+		{
+			name:  "command substitution before colon",
+			src:   "x=${map[$(cmd):b]}\n",
+			parts: []keyPart{{param: "$(cmd)", col: 9}, {lit: ":b", col: 15}},
+		},
+		{
+			name:  "default value after the subscript",
+			src:   "x=${map[$M:b]:-d}\n",
+			parts: []keyPart{{param: "M", col: 9}, {lit: ":b", col: 11}},
+		},
+		{
+			name:  "assignment with bare parameter",
+			src:   "map[$M:b]=1\n",
+			parts: []keyPart{{param: "M", col: 5}, {lit: ":b", col: 7}},
+		},
+		{
+			name:  "assignment with braced parameter",
+			src:   "map[${M}:]=1\n",
+			parts: []keyPart{{param: "M", col: 5}, {lit: ":", col: 9}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+			index := singleSubscriptIndex(t, file.AST())
+			word, ok := index.(*syntax.Word)
+			if !ok {
+				t.Fatalf("Index = %T, want *syntax.Word", index)
+			}
+			if len(word.Parts) != len(test.parts) {
+				t.Fatalf("Index parts = %d, want %d", len(word.Parts), len(test.parts))
+			}
+			for i, want := range test.parts {
+				part := word.Parts[i]
+				if got := part.Pos().Col(); got != want.col {
+					t.Errorf("part %d column = %d, want %d", i, got, want.col)
+				}
+				switch {
+				case want.lit != "":
+					lit, ok := part.(*syntax.Lit)
+					if !ok {
+						t.Fatalf("part %d = %T, want *syntax.Lit", i, part)
+					}
+					if lit.Value != want.lit {
+						t.Errorf("part %d literal = %q, want %q", i, lit.Value, want.lit)
+					}
+					if got := lit.End().Col(); got != want.col+uint(len(want.lit)) {
+						t.Errorf("part %d end column = %d, want %d", i, got, want.col+uint(len(want.lit)))
+					}
+				case strings.HasPrefix(want.param, "$("):
+					if _, ok := part.(*syntax.CmdSubst); !ok {
+						t.Fatalf("part %d = %T, want *syntax.CmdSubst", i, part)
+					}
+				default:
+					exp, ok := part.(*syntax.ParamExp)
+					if !ok {
+						t.Fatalf("part %d = %T, want *syntax.ParamExp", i, part)
+					}
+					if exp.Param.Value != want.param {
+						t.Errorf("part %d parameter = %q, want %q", i, exp.Param.Value, want.param)
+					}
+				}
+			}
+			var rendered bytes.Buffer
+			if err := syntax.NewPrinter().Print(&rendered, file.AST()); err != nil {
+				t.Fatalf("print AST: %v", err)
+			}
+			if got := strings.TrimSuffix(rendered.String(), "\n"); got != strings.TrimSuffix(test.src, "\n") {
+				t.Errorf("printed AST = %q, want the original source", got)
+			}
+		})
+	}
+}
+
+// singleSubscriptIndex returns the only subscript in the tree, whether it
+// belongs to a parameter expansion or to an assignment.
+func singleSubscriptIndex(t *testing.T, file *syntax.File) syntax.ArithmExpr {
+	t.Helper()
+	var indexes []syntax.ArithmExpr
+	syntax.Walk(file, func(node syntax.Node) bool {
+		switch n := node.(type) {
+		case *syntax.ParamExp:
+			if n.Index != nil {
+				indexes = append(indexes, n.Index)
+				return false
+			}
+		case *syntax.Assign:
+			if n.Index != nil {
+				indexes = append(indexes, n.Index)
+			}
+		}
+		return true
+	})
+	if len(indexes) != 1 {
+		t.Fatalf("subscripts = %d, want 1", len(indexes))
+	}
+	return indexes[0]
+}
+
+func TestAssociativeSubscriptLeavesUncertainExpansionKeysAlone(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		col  uint
+	}{
+		{name: "backtick substitution", src: "x=${map[`echo`:b]}\n", col: 15},
+		{name: "space inside key", src: "x=${map[$M :b]}\n", col: 12},
+		{name: "quoted text", src: "x=${map[$M:\"b\"]}\n", col: 11},
+		{name: "special parameter", src: "x=${map[$?:b]}\n", col: 11},
+		{name: "newline inside key", src: "x=${map[$M:b\n]}\n", col: 11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertParseErrorAt(t, []byte(test.src), invalidSubscriptTernary, 1, test.col)
+		})
+	}
+}
+
+func TestAssociativeSubscriptRejectsUnclosedExpansionKeys(t *testing.T) {
+	tests := []struct {
+		fixture string
+		col     uint
+	}{
+		{"testdata/invalid-235-unclosed-brace-after-bare-expansion-key.txt", 14},
+		{"testdata/invalid-235-unclosed-brace-after-braced-expansion-key.txt", 15},
+	}
+	for _, test := range tests {
+		t.Run(test.fixture, func(t *testing.T) {
+			src, err := os.ReadFile(test.fixture)
+			if err != nil {
+				t.Fatalf("read invalid fixture: %v", err)
+			}
+			assertParseErrorAt(t, src, "not a valid parameter expansion operator: \"\\n\"", 1, test.col)
+		})
 	}
 }
