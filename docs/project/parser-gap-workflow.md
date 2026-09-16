@@ -168,4 +168,8 @@ has no field for its invocation arguments.
 The unconditional assignment operator `${name::=word}` (#216) uses it too: the
 tree carries the closest typed shape, the conditional `:=` operator, and
 `File.AssignAlwaysExpansions` names the expansions whose source operator is
-`::=`.
+`::=`. A second subscript `${name[a][b]}` (#215) has no index field to go to:
+the retry joins both subscripts into the one index as a comma expression, and
+`Parse` splits that expression at the commas whose source bytes are `][`,
+leaving the first subscript in `Index` and the rest, as the parser's own typed
+arithmetic nodes, in `File.SecondSubscripts`.

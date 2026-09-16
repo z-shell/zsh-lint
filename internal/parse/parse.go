@@ -26,6 +26,7 @@ type File struct {
 	lines                []string
 	anonymousInvocations []AnonymousInvocation
 	assignAlways         []*syntax.ParamExp
+	secondSubscripts     []SecondSubscript
 }
 
 // AnonymousInvocation pairs an anonymous function declaration with the words
@@ -70,6 +71,17 @@ func (f *File) AssignAlwaysExpansions() []*syntax.ParamExp {
 	return append([]*syntax.ParamExp(nil), f.assignAlways...)
 }
 
+// SecondSubscripts returns the parameter expansions written with more than
+// one subscript, `${name[a][b]}` (issue #215), with the subscripts after the
+// first. mvdan/sh (through v3.14.1) has one index per expansion, so the
+// compatibility front end keeps the first subscript in the tree's Index and
+// records the rest here; consumers that need them must inspect this metadata.
+// The returned slice is independent; its nodes are shared with the immutable
+// parse result.
+func (f *File) SecondSubscripts() []SecondSubscript {
+	return append([]SecondSubscript(nil), f.secondSubscripts...)
+}
+
 func parseTree(src []byte, name string) (*syntax.File, error) {
 	parser := syntax.NewParser(
 		syntax.KeepComments(true),
@@ -105,5 +117,6 @@ func Parse(r io.Reader, name string) (*File, error) {
 		lines:                strings.Split(text, "\n"),
 		anonymousInvocations: anonymousInvocations,
 		assignAlways:         bindAssignAlwaysExpansions(tree, src),
+		secondSubscripts:     bindSecondSubscripts(tree, src),
 	}, nil
 }
