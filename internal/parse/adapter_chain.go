@@ -40,6 +40,7 @@ func adapterChain() []adapterAttempt {
 		parseNestedConditionalAlternation,
 		parseAlternateIfBrace,
 		parseAssociativeSubscript,
+		parseSecondSubscript,
 		parseSubscriptFlagBracketPattern,
 		parseMultiNameFor,
 		parseTryAlways,
