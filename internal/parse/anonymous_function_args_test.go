@@ -84,6 +84,26 @@ func TestRepeatedAnonymousFunctionInvocationArguments(t *testing.T) {
 	}
 }
 
+// TestAnonymousFunctionInvocationAcrossLineContinuation regression-tests a
+// `\`-newline between the closing `}` and its invocation word: the parse
+// error's position lands on the continuation line, which has no `}` of its
+// own, so the candidate search must walk back across the continuation to
+// find the one on the previous line.
+func TestAnonymousFunctionInvocationAcrossLineContinuation(t *testing.T) {
+	source := "() { x; } \\\narg\n"
+	file, err := Parse(strings.NewReader(source), "continuation.zsh")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	invocations := file.AnonymousInvocations()
+	if len(invocations) != 1 {
+		t.Fatalf("invocation count = %d, want 1", len(invocations))
+	}
+	if got := getParseWordLiteral(invocations[0].Words[0]); got != "arg" {
+		t.Fatalf("invocation word = %q, want arg", got)
+	}
+}
+
 func TestAnonymousFunctionArgumentsComposeWithEarlierAdapters(t *testing.T) {
 	tests := []struct {
 		name   string

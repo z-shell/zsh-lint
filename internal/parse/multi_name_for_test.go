@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -79,8 +80,11 @@ done
 // rebase its error position into the original source, not the longer
 // transformed text the retry actually parsed.
 func TestParseMultiNameForRebasesRetryErrorPosition(t *testing.T) {
-	const src = "for p ( a b ) { x=1 }\nf() { x; } y\n"
-	assertParseErrorAt(t, []byte(src), "statements must be separated by &, ; or a newline", 2, 12)
+	fixture, err := os.ReadFile("testdata/invalid-255-multi-name-for-retry-later-blocker.txt")
+	if err != nil {
+		t.Fatalf("read invalid fixture: %v", err)
+	}
+	assertParseErrorAt(t, fixture, "statements must be separated by &, ; or a newline", 2, 12)
 }
 
 func TestParseMultiNameForPositions(t *testing.T) {

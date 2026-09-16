@@ -3,6 +3,7 @@ package parse
 import (
 	"bytes"
 	"errors"
+	"regexp"
 	"sort"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -29,15 +30,28 @@ func parseAnonymousFunctionArgs(
 
 	for {
 		close, end, words, ok := anonymousFunctionInvocationCandidate(src, name, currentErr)
-		if !ok {
-			close, end, words, ok = fallbackAnonymousFunctionInvocationCandidate(src, name, seen)
-		}
 		if !ok || seen[close] {
-			// currentErr, not firstErr: once a candidate has been masked and
-			// the whole-file retry still fails, the retry's error names a
-			// real, separate gap at its own (unrebased, width-preserving
-			// mask) position. Reverting to firstErr here would re-report a
-			// construct that is already resolved.
+			// A seed candidate can land on an ordinary brace group followed
+			// by a stray word (for example `{ :; } argument`), which is not
+			// an anonymous function and must not have been masked: masking
+			// it would hide the genuine syntax error it names. Rather than
+			// pay the adaptive-parse validation cost inline as each
+			// candidate is found (expensive: it re-enters the full adapter
+			// chain on truncated buffers), validate every accepted
+			// candidate once here, only on this rarer error-return path,
+			// before trusting currentErr. On any failure, report firstErr,
+			// the genuine, unmasked error, instead.
+			for _, candidate := range candidates {
+				if !prefixEndsWithAnonymousFunction(masked, name, candidate.close) {
+					return nil, nil, firstErr
+				}
+			}
+			// currentErr, not firstErr: once every candidate has been
+			// confirmed genuine and the whole-file retry still fails, the
+			// retry's error names a real, separate gap at its own
+			// (unrebased, width-preserving mask) position. Reverting to
+			// firstErr here would re-report a construct that is already
+			// resolved.
 			return nil, nil, currentErr
 		}
 		seen[close] = true
@@ -61,46 +75,74 @@ func parseAnonymousFunctionArgs(
 	}
 }
 
-func fallbackAnonymousFunctionInvocationCandidate(
-	src []byte,
-	name string,
-	seen map[int]bool,
-) (int, int, []*syntax.Word, bool) {
-	for close, b := range src {
-		if b != '}' || seen[close] {
-			continue
-		}
-		wordStart := close + 1
-		for wordStart < len(src) && (src[wordStart] == ' ' || src[wordStart] == '\t') {
-			wordStart++
-		}
-		if wordStart == close+1 || wordStart >= len(src) || src[wordStart] == '\n' || src[wordStart] == ';' {
-			continue
-		}
-		end, ok := anonymousInvocationEnd(src, wordStart)
-		if !ok {
-			continue
-		}
-		words, ok := parseAnonymousInvocationWords(src, name, close, end)
-		if !ok || !prefixEndsWithAnonymousFunction(src, name, close) {
-			continue
-		}
-		return close, end, words, true
+// closingTokenRe matches the trailing backtick-quoted token that every
+// mvdan/sh "incomplete construct" error ends with: the still-needed closer
+// (`matchingErr`'s right token, `quoteErr`'s quote character, `stmtEnd`'s end
+// keyword, or an ordinary `followErr` single required token). A `followErr`
+// built from a free-form description (for example "must be followed by `in`,
+// `do`, `;`, or a newline") does not end in a backtick pair, so it correctly
+// fails to match and is treated as non-extendable below.
+var closingTokenRe = regexp.MustCompile("`([^`]*)`$")
+
+// closingToken extracts the token that would resolve an "incomplete
+// construct" parse error, if err has that shape.
+func closingToken(err error) (string, bool) {
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) {
+		return "", false
 	}
-	return 0, 0, nil, false
+	m := closingTokenRe.FindStringSubmatch(parseErr.Text)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
 }
 
+// prefixEndsWithAnonymousFunction reports whether the `}` at close truly
+// closes an anonymous *syntax.FuncDecl. It cannot validate by blanking
+// everything after close and reparsing the same-width buffer: a candidate
+// nested inside a still-open enclosing function (for example `f() { () {
+// x; } y }`) would have that enclosing function's own closing brace blanked
+// away too, so the prefix would never parse and every nested candidate would
+// be rejected. It also cannot validate with a hand-rolled brace-depth scanner:
+// zsh comments and typographic quoting (for example a doc comment like
+// “ `autoload', `bindkey' “ with an odd backtick count) can desync a naive
+// scanner's quote state for the rest of the file. Instead it drives the real
+// parser: parse src[:close+1], and on each "incomplete construct" error,
+// append the closer the error itself names and retry, until the prefix
+// parses (then check for a FuncDecl ending at close) or the parser reports an
+// error that is not an incompleteness (then close does not validly close an
+// anonymous function).
+//
+// This is expensive: each retry re-enters the full adapter chain on a
+// truncated, rewritten buffer, and some adapters themselves recurse into
+// parseWithAdapters. The success path already gets an equivalent, single,
+// whole-file check for free from bindAnonymousInvocations, so this is
+// reserved for the rarer error-return path, where each already-accepted
+// candidate is confirmed once before its mask is trusted.
 func prefixEndsWithAnonymousFunction(src []byte, name string, close int) bool {
-	prefix := bytes.Clone(src)
-	for offset := close + 1; offset < len(prefix); offset++ {
-		if prefix[offset] != '\n' {
-			prefix[offset] = ' '
-		}
-	}
-	tree, err := parseWithAdapters(prefix, name)
-	if err != nil {
+	if close < 0 || close >= len(src) || src[close] != '}' {
 		return false
 	}
+	prefix := append([]byte(nil), src[:close+1]...)
+	const maxClosers = 12
+	for i := 0; i < maxClosers; i++ {
+		tree, err := parseWithAdapters(prefix, name)
+		if err == nil {
+			return funcDeclEndsAt(tree, close)
+		}
+		token, ok := closingToken(err)
+		if !ok {
+			return false
+		}
+		prefix = append(prefix, '\n')
+		prefix = append(prefix, token...)
+		prefix = append(prefix, '\n')
+	}
+	return false
+}
+
+func funcDeclEndsAt(tree *syntax.File, close int) bool {
 	found := false
 	syntax.Walk(tree, func(node syntax.Node) bool {
 		decl, ok := node.(*syntax.FuncDecl)
@@ -111,6 +153,28 @@ func prefixEndsWithAnonymousFunction(src []byte, name string, close int) bool {
 		return true
 	})
 	return found
+}
+
+// logicalLineStart returns the offset of the start of the logical line
+// containing pos, walking back across `\`-newline continuations so a `}`
+// separated from the parse error's line only by a line continuation is still
+// found. It does not track quote state: a continuation-shaped backslash run
+// inside a string only widens the search window, and the candidate it might
+// turn up still has to parse and bind as a real anonymous FuncDecl before
+// anything is masked, so over-including here cannot mask a false positive.
+func logicalLineStart(src []byte, pos int) int {
+	lineStart := bytes.LastIndexByte(src[:pos], '\n') + 1
+	for lineStart > 0 {
+		backslashes := 0
+		for i := lineStart - 2; i >= 0 && src[i] == '\\'; i-- {
+			backslashes++
+		}
+		if backslashes%2 == 0 {
+			break
+		}
+		lineStart = bytes.LastIndexByte(src[:lineStart-1], '\n') + 1
+	}
+	return lineStart
 }
 
 func anonymousFunctionInvocationCandidate(
@@ -130,7 +194,7 @@ func anonymousFunctionInvocationCandidate(
 		return 0, 0, nil, false
 	}
 
-	lineStart := bytes.LastIndexByte(src[:seed+1], '\n') + 1
+	lineStart := logicalLineStart(src, seed+1)
 	close := seed
 	for close >= lineStart && (src[close] == ' ' || src[close] == '\t') {
 		close--
