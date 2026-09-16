@@ -17,6 +17,7 @@ var requiredFixtures = []string{
 	"ok-alternate-if-brace-continuation.zsh",
 	"ok-alternate-if-brace-length-expansion.zsh",
 	"ok-alternate-if-brace.zsh",
+	"ok-alternate-if-bracket-class-close.zsh",
 	"ok-alternate-if-nested-in-classic-if.zsh",
 	"ok-anonymous-function-arguments.zsh",
 	"ok-ansic-heredoc.zsh",
