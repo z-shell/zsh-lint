@@ -110,24 +110,65 @@ func TestParseSubscriptFlagBracketPatternNested(t *testing.T) {
 	}
 }
 
+// Native-invalid sources keep the base front end's error family and original
+// position; the retry must not move or replace the failure.
 func TestSubscriptFlagBracketPatternRejectsUnbalanced(t *testing.T) {
-	src, err := os.ReadFile("testdata/invalid-237-empty-bracket-flag-pattern.txt")
+	fixture, err := os.ReadFile("testdata/invalid-237-empty-bracket-flag-pattern.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, source := range [][]byte{
-		src,
-		[]byte("print -r -- ${line[(i)[a]]\n"),
-		[]byte("print -r -- ${line[(i${x})[a]]}\n"),
-	} {
-		_, err := Parse(bytes.NewReader(source), "invalid-237.zsh")
-		if err == nil {
-			t.Fatalf("Parse(%q) unexpectedly succeeded", source)
-		}
-		var parseErr syntax.ParseError
-		if !errors.As(err, &parseErr) {
-			t.Fatalf("Parse(%q) error type = %T, want syntax.ParseError", source, err)
-		}
+	tests := []struct {
+		name string
+		src  []byte
+		text string
+		col  uint
+	}{
+		{"empty bracket expression", fixture, "not a valid parameter expansion operator: `]`", 27},
+		{"unterminated expansion", []byte("print -r -- ${line[(i)[a]]\n"), "not a valid parameter expansion operator: \"\\n\"", 27},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertParseErrorAt(t, test.src, test.text, 1, test.col)
+		})
+	}
+}
+
+// A pattern whose extent the scanner cannot decide (an expansion in the flags,
+// a command substitution in the pattern) keeps the base front end's error at
+// its original position instead of a guessed mask.
+func TestSubscriptFlagBracketPatternLeavesUncertainPatternsAlone(t *testing.T) {
+	tests := []struct {
+		name string
+		src  []byte
+		text string
+		col  uint
+	}{
+		{"expansion in flags", []byte("print -r -- ${line[(i${x})[a]]}\n"), "not a valid parameter expansion operator: `]`", 30},
+		{"backtick substitution in pattern", []byte("print -r -- ${line[(i)`echo [x]`]}\n"), "not a valid parameter expansion operator: \"`\"", 32},
+		{"dollar substitution in pattern", []byte("print -r -- ${line[(i)$(echo [x])]}\n"), "not a valid parameter expansion operator: `)`", 33},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertParseErrorAt(t, test.src, test.text, 1, test.col)
+		})
+	}
+}
+
+func assertParseErrorAt(t *testing.T, src []byte, text string, line, col uint) {
+	t.Helper()
+	_, err := Parse(bytes.NewReader(src), "flag-pattern.zsh")
+	if err == nil {
+		t.Fatalf("Parse(%q) unexpectedly succeeded", src)
+	}
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("Parse(%q) error type = %T, want syntax.ParseError", src, err)
+	}
+	if parseErr.Text != text {
+		t.Errorf("error text = %q, want %q", parseErr.Text, text)
+	}
+	if parseErr.Pos.Line() != line || parseErr.Pos.Col() != col {
+		t.Errorf("error position = %d:%d, want %d:%d", parseErr.Pos.Line(), parseErr.Pos.Col(), line, col)
 	}
 }
 

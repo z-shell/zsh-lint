@@ -154,7 +154,7 @@ func isFlagLetter(b byte) bool {
 // delimits a subscript by bracket nesting with backslash escapes, so the
 // scanner counts `[` and `]` and skips escaped bytes. It reports false when
 // the pattern holds anything whose extent it cannot decide, such as a nested
-// expansion.
+// expansion or a command substitution in either form.
 func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 	var edits []patternEdit
 	depth := 0
@@ -174,7 +174,7 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 			i += 2
 		case b == '\n':
 			return nil, 0, false
-		case b == '$' && i+1 < len(src) && (src[i+1] == '{' || src[i+1] == '('):
+		case b == '`', b == '$' && i+1 < len(src) && (src[i+1] == '{' || src[i+1] == '('):
 			return nil, 0, false
 		case b == '[':
 			depth++
