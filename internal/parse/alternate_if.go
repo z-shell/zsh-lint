@@ -88,6 +88,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		kindElifThen
 		kindElse
 		kindWhileDo
+		kindParamExpansion
 	)
 	type blockFrame struct {
 		kind       blockKind
@@ -110,6 +111,10 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 
 	for i < len(src) {
 		b := src[i]
+		// Inside `${...}` every byte is part of a word: `${a## ##}` has no
+		// comment, `${a:-if}` has no keyword, and a nested `{` is not a
+		// block. Only quotes, escapes, and brace depth matter there.
+		inParamExpansion := len(blockStack) > 0 && blockStack[len(blockStack)-1].kind == kindParamExpansion
 
 		if escaped {
 			escaped = false
@@ -171,7 +176,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			continue
 		}
 
-		if b == '#' && atWordStart {
+		if b == '#' && atWordStart && !inParamExpansion {
 			inComment = true
 			i++
 			continue
@@ -194,6 +199,25 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		if b == '$' && i+1 < len(src) && src[i+1] == '\'' {
 			inANSICQuote = true
 			i += 2
+			atWordStart = false
+			atCommandStart = false
+			continue
+		}
+
+		if inParamExpansion {
+			switch {
+			case b == '$' && i+1 < len(src) && src[i+1] == '{':
+				blockStack = append(blockStack, blockFrame{kind: kindParamExpansion, openOffset: i})
+				i += 2
+			case b == '{':
+				blockStack = append(blockStack, blockFrame{kind: kindParamExpansion, openOffset: i})
+				i++
+			case b == '}':
+				blockStack = blockStack[:len(blockStack)-1]
+				i++
+			default:
+				i++
+			}
 			atWordStart = false
 			atCommandStart = false
 			continue
@@ -343,6 +367,18 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 				atCommandStart = true
 				continue
 			}
+		}
+
+		if b == '$' && i+1 < len(src) && src[i+1] == '{' {
+			// `${` opens a parameter expansion, not a block. The frame keeps
+			// brace depth balanced while the bytes up to its `}` are scanned
+			// as word bytes above: `${#a}` is the length operator, not a
+			// comment that would swallow the body's closing brace.
+			blockStack = append(blockStack, blockFrame{kind: kindParamExpansion, openOffset: i})
+			i += 2
+			atWordStart = false
+			atCommandStart = false
+			continue
 		}
 
 		if b == '{' {
