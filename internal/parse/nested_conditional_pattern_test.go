@@ -2,6 +2,8 @@ package parse
 
 import (
 	"errors"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1202,4 +1204,82 @@ func TestNestedConditionalAlternationBracketExpressionQuotes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Issue #232: a quoted or escaped `)` inside a pattern group ends the group
+// early in the parser, which then reports an unclosed quote or an unmatched
+// `)`. The adapter masks that byte so the group closes where Zsh closes it,
+// and the restored pattern word keeps the original bytes.
+func TestNestedConditionalAlternationGroupQuotedClose(t *testing.T) {
+	tests := []struct {
+		name     string
+		src      string
+		firstErr string
+		want     []string
+	}{
+		{"double quoted close", "[[ $b = (x\")\"y) ]]\n", unclosedDoubleQuote, []string{"(x\")\"y)"}},
+		{"single quoted close", "[[ $b = (x')'y) ]]\n", unclosedSingleQuote, []string{"(x')'y)"}},
+		{"ansi-c quoted close", "[[ $b = (x$')'y) ]]\n", unclosedSingleQuote, []string{"(x$')'y)"}},
+		{"escaped close", "[[ $b = (x\\)y) ]]\n", unmatchedConditionalClose, []string{"(x\\)y)"}},
+		{"escaped close in bracket expression", "[[ $b = ([\\)]) ]]\n", unmatchedConditionalClose, []string{"([\\)])"}},
+		{"double quoted close in bracket expression", "[[ $b = ([\")\"]) ]]\n", unclosedDoubleQuote, []string{"([\")\"])"}},
+		{"double quoted escaped close", "[[ $b = (x\"\\)\"y) ]]\n", unclosedDoubleQuote, []string{"(x\"\\)\"y)"}},
+		{"double quoted close inside longer string", "[[ $b = (x\"a)b\"y) ]]\n", unclosedDoubleQuote, []string{"(x\"a)b\"y)"}},
+		{"group holding only the quoted close", "[[ $b = (\")\") ]]\n", unclosedDoubleQuote, []string{"(\")\")"}},
+		{"nested group", "[[ $b = (a|(x\")\"y)) ]]\n", unclosedDoubleQuote, []string{"(a|(x\")\"y))"}},
+		{"trailing bytes after the group", "[[ $b = (x\")\"y)z ]]\n", unclosedDoubleQuote, []string{"(x\")\"y)z"}},
+		{"negated match with list continuation", "[[ $b != (x')'y) ]] && b=1\n", unclosedSingleQuote, []string{"(x')'y)"}},
+		{"classic if", "if [[ $b == (x\")\"y) ]]; then b=1; fi\n", unclosedDoubleQuote, []string{"(x\")\"y)"}},
+		{"brace-form if with nested alternation", "if [[ $b == ((a|b)|(x\")\"y)) ]] { b=1 } else { b=2 }\n", invalidAlternationOperator, []string{"((a|b)|(x\")\"y))"}},
+		{
+			"F-Sy-H highlight.zsh:752 originating shape",
+			"            [[ $__arg = (#b)*=(\\()*(\\))* || $__arg = (#b)*=(\\()* ]] && {\n  :\n}\n",
+			unmatchedConditionalClose,
+			[]string{"(#b)*=(\\()*(\\))*", "(#b)*=(\\()*"},
+		},
+		{
+			"F-Sy-H string-highlight.zsh:20 originating shape",
+			"  while [[ $_mybuf = (#b)([^\"{}()[]\\\\\\\"'\"]#)(([\"({[]})\\\"'\"])|[\\\\](*))(*) ]]; do :; done\n",
+			unclosedDoubleQuote,
+			[]string{"(#b)([^\"{}()[]\\\\\\\"'\"]#)(([\"({[]})\\\"'\"])|[\\\\](*))(*)"},
+		},
+		{
+			"zi git-process-output.zsh:133 originating shape",
+			"  if [[ \"$line\" = (#b)\"Receiving objects:\"[\\ ]#([0-9]##)%([[:blank:]]#\\(([0-9]##)/([0-9]##)\\)|)* ]]; then :; fi\n",
+			invalidAlternationOperator,
+			[]string{"(#b)\"Receiving objects:\"[\\ ]#([0-9]##)%([[:blank:]]#\\(([0-9]##)/([0-9]##)\\)|)*"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, firstErr := parseTree([]byte(tc.src), "group-quoted-close.zsh")
+			var parseErr syntax.ParseError
+			if !errors.As(firstErr, &parseErr) || parseErr.Text != tc.firstErr {
+				t.Fatalf("parseTree(%q) error = %v, want %q", tc.src, firstErr, tc.firstErr)
+			}
+			file, err := Parse(strings.NewReader(tc.src), "group-quoted-close.zsh")
+			if err != nil {
+				t.Fatalf("Parse(%q) failed: %v", tc.src, err)
+			}
+			if len(file.AST().Stmts) != 1 {
+				t.Fatalf("len(Stmts) = %d, want 1", len(file.AST().Stmts))
+			}
+			got := renderedPatternWords(t, file.AST())
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("pattern words = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// An unescaped `)` inside a bracket expression is a parse error in Zsh too
+// (`parse error near `)“), so the adapter leaves the parser's error alone.
+func TestNestedConditionalAlternationRejectsUnquotedCloseInBracketExpression(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/invalid-232-unquoted-paren-in-bracket-group.txt")
+	if err != nil {
+		t.Fatalf("read invalid fixture: %v", err)
+	}
+	assertParseErrorAt(t, fixture, unmatchedConditionalClose, 1, 4)
+	assertParseErrorAt(t, []byte("[[ $b = [)] ]]\n"), unmatchedConditionalClose, 1, 1)
 }
