@@ -12,6 +12,11 @@ const (
 	invalidSubscriptExpression = "`[` must be followed by an expression"
 	invalidSubscriptTernary    = "ternary operator missing `?` before `:`"
 	invalidSubscriptArithmetic = "not a valid arithmetic operator:"
+	// mvdan/sh reports a key byte read as a binary operator without a left
+	// operand as "`<` must follow an expression" and one without a right
+	// operand as "`-` must be followed by an expression".
+	invalidSubscriptLeftOperand  = " must follow an expression"
+	invalidSubscriptRightOperand = " must be followed by an expression"
 )
 
 // parseAssociativeSubscript retries only native-Zsh bare associative keys that
@@ -28,10 +33,7 @@ func parseAssociativeSubscriptWithParser(
 	parse func([]byte, string) (*syntax.File, error),
 ) (*syntax.File, error) {
 	var parseErr syntax.ParseError
-	if !errors.As(firstErr, &parseErr) ||
-		(parseErr.Text != invalidSubscriptExpression &&
-			parseErr.Text != invalidSubscriptTernary &&
-			!strings.HasPrefix(parseErr.Text, invalidSubscriptArithmetic)) {
+	if !errors.As(firstErr, &parseErr) || !isSubscriptParseError(parseErr.Text) {
 		return nil, firstErr
 	}
 
@@ -63,12 +65,63 @@ func parseAssociativeSubscriptWithParser(
 	return tree, nil
 }
 
+func isSubscriptParseError(text string) bool {
+	if text == invalidSubscriptExpression || text == invalidSubscriptTernary ||
+		strings.HasPrefix(text, invalidSubscriptArithmetic) {
+		return true
+	}
+	_, ok := subscriptOperatorError(text)
+	return ok
+}
+
+// subscriptOperatorError returns the single punctuation byte that mvdan/sh
+// reported as an arithmetic operator missing an operand.
+func subscriptOperatorError(text string) (byte, bool) {
+	rest, ok := strings.CutPrefix(text, "`")
+	if !ok || len(rest) < 2 || rest[1] != '`' {
+		return 0, false
+	}
+	op, suffix := rest[0], rest[2:]
+	if suffix != invalidSubscriptLeftOperand && suffix != invalidSubscriptRightOperand {
+		return 0, false
+	}
+	if !isBareKeyPunctuation(op) {
+		return 0, false
+	}
+	return op, true
+}
+
+// isBareKeyPunctuation reports the punctuation the retry masks inside a bare
+// associative key. The set stays narrow so arithmetic subscripts on ordinary
+// arrays keep their operators.
+func isBareKeyPunctuation(b byte) bool {
+	switch b {
+	case '.', '-', ':', '@', '<', '>', '/':
+		return true
+	}
+	return false
+}
+
 func findBareAssociativeKey(src []byte, seed int, errorText string) (int, int, bool) {
 	if seed < 0 || seed >= len(src) {
 		return 0, 0, false
 	}
 
 	open := seed
+	if errorText == invalidSubscriptExpression && src[open] != '[' {
+		// In an assignment mvdan/sh positions this error one byte after the
+		// name start instead of at `[`, so walk the rest of the name first.
+		if seed < 1 || !isIdentByte(src[seed-1]) || (seed > 1 && isIdentByte(src[seed-2])) {
+			return 0, 0, false
+		}
+		for open < len(src) && isIdentByte(src[open]) {
+			open++
+		}
+		if open >= len(src) || src[open] != '[' {
+			return 0, 0, false
+		}
+		seed = open
+	}
 	if src[open] != '[' {
 		for open > 0 && src[open] != '[' && src[open] != ']' && src[open] != '\n' {
 			open--
@@ -86,7 +139,7 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (int, int, b
 	close := open + 1 + closeRelative
 	key := src[open+1 : close]
 	for _, b := range key {
-		if !isIdentByte(b) && b != '.' && b != '-' && b != ':' && b != '@' {
+		if !isIdentByte(b) && !isBareKeyPunctuation(b) {
 			return 0, 0, false
 		}
 	}
@@ -105,7 +158,10 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (int, int, b
 			return 0, 0, false
 		}
 	default:
-		return 0, 0, false
+		op, ok := subscriptOperatorError(errorText)
+		if !ok || relativeSeed < 0 || relativeSeed >= len(key) || key[relativeSeed] != op {
+			return 0, 0, false
+		}
 	}
 	return open, close, true
 }
