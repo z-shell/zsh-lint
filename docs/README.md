@@ -21,10 +21,7 @@ hand.
 - [`examples/plugin`](../examples/plugin) classifies a plugin entrypoint,
   autoloaded function, completion, and test fixture.
 
-The example configurations use the project-configuration support currently on
-`main`, including automatic `zsh-lint.json` discovery. This behavior is newer
-than the published v1.2.0 CLI; the wiki keeps the published path separate from
-the unreleased project-configuration guide.
+The example configurations use project configuration with automatic `zsh-lint.json` discovery, which ships in the published v1.3.0 CLI and later. v1.2.0 accepts `--config` but has neither discovery nor `--no-config`.
 
 ## Commands
 

@@ -39,8 +39,8 @@
     </a>
     <a href="https://wiki.zshell.dev/community/zsh_plugin_standard">
       <img
-        src="https://img.shields.io/badge/standard-v2-blue"
-        alt="Zsh Plugin Standard v2 compliance"
+        src="https://img.shields.io/badge/Zsh_Plugin_Standard-v2_rules-blue"
+        alt="Enforces Zsh Plugin Standard v2 rules"
       />
     </a>
   </p>
@@ -56,21 +56,24 @@
 ## Features
 
 - **Semantic static analysis:** Evaluates syntax trees for unquoted variables, backquote command substitutions, special parameter shadowing, unsafe `eval` calls, and style issues without executing scripts.
-- **Zsh Plugin Standard v2 enforcement:** Validates plugin conventions, including isolated function and parameter namespaces, required unload functions, function-scoped options, zero handling, and absence of shared plugin registries.
+- **Zsh Plugin Standard v2 enforcement:** Every run checks unload functions, function-scoped options, `$0` handling, and `fpath` hygiene. Projects with a validated `zsh-lint.json` additionally get the `z-shell/project@2` profile: function and parameter namespaces, the shared `Plugins` registry, load-only helpers, and repeated external commands.
 - **Automatic project discovery:** Discovers `zsh-lint.json` configuration files up the directory hierarchy to contextualize standalone scripts, plugin entrypoints, autoloaded functions, and completions.
+- **Inline suppression:** Silences one intentional finding at a time with `# zsh-lint disable=<rule-id> -- reason`; suppressions must name a rule and are audited through `meta/*` diagnostics.
 - **Greppable and JSON diagnostics:** Outputs standard `file:line:col: [rule] message` diagnostics for terminal and editor workflows, or structured JSON for automated CI checks.
 - **Corpus survey tooling:** Includes the companion `zsh-lint-survey` CLI to survey parser front-end coverage across large Zsh codebases without running lint rules.
 
 ## Requirements
 
 - **Go 1.26** or newer (when compiling from source or installing via `go install`).
-- **Zsh** (optional, recommended for runtime syntax pre-validation via `zsh -n`).
+
+> [!NOTE]
+> `zsh-lint` neither sources nor executes the files it analyzes, and it does not call `zsh`. A native syntax check such as `zsh -f -n -- file.zsh` is a separate, recommended step.
 
 ## Installation
 
 ### Go install
 
-Install the latest release binary:
+Build and install the latest tagged release:
 
 ```bash
 go install github.com/z-shell/zsh-lint/cmd/zsh-lint@latest
@@ -94,10 +97,10 @@ go build ./cmd/zsh-lint
 
 ### Zi plugin manager
 
-Run `zsh-lint` as a managed command inside a Zi environment:
+Let [Zi](https://github.com/z-shell/zi) clone the repository, build the binary with the local Go toolchain, and put it on `PATH`:
 
 ```zsh
-zi as"command" from"gh" make"go build ./cmd/zsh-lint" sbin"zsh-lint" for z-shell/zsh-lint
+zi as"program" nocompletions atclone"go build ./cmd/zsh-lint" atpull"%atclone" pick"zsh-lint" for z-shell/zsh-lint
 ```
 
 ## Usage
@@ -123,9 +126,11 @@ zsh-lint script.zsh plugin.plugin.zsh
 Standard terminal output format:
 
 ```text
-script.zsh:12:5: [quoting/unquoted-var] Variable expansion should be double-quoted
-plugin.plugin.zsh:45:1: [lifecycle/unload-function] Plugin entrypoint missing unload function
+script.zsh:2:8: [quoting/unquoted-var] Variable expansion should be double-quoted
+plugin.plugin.zsh:1:1: [plugin/unload-function] Plugin registers persistent hooks or widgets but defines no '<name>_plugin_unload' function
 ```
+
+Findings at `error` or `warning` severity fail the run; `info` and `hint` findings are reported but do not change the exit code. The [rule reference](https://wiki.zshell.dev/community/zsh_lint/zsh-lint-rule-reference) lists every rule with its severity.
 
 > [!NOTE]
 > The CLI analyzes each explicitly provided file path as Zsh source. It does not recurse into directories or filter files by shebang.
@@ -136,26 +141,26 @@ Add a `zsh-lint.json` file at the root of a repository to provide project contex
 
 ```json
 {
-  "version": 1,
-  "kind": "zsh-plugin",
-  "name": "example-plugin",
-  "rules": {
-    "profile": "z-shell/project@2"
+  "version": 2,
+  "project": {
+    "kind": "plugin",
+    "minimum_zsh": "5.8",
+    "identifier": "example"
   },
   "sources": [
+    { "root": "example.plugin.zsh", "profile": "sourced-library" },
+    { "root": "functions", "profile": "autoload-function" },
     {
-      "pattern": "*.plugin.zsh",
-      "role": "plugin-entrypoint"
+      "root": "completions",
+      "profile": "autoload-function",
+      "role": "completion"
     },
-    {
-      "pattern": "functions/*",
-      "role": "autoloaded-function"
-    }
+    { "root": "tests", "profile": "test-fixture" }
   ]
 }
 ```
 
-Detailed schema definitions and source profiles are described in the [Project Configuration Guide](https://wiki.zshell.dev/community/zsh_lint/zsh-lint-project-configuration).
+A validated version 2 configuration selects the `z-shell/project@2` rule profile automatically; there is no profile key to set. This file is [`examples/plugin/zsh-lint.json`](examples/plugin/zsh-lint.json), and [`examples/standalone`](examples/standalone) shows the `application` kind. Schema fields and source profiles are described in the [Project Configuration Guide](https://wiki.zshell.dev/community/zsh_lint/zsh-lint-project-configuration).
 
 <details>
 <summary><strong>Advanced: Parser survey utility (zsh-lint-survey)</strong></summary>
@@ -171,44 +176,46 @@ zsh-lint-survey path/to/*.zsh
 <details>
 <summary><strong>Advanced: JSON output contract</strong></summary>
 
-When invoked with `--format=json`, diagnostics are formatted as structured JSON:
+`--format=json` writes one versioned envelope to stdout. Parser failures share it under the reserved rule `parse/error`, and an unpositioned diagnostic omits `range`:
 
 ```json
 {
-  "inspected_files": 1,
+  "version": 1,
   "diagnostics": [
     {
-      "rule_id": "quoting/unquoted-var",
+      "rule": "quoting/unquoted-var",
       "severity": "warning",
+      "message": "Variable expansion should be double-quoted",
       "file": "script.zsh",
       "range": {
-        "start": {
-          "line": 12,
-          "column": 5,
-          "offset": 140
-        },
-        "end": {
-          "line": 12,
-          "column": 5,
-          "offset": 140
-        }
-      },
-      "message": "Variable expansion should be double-quoted"
+        "start": { "line": 2, "column": 8, "offset": 15 },
+        "end": { "line": 2, "column": 10, "offset": 17 }
+      }
     }
-  ]
+  ],
+  "summary": {
+    "files": 1,
+    "diagnostics": 1,
+    "errors": 0,
+    "warnings": 1,
+    "infos": 0,
+    "hints": 0
+  }
 }
 ```
+
+The full contract, including sort order and versioning rules, is [`docs/project/output-contract.md`](docs/project/output-contract.md).
 
 </details>
 
 <details>
 <summary><strong>Exit code conventions</strong></summary>
 
-| Exit code | Description                                                                   |
-| :-------: | :---------------------------------------------------------------------------- |
-|    `0`    | Clean run: all input files parsed without warnings or errors.                 |
-|    `1`    | Findings: parser errors or lint warnings were detected.                       |
-|    `2`    | Invocation error: invalid flags, missing arguments, or invalid configuration. |
+| Exit code | Description                                                                                                                                                                    |
+| :-------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|    `0`    | Every input parsed, and no finding at `error` or `warning` severity; `info` and `hint` findings may still be printed.                                                          |
+|    `1`    | At least one parser failure, unreadable input file, per-file configuration discovery failure, or finding at `error` or `warning` severity.                                     |
+|    `2`    | Invocation error: unknown or repeated flags, no input paths, `--config` with `--no-config`, or an explicit `--config` file that fails to load or does not cover an input path. |
 
 </details>
 
