@@ -33,7 +33,12 @@ func parseAnonymousFunctionArgs(
 			close, end, words, ok = fallbackAnonymousFunctionInvocationCandidate(src, name, seen)
 		}
 		if !ok || seen[close] {
-			return nil, nil, firstErr
+			// currentErr, not firstErr: once a candidate has been masked and
+			// the whole-file retry still fails, the retry's error names a
+			// real, separate gap at its own (unrebased, width-preserving
+			// mask) position. Reverting to firstErr here would re-report a
+			// construct that is already resolved.
+			return nil, nil, currentErr
 		}
 		seen[close] = true
 		candidates = append(candidates, anonymousInvocationCandidate{close: close, words: words})

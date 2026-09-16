@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -145,6 +146,26 @@ func TestAnonymousFunctionInvocationControls(t *testing.T) {
 				t.Fatalf("Parse() error = %q, want original %q", err, originalErr)
 			}
 		})
+	}
+}
+
+// TestAnonymousFunctionArgsRetryReportsLaterBlocker regression-tests part of
+// issue #255: once a candidate anonymous invocation is masked and resolved,
+// a genuinely separate, later syntax error in the rest of the file must be
+// reported at its own position, not as the stale error the first, unmasked
+// parse attempt produced against the resolved candidate.
+func TestAnonymousFunctionArgsRetryReportsLaterBlocker(t *testing.T) {
+	source := "f() {\n  () { x; } y\n}\n)\n"
+	_, err := Parse(strings.NewReader(source), "later-blocker.zsh")
+	if err == nil {
+		t.Fatal("Parse() unexpectedly accepted a trailing unmatched `)`")
+	}
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error type = %T, want syntax.ParseError", err)
+	}
+	if parseErr.Pos.Line() != 4 || parseErr.Pos.Col() != 1 {
+		t.Fatalf("error position = %d:%d, want 4:1 (the real later blocker, not the resolved candidate)", parseErr.Pos.Line(), parseErr.Pos.Col())
 	}
 }
 

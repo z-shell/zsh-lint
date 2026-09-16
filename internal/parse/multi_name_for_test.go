@@ -74,6 +74,15 @@ done
 	}
 }
 
+// TestParseMultiNameForRebasesRetryErrorPosition regression-tests issue #255:
+// a failed retry on the alternate `for name ( words ) { ... }` sugar must
+// rebase its error position into the original source, not the longer
+// transformed text the retry actually parsed.
+func TestParseMultiNameForRebasesRetryErrorPosition(t *testing.T) {
+	const src = "for p ( a b ) { x=1 }\nf() { x; } y\n"
+	assertParseErrorAt(t, []byte(src), "statements must be separated by &, ; or a newline", 2, 12)
+}
+
 func TestParseMultiNameForPositions(t *testing.T) {
 	src := `for key value in a 1 b 2; do
   print -r -- "$key=$value"
