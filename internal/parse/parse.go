@@ -25,6 +25,7 @@ type File struct {
 	tree                 *syntax.File
 	lines                []string
 	anonymousInvocations []AnonymousInvocation
+	assignAlways         []*syntax.ParamExp
 }
 
 // AnonymousInvocation pairs an anonymous function declaration with the words
@@ -56,6 +57,17 @@ func (f *File) Lines() []string {
 // syntax nodes are shared with the immutable parse result.
 func (f *File) AnonymousInvocations() []AnonymousInvocation {
 	return append([]AnonymousInvocation(nil), f.anonymousInvocations...)
+}
+
+// AssignAlwaysExpansions returns the parameter expansions written with the
+// native unconditional assignment operator `${name::=word}` (issue #216).
+// mvdan/sh (through v3.14.1) has no operator for it, so the compatibility
+// front end parses the expansion as the conditional `:=` form and records the
+// owning node here; consumers that distinguish the two must inspect this
+// metadata rather than the tree's Exp.Op. The returned slice is independent;
+// its nodes are shared with the immutable parse result.
+func (f *File) AssignAlwaysExpansions() []*syntax.ParamExp {
+	return append([]*syntax.ParamExp(nil), f.assignAlways...)
 }
 
 func parseTree(src []byte, name string) (*syntax.File, error) {
@@ -92,5 +104,6 @@ func Parse(r io.Reader, name string) (*File, error) {
 		tree:                 tree,
 		lines:                strings.Split(text, "\n"),
 		anonymousInvocations: anonymousInvocations,
+		assignAlways:         bindAssignAlwaysExpansions(tree, src),
 	}, nil
 }

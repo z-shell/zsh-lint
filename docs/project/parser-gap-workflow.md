@@ -165,3 +165,7 @@ stable association with the owning AST node. Consumers must inspect the typed
 metadata rather than recover masked source text. Anonymous-function invocation
 words use this boundary because mvdan/sh v3.13.1 represents the declaration but
 has no field for its invocation arguments.
+The unconditional assignment operator `${name::=word}` (#216) uses it too: the
+tree carries the closest typed shape, the conditional `:=` operator, and
+`File.AssignAlwaysExpansions` names the expansions whose source operator is
+`::=`.
