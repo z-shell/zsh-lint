@@ -385,6 +385,16 @@ func TestParseAlternateIfConditionKeepsEmbeddedDoubleBrackets(t *testing.T) {
 		{"group close glued to the terminator", "if [[ ( $a == x )]] { b=1 }\n", "if"},
 		{"unspaced group glued to the terminator", "if [[ ($a == x)]] { b=1 }\n", "if"},
 		{"line continuation before the terminator", "if [[ $a == x \\\n]] { b=1 }\n", "if"},
+		{"ansi-c quoted with an escaped quote", "if [[ $a == $'x\\' ]] y' ]] { b=1 }\n", "if"},
+		{"ansi-c quoted", "if [[ $a == $'x ]] y' ]] { b=1 }\n", "if"},
+		{"pattern group glued to a class close", "if [[ $a == (x)]] ]] { b=1 }\n", "if"},
+		{"escaped paren before a class close", "if [[ $a == [\\)]] ]] { b=1 }\n", "if"},
+		{"joined groups glued to the terminator", "if [[ ($a == x)&&($b == y)]] { b=1 }\n", "if"},
+		{"negated group glued to the terminator", "if [[ ! ($a == x)]] { b=1 }\n", "if"},
+		{"joiner inside a word", "if [[ $a == x&&$b == y ]] { b=1 }\n", "if"},
+		{"spaced command substitution", "if [[ $( f ) == x ]] { b=1 }\n", "if"},
+		{"spaced arithmetic expansion", "if [[ $(( a + 1 )) -gt 2 ]] { b=1 }\n", "if"},
+		{"spaced pattern group", "if [[ $a == (x|y z) ]] { b=1 }\n", "if"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -437,4 +447,7 @@ func TestParseAlternateIfRejectsBraceGluedToDoubleBracket(t *testing.T) {
 	// A word glued to `]]` is not the closing word either, in Zsh or in the parser.
 	assertParseErrorAt(t, []byte("if [[ -n $a]] { b=1 }\n"), "not a valid test operator: `{`", 1, 15)
 	assertParseErrorAt(t, []byte("if [[ $a == \"x\"]] { b=1 }\n"), "not a valid test operator: `{`", 1, 19)
+	// An unescaped `)` inside a bracket class is a parse error in Zsh too, so
+	// the adapter leaves the parser's own error in place.
+	assertParseErrorAt(t, []byte("if [[ $a == [)]] ]] { b=1 }\n"), "reached `)` without matching `[[` with `]]`", 1, 4)
 }

@@ -548,28 +548,113 @@ func skipAlternateConditionSpaces(src []byte, i int) int {
 
 // scanClosingDoubleBracket returns the offset just past the `]]` that closes
 // the conditional expression opened at start, or -1. Like the parser, it
-// accepts `]]` only as a whole word: `x]]`, `[^\]]`, `([]])`, and `"]]"` are
-// part of the pattern or string that contains them, so a `]]` counts only
-// after whitespace or a group close, and before whitespace, a separator,
-// `)`, or the end of the source.
+// accepts `]]` only as a whole word: `x]]`, `[^\]]`, `([]])`, `(x)]]`, and
+// `"]]"` are part of the pattern or string that contains them. A `]]` counts
+// only at a word start or right after the `)` that closes a condition group,
+// and before whitespace, a separator, `)`, or the end of the source.
+//
+// A `(` opens a condition group only where a condition may start: after
+// `[[`, another group open, `&&`, `||`, or `!`. Elsewhere it is part of a
+// pattern word, as in `$a == (x)]] ]]`, and its `)` does not end the group.
 func scanClosingDoubleBracket(src []byte, start int) int {
-	inSingle := false
-	inDouble := false
-	for i := start + 2; i+1 < len(src); i++ {
+	var (
+		inSingle, inDouble, inANSIC bool
+		groupDepth                  int // open condition groups
+		patternDepth                int // open pattern parens in the current word
+		wordLen                     int
+		wordIsBang                  bool
+		atWordStart                 = true
+		atConditionStart            = true // a `(` here opens a group
+		afterGroupClose             bool
+	)
+	endWord := func() {
+		if wordLen > 0 {
+			atConditionStart = wordIsBang
+		}
+		wordLen = 0
+		wordIsBang = false
+		patternDepth = 0
+		atWordStart = true
+	}
+	wordByte := func(b byte) {
+		wordIsBang = wordLen == 0 && b == '!'
+		wordLen++
+		atWordStart = false
+		afterGroupClose = false
+	}
+	for i := start + 2; i < len(src); i++ {
 		b := src[i]
 		switch {
 		case inSingle:
 			inSingle = b != '\''
-		case b == '\\':
-			i++
+		case inANSIC:
+			switch b {
+			case '\\':
+				i++
+			case '\'':
+				inANSIC = false
+			}
 		case inDouble:
-			inDouble = b != '"'
+			switch b {
+			case '\\':
+				i++
+			case '"':
+				inDouble = false
+			}
+		case b == '\\':
+			if i+1 < len(src) && src[i+1] == '\n' {
+				i++
+				endWord()
+				continue
+			}
+			wordByte(b)
+			i++
 		case b == '\'':
 			inSingle = true
+			wordByte(b)
 		case b == '"':
 			inDouble = true
-		case b == ']' && src[i+1] == ']' && isConditionCloseStart(src[i-1]) && (i+2 == len(src) || isConditionWordEnd(src[i+2])):
+			wordByte(b)
+		case b == '$' && i+1 < len(src) && src[i+1] == '\'':
+			inANSIC = true
+			wordByte(b)
+			i++
+		case isConditionWordSpace(b):
+			// Whitespace inside `$( f )`, `$(( a + 1 ))`, or `(x|y z)` stays
+			// inside the word.
+			if patternDepth == 0 {
+				endWord()
+			}
+		case (b == '&' || b == '|') && i+1 < len(src) && src[i+1] == b:
+			endWord()
+			atConditionStart = true
+			afterGroupClose = false
+			i++
+		case b == '(':
+			if atWordStart && atConditionStart {
+				groupDepth++
+				afterGroupClose = false
+				continue
+			}
+			patternDepth++
+			wordByte(b)
+		case b == ')':
+			if patternDepth > 0 {
+				patternDepth--
+				wordByte(b)
+				continue
+			}
+			if groupDepth == 0 {
+				return -1
+			}
+			groupDepth--
+			endWord()
+			atConditionStart = false
+			afterGroupClose = true
+		case b == ']' && i+1 < len(src) && src[i+1] == ']' && (atWordStart || afterGroupClose) && (i+2 == len(src) || isConditionWordEnd(src[i+2])):
 			return i + 2
+		default:
+			wordByte(b)
 		}
 	}
 	return -1
@@ -577,12 +662,6 @@ func scanClosingDoubleBracket(src []byte, start int) int {
 
 func isConditionWordSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n'
-}
-
-// isConditionCloseStart reports whether b may precede the closing `]]`: Zsh
-// accepts `( $a == x )]]` with the group close glued to the terminator.
-func isConditionCloseStart(b byte) bool {
-	return isConditionWordSpace(b) || b == ')'
 }
 
 func isConditionWordEnd(b byte) bool {

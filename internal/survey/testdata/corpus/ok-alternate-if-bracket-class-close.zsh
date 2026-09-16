@@ -5,6 +5,7 @@
 # quoted string belongs to the condition.
 local a b __arg __style braces_stack __arg_type
 typeset -A _fsh_assigns_seen
+f() { print x }
 if [[ $a == ([\]]) ]] { b=1 }
 if [[ $a == [^\]] ]] { b=1 }
 if [[ $a == ([]]) ]] { b=1 }
@@ -22,6 +23,16 @@ if [[ ( $a == x )]] { b=1 }
 if [[ ($a == x)]] { b=1 }
 if [[ $a == x \
 ]] { b=1 }
+if [[ $a == $'x\' ]] y' ]] { b=1 }
+if [[ $a == $'x ]] y' ]] { b=1 }
+if [[ $a == (x)]] ]] { b=1 }
+if [[ $a == [\)]] ]] { b=1 }
+if [[ ($a == x)&&($b == y)]] { b=1 }
+if [[ ! ($a == x)]] { b=1 }
+if [[ $a == x&&$b == y ]] { b=1 }
+if [[ $( f ) == x ]] { b=1 }
+if [[ $(( a + 1 )) -gt 2 ]] { b=1 }
+if [[ $a == (x|y z) ]] { b=1 }
 # F-Sy-H lib/highlight.zsh
 if [[ $__arg == [a-zA-Z_][a-zA-Z0-9_]#(|\[[^\]]#\])(|[^\]]#\])(|[+])=* || $__arg == [0-9]##(|[+])=* || ( $braces_stack = T* && ${__arg_type} != 3 ) ]] {
   __style=${_fsh_theme_name}assign
