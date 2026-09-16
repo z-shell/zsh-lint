@@ -17,6 +17,7 @@ var requiredFixtures = []string{
 	"ok-alternate-if-brace.zsh",
 	"ok-anonymous-function-arguments.zsh",
 	"ok-ansic-heredoc.zsh",
+	"ok-assign-always.zsh",
 	"ok-assoc-subscript-keys.zsh",
 	"ok-baseline.zsh",
 	"ok-brace-termination.zsh",

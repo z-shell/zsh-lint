@@ -37,6 +37,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"groupedCase":       {attempt: parseGroupedCasePattern, source: "case x in\n  (x|y)) : ;;\nesac"},
 	"ansiCHeredoc":      {attempt: parseANSICHeredocDelimiter, source: "cat <<$'E\\x4fF'\nbody\nEOF"},
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
+	"assignAlways":      {attempt: parseAssignAlways, source: "print ${x::=value}"},
 }
 
 func parseString(t *testing.T, src string) error {
