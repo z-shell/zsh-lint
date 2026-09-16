@@ -111,6 +111,16 @@ if [[ $PMSPEC != *f* ]] {
 			wantStmts: 1,
 		},
 		{
+			name:      "hash after a space inside an expansion in body",
+			src:       "if (( x )) { a=${b## ##} } else { a=${${c## ##}%% %%} }\n",
+			wantStmts: 1,
+		},
+		{
+			name:      "braces quotes and keywords inside expansions in body",
+			src:       "if (( x )) { a=${b:-\"}\"} c=${d:-'}'} e=${f//\\}/x} g=${h:-{1,2}} k=${l:-if} m=${n:-a;b} } elif (( y )) { print ${o:-a|b} } else { print ${p:-a&b} }\n",
+			wantStmts: 1,
+		},
+		{
 			name:    "invalid undelimited if must fail",
 			src:     `if true { print "bad"; }`,
 			wantErr: true,

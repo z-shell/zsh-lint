@@ -11,3 +11,13 @@ if (( SECONDS >= 1 )) {
 }
 if (( cur )) { print ${#frames} } else { print ${#frames[1]} }
 if [[ -n $frames ]] { print "${#frames}" $#frames ${frames:#a} ${${frames[1]}#a} }
+# Bytes inside an expansion are word bytes: `## ##` holds no comment, so the
+# body's closing brace and the else chain stay visible to the scanner
+# (minimized from z-a-meta-plugins _z_a_meta_plugins_before_load_handler).
+local -A ZI
+ZI[annex-before-load:new-@]='a b '
+if (( cur )) {
+  ZI[annex-before-load:new-@]=${ZI[annex-before-load:new-@]## ##}
+} else {
+  ZI[annex-before-load:new-@]=${${ZI[annex-before-load:new-@]## ##}%% %%}
+}
