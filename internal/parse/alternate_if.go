@@ -546,15 +546,47 @@ func skipAlternateConditionSpaces(src []byte, i int) int {
 	}
 }
 
+// scanClosingDoubleBracket returns the offset just past the `]]` that closes
+// the conditional expression opened at start, or -1. Like the parser, it
+// accepts `]]` only as a whole word: `x]]`, `[^\]]`, `([]])`, and `"]]"` are
+// part of the pattern or string that contains them, so a `]]` counts only
+// after whitespace or a group close, and before whitespace, a separator,
+// `)`, or the end of the source.
 func scanClosingDoubleBracket(src []byte, start int) int {
-	i := start + 2
-	for i+1 < len(src) {
-		if src[i] == ']' && src[i+1] == ']' {
+	inSingle := false
+	inDouble := false
+	for i := start + 2; i+1 < len(src); i++ {
+		b := src[i]
+		switch {
+		case inSingle:
+			inSingle = b != '\''
+		case b == '\\':
+			i++
+		case inDouble:
+			inDouble = b != '"'
+		case b == '\'':
+			inSingle = true
+		case b == '"':
+			inDouble = true
+		case b == ']' && src[i+1] == ']' && isConditionCloseStart(src[i-1]) && (i+2 == len(src) || isConditionWordEnd(src[i+2])):
 			return i + 2
 		}
-		i++
 	}
 	return -1
+}
+
+func isConditionWordSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n'
+}
+
+// isConditionCloseStart reports whether b may precede the closing `]]`: Zsh
+// accepts `( $a == x )]]` with the group close glued to the terminator.
+func isConditionCloseStart(b byte) bool {
+	return isConditionWordSpace(b) || b == ')'
+}
+
+func isConditionWordEnd(b byte) bool {
+	return isConditionWordSpace(b) || b == ';' || b == '&' || b == '|' || b == ')'
 }
 
 func scanClosingDoubleParen(src []byte, start int) int {

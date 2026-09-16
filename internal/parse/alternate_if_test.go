@@ -358,3 +358,83 @@ func TestParseAlternateIfAllowsWhileAndContinuationNewlines(t *testing.T) {
 		})
 	}
 }
+
+// Issue #254: the condition of a brace-form if, elif, or while ends only at a
+// `]]` that is a whole word. A `]]` inside a bracket class, a pattern, or a
+// quoted string belongs to the condition, exactly as the parser reads it in
+// the classic `; then` form. Minimized from z-shell/F-Sy-H lib/highlight.zsh:747.
+func TestParseAlternateIfConditionKeepsEmbeddedDoubleBrackets(t *testing.T) {
+	tests := []struct {
+		name     string
+		src      string
+		wantKind string
+	}{
+		{"bracket class in group", "if [[ $a == ([\\]]) ]] { b=1 }\n", "if"},
+		{"negated bracket class", "if [[ $a == [^\\]] ]] { b=1 }\n", "if"},
+		{"leading close in class", "if [[ $a == ([]]) ]] { b=1 }\n", "if"},
+		{"class followed by close", "if [[ $a == [\\]]] ]] { b=1 }\n", "if"},
+		{"character class name", "if [[ $a == [[:alpha:]] ]] { b=1 }\n", "if"},
+		{"glued to a word", "if [[ $a == x]] ]] { b=1 }\n", "if"},
+		{"double quoted", "if [[ $a == \"]]\" ]] { b=1 }\n", "if"},
+		{"single quoted", "if [[ $a == ']]' ]] { b=1 }\n", "if"},
+		{"spaced inside quotes", "if [[ $a == \"x ]] y\" ]] { b=1 }\n", "if"},
+		{"subscript close", "if [[ $a == $b[1]] ]] { b=1 }\n", "if"},
+		{"while", "while [[ $a == ([\\]]) ]] { b=1 }\n", "while"},
+		{"elif", "if [[ $a == x ]] { b=1 } elif [[ $a == [^\\]] ]] { b=2 }\n", "if"},
+		{"chained condition", "if [[ $a == x ]] && [[ $b == \"]]\" ]] { b=1 }\n", "if"},
+		{"group close glued to the terminator", "if [[ ( $a == x )]] { b=1 }\n", "if"},
+		{"unspaced group glued to the terminator", "if [[ ($a == x)]] { b=1 }\n", "if"},
+		{"line continuation before the terminator", "if [[ $a == x \\\n]] { b=1 }\n", "if"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse(%q) failed: %v", test.src, err)
+			}
+			stmts := file.AST().Stmts
+			if len(stmts) != 1 {
+				t.Fatalf("len(Stmts) = %d, want 1", len(stmts))
+			}
+			var body []*syntax.Stmt
+			switch cmd := stmts[0].Cmd.(type) {
+			case *syntax.IfClause:
+				if test.wantKind != "if" {
+					t.Fatalf("Cmd is %T, want %s", cmd, test.wantKind)
+				}
+				body = cmd.Then
+			case *syntax.WhileClause:
+				if test.wantKind != "while" {
+					t.Fatalf("Cmd is %T, want %s", cmd, test.wantKind)
+				}
+				body = cmd.Do
+			default:
+				t.Fatalf("Cmd is %T, want an if or while clause", cmd)
+			}
+			if len(body) != 1 {
+				t.Fatalf("len(body) = %d, want 1", len(body))
+			}
+			// The body is the first `b=` in the source; the retry must keep it there.
+			bodyOffset := strings.Index(test.src, "b=")
+			wantLine := uint(strings.Count(test.src[:bodyOffset], "\n") + 1)
+			wantCol := uint(bodyOffset - strings.LastIndex(test.src[:bodyOffset], "\n"))
+			if pos := body[0].Pos(); pos.Line() != wantLine || pos.Col() != wantCol {
+				t.Errorf("body position = %d:%d, want %d:%d", pos.Line(), pos.Col(), wantLine, wantCol)
+			}
+		})
+	}
+}
+
+// A `]]` glued to the following `{` is not the closing word, in Zsh or in the
+// parser, so the brace-form retry must leave the parser error alone.
+func TestParseAlternateIfRejectsBraceGluedToDoubleBracket(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/invalid-254-brace-glued-to-double-bracket.txt")
+	if err != nil {
+		t.Fatalf("read invalid fixture: %v", err)
+	}
+	assertParseErrorAt(t, fixture, "not a valid test operator: `]]{`", 1, 15)
+	assertParseErrorAt(t, []byte("while [[ $a == x ]]{ b=1 }\n"), "not a valid test operator: `]]{`", 1, 18)
+	// A word glued to `]]` is not the closing word either, in Zsh or in the parser.
+	assertParseErrorAt(t, []byte("if [[ -n $a]] { b=1 }\n"), "not a valid test operator: `{`", 1, 15)
+	assertParseErrorAt(t, []byte("if [[ $a == \"x\"]] { b=1 }\n"), "not a valid test operator: `{`", 1, 19)
+}
