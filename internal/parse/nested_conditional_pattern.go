@@ -16,6 +16,13 @@ const invalidAlternationOperator = "not a valid test operator: `|`"
 // after literal text: `(a|(c|d))` lexes as one literal up to the first `)`,
 // and the second `)` then ends the `[[` clause. Its offset is the `[[`.
 const unmatchedConditionalClose = "reached `)` without matching `[[` with `]]`"
+
+// unclosedDoubleQuote and unclosedSingleQuote are what mvdan reports when a
+// quoted `)` sits inside a pattern group: `(x")"y)` lexes as the literal
+// `(x")` up to the first `)`, and the second `"` then opens a string that
+// never closes. A `$'...'` string reports the plain `'` token.
+const unclosedDoubleQuote = "reached EOF without closing quote `\"`"
+const unclosedSingleQuote = "reached EOF without closing quote `'`"
 const nestedPatternMask byte = 'x'
 
 type patternEdit struct {
@@ -141,6 +148,8 @@ type activePatternState struct {
 	bracketANSIC        bool
 	bracketANSICOpen    bool
 	numericRangeEnd     int
+	seedOffset          int
+	quotedCloses        []int
 	seed                bool
 	invalid             bool
 }
@@ -177,8 +186,7 @@ func parseNestedConditionalAlternationWithParser(
 	probes ...legacyBacktickWorkProbe,
 ) (*syntax.File, error) {
 	var parseErr syntax.ParseError
-	if !errors.As(firstErr, &parseErr) ||
-		(parseErr.Text != invalidAlternationOperator && parseErr.Text != unmatchedConditionalClose) {
+	if !errors.As(firstErr, &parseErr) || !nestedPatternSeedError(parseErr.Text) {
 		return nil, firstErr
 	}
 	batch, ok := nestedPatternBatch(src, int(parseErr.Pos.Offset()))
@@ -216,6 +224,14 @@ func parseNestedConditionalAlternationWithParser(
 		return nil, fmt.Errorf("%s: restoring nested conditional pattern: %w", name, err)
 	}
 	return tree, nil
+}
+
+func nestedPatternSeedError(text string) bool {
+	switch text {
+	case invalidAlternationOperator, unmatchedConditionalClose, unclosedDoubleQuote, unclosedSingleQuote:
+		return true
+	}
+	return false
 }
 
 func nestedPatternBatchEdits(
@@ -299,6 +315,9 @@ func scanConditionalPatterns(
 		frame := &frames[len(frames)-1]
 		if frame.escaped {
 			frame.escaped = false
+			if b == ')' {
+				noteQuotedPatternClose(frame, i)
+			}
 			if frame.kind != activeSourceBacktickSubstitutionFrame ||
 				frame.quote != activeSourceUnquoted || b != '`' {
 				continue
@@ -309,6 +328,8 @@ func scanConditionalPatterns(
 		case activeSourceSingleQuoted:
 			if b == '\'' {
 				frame.quote = activeSourceUnquoted
+			} else if b == ')' {
+				noteQuotedPatternClose(frame, i)
 			}
 			continue
 		case activeSourceANSICQuoted:
@@ -318,6 +339,8 @@ func scanConditionalPatterns(
 			}
 			if b == '\'' {
 				frame.quote = activeSourceUnquoted
+			} else if b == ')' {
+				noteQuotedPatternClose(frame, i)
 			}
 			continue
 		case activeSourceDoubleQuoted:
@@ -339,6 +362,8 @@ func scanConditionalPatterns(
 			}
 			if b == '"' {
 				frame.quote = activeSourceUnquoted
+			} else if b == ')' {
+				noteQuotedPatternClose(frame, i)
 			}
 			continue
 		}
@@ -491,8 +516,9 @@ func scanConditionalPatterns(
 				// An unmatched-close seed points at the `[[`; a `|` seed is matched
 				// below when the byte is consumed.
 				frame.conditional.pattern = &activePatternState{
-					rhsStart: -1,
-					seed:     frame.conditional.start == seedOffset,
+					rhsStart:   -1,
+					seedOffset: seedOffset,
+					seed:       frame.conditional.start == seedOffset,
 				}
 				i = operatorEnd - 1
 				frame.atWordStart = false
@@ -780,6 +806,9 @@ func activePatternByteConsumed(
 	if pattern.inBracketExpression {
 		if pattern.bracketEscaped {
 			pattern.bracketEscaped = false
+			if b == ')' {
+				noteQuotedPatternClose(frame, offset)
+			}
 			return true
 		}
 		if pattern.bracketQuote == '\'' {
@@ -794,6 +823,8 @@ func activePatternByteConsumed(
 			if b == '\'' {
 				pattern.bracketQuote = 0
 				pattern.bracketANSIC = false
+			} else if b == ')' {
+				noteQuotedPatternClose(frame, offset)
 			}
 			return true
 		}
@@ -804,6 +835,8 @@ func activePatternByteConsumed(
 			}
 			if b == '"' {
 				pattern.bracketQuote = 0
+			} else if b == ')' {
+				noteQuotedPatternClose(frame, offset)
 			}
 			return true
 		}
@@ -928,24 +961,47 @@ func finalizeActivePattern(
 		}
 		return
 	}
-	if len(pattern.pairs) == 0 {
+	if len(pattern.pairs) == 0 && len(pattern.quotedCloses) == 0 {
 		return
 	}
-	edits := make([]patternEdit, 0, len(pattern.pairs)*2)
+	edits := make([]patternEdit, 0, len(pattern.pairs)*2+len(pattern.quotedCloses))
 	for _, pair := range pattern.pairs {
 		edits = append(edits,
 			patternEdit{offset: pair.open, original: '(', replacement: nestedPatternMask},
 			patternEdit{offset: pair.close, original: ')', replacement: nestedPatternMask},
 		)
 	}
+	seed := pattern.seed
+	for _, offset := range pattern.quotedCloses {
+		edits = append(edits, patternEdit{offset: offset, original: ')', replacement: nestedPatternMask})
+	}
+	// An unclosed-quote seed points at the quote the lexer reopened after it
+	// ended the group at the quoted `)`, somewhere inside this operand.
+	if len(pattern.quotedCloses) > 0 && pattern.rhsStart <= pattern.seedOffset && pattern.seedOffset < rhsEnd {
+		seed = true
+	}
 	*candidates = append(*candidates, patternCandidate{
 		conditionalStart: frame.conditional.start,
 		rhsStart:         pattern.rhsStart,
 		rhsEnd:           rhsEnd,
 		edits:            edits,
-		seed:             pattern.seed,
+		seed:             seed,
 	})
 	frame.adaptedPattern = true
+}
+
+// noteQuotedPatternClose records a quoted or backslash-escaped `)` inside an
+// open pattern group. The lexer ends a group at the first `)` whatever quotes
+// it, so the byte is masked for the retry and restored in the literal.
+func noteQuotedPatternClose(frame *activeSourceFrame, offset int) {
+	if frame.conditional == nil || frame.conditional.pattern == nil {
+		return
+	}
+	pattern := frame.conditional.pattern
+	if pattern.invalid || len(pattern.openings) == 0 {
+		return
+	}
+	pattern.quotedCloses = append(pattern.quotedCloses, offset)
 }
 
 func invalidateActivePattern(frame *activeSourceFrame, offset int) {

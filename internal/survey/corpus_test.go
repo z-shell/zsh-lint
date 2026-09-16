@@ -29,6 +29,7 @@ var requiredFixtures = []string{
 	"ok-assoc-subscript-keys.zsh",
 	"ok-baseline.zsh",
 	"ok-brace-termination.zsh",
+	"ok-cond-group-quoted-paren.zsh",
 	"ok-fd-var-redirect.zsh",
 	"ok-function-semicolon-body.zsh",
 	"ok-glob-patterns.zsh",
