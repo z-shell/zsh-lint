@@ -28,6 +28,7 @@ var requiredFixtures = []string{
 	"ok-assoc-key-leading-angle.zsh",
 	"ok-assoc-subscript-keys.zsh",
 	"ok-baseline.zsh",
+	"ok-brace-decl-termination.zsh",
 	"ok-brace-termination.zsh",
 	"ok-cond-group-quoted-paren.zsh",
 	"ok-fd-var-redirect.zsh",
