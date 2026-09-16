@@ -1,0 +1,1 @@
+print -r -- ${line[(i)[]a]]}
