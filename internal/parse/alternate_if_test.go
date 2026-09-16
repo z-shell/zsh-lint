@@ -96,6 +96,31 @@ if [[ $PMSPEC != *f* ]] {
 			wantStmts: 1,
 		},
 		{
+			name:      "length expansion in body",
+			src:       "if (( x )) { print ${#a} }\n",
+			wantStmts: 1,
+		},
+		{
+			name:      "length expansion in else body",
+			src:       "if (( x )) { print x; } else { print ${#a} }\n",
+			wantStmts: 1,
+		},
+		{
+			name:      "nested expansion with hash in body",
+			src:       "if (( x )) { print ${${a[1]}#b} ${a:#b} $#a \"${#a}\" }\n",
+			wantStmts: 1,
+		},
+		{
+			name:      "hash after a space inside an expansion in body",
+			src:       "if (( x )) { a=${b## ##} } else { a=${${c## ##}%% %%} }\n",
+			wantStmts: 1,
+		},
+		{
+			name:      "braces quotes and keywords inside expansions in body",
+			src:       "if (( x )) { a=${b:-\"}\"} c=${d:-'}'} e=${f//\\}/x} g=${h:-{1,2}} k=${l:-if} m=${n:-a;b} } elif (( y )) { print ${o:-a|b} } else { print ${p:-a&b} }\n",
+			wantStmts: 1,
+		},
+		{
 			name:    "invalid undelimited if must fail",
 			src:     `if true { print "bad"; }`,
 			wantErr: true,
@@ -148,6 +173,39 @@ func TestParseAlternateIfPositions(t *testing.T) {
 	// "  print -r -- "hello"" is on line 2, starting at column 3
 	if thenStmt.Pos().Line() != 2 || thenStmt.Pos().Col() != 3 {
 		t.Errorf("thenStmt.Pos() = %v, want 2:3", thenStmt.Pos())
+	}
+}
+
+// Issue #230: `${` inside a brace-form if body was scanned as a block opener,
+// so the `#` of `${#a}` started a comment that swallowed the closing brace.
+// The retry is byte-length preserving, so the body keeps its position and the
+// expansion its original text.
+func TestParseAlternateIfLengthExpansionInBody(t *testing.T) {
+	src := "if (( x )) { print ${#a} } else { print ${#b} }\n"
+	file, err := Parse(strings.NewReader(src), "length.zsh")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	ifc, ok := file.AST().Stmts[0].Cmd.(*syntax.IfClause)
+	if !ok {
+		t.Fatalf("Cmd is not *syntax.IfClause: %T", file.AST().Stmts[0].Cmd)
+	}
+	if len(ifc.Then) != 1 || ifc.Else == nil || len(ifc.Else.Then) != 1 {
+		t.Fatalf("unexpected clause shape: then=%d else=%v", len(ifc.Then), ifc.Else != nil)
+	}
+	call, ok := ifc.Then[0].Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) != 2 {
+		t.Fatalf("Then[0] is not a two-word call: %T", ifc.Then[0].Cmd)
+	}
+	if got := call.Args[0].Pos(); got.Line() != 1 || got.Col() != 14 {
+		t.Errorf("Then[0] print position = %v, want 1:14", got)
+	}
+	pe, ok := call.Args[1].Parts[0].(*syntax.ParamExp)
+	if !ok || !pe.Length || pe.Param.Value != "a" {
+		t.Fatalf("Then[0] argument is not ${#a}: %#v", call.Args[1].Parts[0])
+	}
+	if got := pe.Pos(); got.Line() != 1 || got.Col() != 20 {
+		t.Errorf("${#a} position = %v, want 1:20", got)
 	}
 }
 
