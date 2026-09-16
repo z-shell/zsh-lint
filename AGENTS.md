@@ -46,9 +46,7 @@ Read the matching file before changing code under its path; Copilot loads them b
 
 `docs/project/README.md` separates the living contracts from dated survey reports.
 
-The root `README.md` is a minimal signpost for the GitHub landing page;
-`docs/README.md` holds the repo-local pointers and contributor quickstart. Both
-point at the wiki as the canonical reading surface.
+The root `README.md` is the GitHub landing page, shaped by the organization README template: it summarizes the CLI, configuration, output, and exit-code contracts and must stay verified against `cmd/zsh-lint` and `docs/project/*.md`. `docs/README.md` holds the repo-local pointers and contributor quickstart. Both point at the wiki as the canonical reading surface.
 
 ## Build & test
 
