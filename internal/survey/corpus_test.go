@@ -14,14 +14,21 @@ import (
 // against accidental deletion without asserting a brittle total count
 // (issue #14): new fixtures can be added freely without touching this test.
 var requiredFixtures = []string{
+	"ok-alternate-if-brace-continuation.zsh",
+	"ok-alternate-if-brace-length-expansion.zsh",
 	"ok-alternate-if-brace.zsh",
+	"ok-alternate-if-nested-in-classic-if.zsh",
 	"ok-anonymous-function-arguments.zsh",
 	"ok-ansic-heredoc.zsh",
 	"ok-assign-always.zsh",
+	"ok-assoc-key-dot-assignment.zsh",
+	"ok-assoc-key-hyphen-punctuation.zsh",
+	"ok-assoc-key-leading-angle.zsh",
 	"ok-assoc-subscript-keys.zsh",
 	"ok-baseline.zsh",
 	"ok-brace-termination.zsh",
 	"ok-fd-var-redirect.zsh",
+	"ok-function-semicolon-body.zsh",
 	"ok-glob-patterns.zsh",
 	"ok-grouped-case-pattern.zsh",
 	"ok-multi-name-loop.zsh",
