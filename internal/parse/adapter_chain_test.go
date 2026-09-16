@@ -33,6 +33,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"alternateIf":       {attempt: parseAlternateIfBrace, source: "if (( 1 )) { x=1 }"},
 	"assocSubscript":    {attempt: parseAssociativeSubscript, source: "print ${functions[.foo]}"},
 	"secondSubscript":   {attempt: parseSecondSubscript, source: "print ${a[b][1,50]}"},
+	"flagBracket":       {attempt: parseSubscriptFlagBracketPattern, source: "print ${line[(i)[a]]}"},
 	"tryAlways":         {attempt: parseTryAlways, source: "{ true } always { true }"},
 	"multiNameFor":      {attempt: parseMultiNameFor, source: "for a b in 1 2; do print $a$b; done"},
 	"groupedCase":       {attempt: parseGroupedCasePattern, source: "case x in\n  (x|y)) : ;;\nesac"},
