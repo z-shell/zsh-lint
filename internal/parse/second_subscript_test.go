@@ -25,6 +25,7 @@ func TestParseSecondSubscript(t *testing.T) {
 		subscripts []string
 		exp        syntax.ParExpOperator
 		length     bool
+		isSet      bool
 	}{
 		{name: "element of element", src: "print ${a[1][2]}\n", param: "a", first: "1", subscripts: []string{"2"}},
 		{name: "range of element", src: "print ${a[b][1,50]}\n", param: "a", first: "b", subscripts: []string{"1,50"}},
@@ -36,6 +37,7 @@ func TestParseSecondSubscript(t *testing.T) {
 		{name: "three subscripts", src: "print ${a[1][2][3]}\n", param: "a", first: "1", subscripts: []string{"2", "3"}},
 		{name: "ranges throughout", src: "print ${a[1,2][3,4][5,6]}\n", param: "a", first: "1,2", subscripts: []string{"3,4", "5,6"}},
 		{name: "length prefix", src: "print ${#a[b][1]}\n", param: "a", first: "b", subscripts: []string{"1"}, length: true},
+		{name: "existence prefix", src: "print ${+a[b][1]}\n", param: "a", first: "b", subscripts: []string{"1"}, isSet: true},
 		{name: "flagged param", src: "print ${(f)a[b][1]}\n", param: "a", first: "b", subscripts: []string{"1"}},
 		{name: "negative index", src: "print ${a[b][-1]}\n", param: "a", first: "b", subscripts: []string{"-1"}},
 		{name: "expansion index", src: "print ${a[b][${i}]}\n", param: "a", first: "b", subscripts: []string{"${i}"}},
@@ -72,6 +74,9 @@ func TestParseSecondSubscript(t *testing.T) {
 			}
 			if exp.Length != tt.length {
 				t.Errorf("Length = %v, want %v", exp.Length, tt.length)
+			}
+			if exp.IsSet != tt.isSet {
+				t.Errorf("IsSet = %v, want %v", exp.IsSet, tt.isSet)
 			}
 			if got := tt.src[exp.Pos().Offset():exp.End().Offset()]; !strings.HasPrefix(got, "${") || !strings.HasSuffix(got, "}") {
 				t.Errorf("expansion span = %q, want the whole ${...}", got)
@@ -118,6 +123,52 @@ func TestSecondSubscriptKeepsArithmeticShape(t *testing.T) {
 	}
 }
 
+// A second subscript nested inside another expansion's later subscript is
+// split as well: the walk collects every expansion before any index is
+// re-pointed, so the inner expansion is still reachable.
+func TestSecondSubscriptSplitsNestedExpansions(t *testing.T) {
+	src := "print ${a[1][${b[2][3]}]}\n"
+	file, err := Parse(strings.NewReader(src), "second-subscript.zsh")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	seconds := file.SecondSubscripts()
+	if len(seconds) != 2 {
+		t.Fatalf("SecondSubscripts() = %d entries, want 2", len(seconds))
+	}
+	want := []struct {
+		param, first, second string
+	}{
+		{"a", "1", "${b[2][3]}"},
+		{"b", "2", "3"},
+	}
+	for i, w := range want {
+		got := seconds[i]
+		if got.Expansion.Param.Value != w.param {
+			t.Errorf("[%d] Param = %q, want %q", i, got.Expansion.Param.Value, w.param)
+		}
+		if text := nodeText(src, got.Expansion.Index); text != w.first {
+			t.Errorf("[%d] Index text = %q, want %q", i, text, w.first)
+		}
+		if len(got.Subscripts) != 1 {
+			t.Fatalf("[%d] Subscripts = %d, want 1", i, len(got.Subscripts))
+		}
+		if text := nodeText(src, got.Subscripts[0]); text != w.second {
+			t.Errorf("[%d] Subscripts[0] text = %q, want %q", i, text, w.second)
+		}
+	}
+	var inner []*syntax.ParamExp
+	syntax.Walk(seconds[0].Subscripts[0], func(node syntax.Node) bool {
+		if exp, ok := node.(*syntax.ParamExp); ok {
+			inner = append(inner, exp)
+		}
+		return true
+	})
+	if len(inner) != 1 || inner[0] != seconds[1].Expansion {
+		t.Errorf("outer second subscript holds %d expansions, want the inner entry's expansion", len(inner))
+	}
+}
+
 // A native range comma is not a subscript boundary: the source bytes at the
 // operator decide, so `${a[1,50]}` keeps its index and records nothing.
 func TestSecondSubscriptLeavesNativeCommaAlone(t *testing.T) {
@@ -140,12 +191,17 @@ func TestSecondSubscriptLeavesNativeCommaAlone(t *testing.T) {
 }
 
 func TestSecondSubscriptRejectsInvalidSources(t *testing.T) {
-	for _, fixture := range []string{
-		"testdata/invalid-215-unterminated-second-subscript.txt",
-		"testdata/invalid-215-double-close-before-second-subscript.txt",
-	} {
-		t.Run(fixture, func(t *testing.T) {
-			src, err := os.ReadFile(fixture)
+	tests := []struct {
+		fixture string
+		text    string
+		col     uint
+	}{
+		{"testdata/invalid-215-unterminated-second-subscript.txt", "reached `}` without matching `[` with `]`", 10},
+		{"testdata/invalid-215-double-close-before-second-subscript.txt", "not a valid parameter expansion operator: `]`", 13},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fixture, func(t *testing.T) {
+			src, err := os.ReadFile(tt.fixture)
 			if err != nil {
 				t.Fatalf("read invalid fixture: %v", err)
 			}
@@ -153,11 +209,22 @@ func TestSecondSubscriptRejectsInvalidSources(t *testing.T) {
 			if err == nil {
 				t.Fatal("Parse() accepted a source native Zsh rejects")
 			}
-			var parseErr syntax.ParseError
-			if !errors.As(err, &parseErr) || parseErr.Pos.Line() != 1 {
-				t.Fatalf("Parse() error = %v, want a parse error on line 1", err)
-			}
+			assertSecondSubscriptError(t, err, tt.text, 1, tt.col)
 		})
+	}
+}
+
+func assertSecondSubscriptError(t *testing.T, err error, text string, line, col uint) {
+	t.Helper()
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("error = %v (%T), want a syntax.ParseError", err, err)
+	}
+	if parseErr.Text != text {
+		t.Errorf("error text = %q, want %q", parseErr.Text, text)
+	}
+	if parseErr.Pos.Line() != line || parseErr.Pos.Col() != col {
+		t.Errorf("error position = %d:%d, want %d:%d", parseErr.Pos.Line(), parseErr.Pos.Col(), line, col)
 	}
 }
 
@@ -165,16 +232,10 @@ func TestSecondSubscriptRejectsInvalidSources(t *testing.T) {
 func TestSecondSubscriptPreservesLaterErrorPosition(t *testing.T) {
 	src := "print ${a[b][1,50]}\nif true; then\n"
 	_, err := Parse(strings.NewReader(src), "second-subscript.zsh")
-	var parseErr syntax.ParseError
-	if !errors.As(err, &parseErr) {
-		t.Fatalf("Parse() error = %v, want a parse error", err)
+	if err == nil {
+		t.Fatal("Parse() accepted an unterminated if")
 	}
-	if parseErr.Pos.Line() != 3 && parseErr.Pos.Line() != 2 {
-		t.Fatalf("error at %v, want the unterminated if on line 2 or its EOF", parseErr.Pos)
-	}
-	if parseErr.Text == invalidSecondSubscript {
-		t.Fatalf("error = %v, the second subscript was not accepted", err)
-	}
+	assertSecondSubscriptError(t, err, "`if` statement must end with `fi`", 2, 1)
 }
 
 // The printed tree is the closest typed shape: the first subscript stays in

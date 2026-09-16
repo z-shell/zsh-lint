@@ -112,50 +112,80 @@ func commaSpine(index syntax.ArithmExpr) []*syntax.BinaryArithm {
 // Each later subscript reuses the parser's own comma nodes: a node whose
 // left operand was the whole prefix is re-pointed at its group's first
 // operand, so every node and position in the result comes from the parse.
+//
+// The walk only collects: syntax.Walk reads an expansion's Index after the
+// callback returns, so re-pointing nodes during the walk would hide a
+// second subscript nested inside a later subscript, `${a[1][${b[2][3]}]}`.
+// The splits are applied once the whole tree has been visited.
 func bindSecondSubscripts(tree *syntax.File, src []byte) []SecondSubscript {
-	var found []SecondSubscript
+	var plans []subscriptSplit
 	syntax.Walk(tree, func(node syntax.Node) bool {
 		exp, ok := node.(*syntax.ParamExp)
 		if !ok || exp.Index == nil {
 			return true
 		}
-		spine := commaSpine(exp.Index)
-		if len(spine) == 0 {
-			return true
+		if plan, ok := planSubscriptSplit(exp, src); ok {
+			plans = append(plans, plan)
 		}
-		// Operands and their joining commas in source order.
-		operands := make([]syntax.ArithmExpr, 0, len(spine)+1)
-		commas := make([]*syntax.BinaryArithm, 0, len(spine))
-		operands = append(operands, spine[len(spine)-1].X)
-		for i := len(spine) - 1; i >= 0; i-- {
-			operands = append(operands, spine[i].Y)
-			commas = append(commas, spine[i])
-		}
-		var subscripts []syntax.ArithmExpr
-		var first syntax.ArithmExpr
-		groupStart := 0
-		for i, comma := range commas {
-			offset := int(comma.OpPos.Offset())
-			if offset+1 >= len(src) || src[offset] != ']' || src[offset+1] != '[' {
-				continue
-			}
-			group := foldSubscriptGroup(operands, commas, groupStart, i)
-			if first == nil {
-				first = group
-			} else {
-				subscripts = append(subscripts, group)
-			}
-			groupStart = i + 1
-		}
-		if first == nil {
-			return true
-		}
-		subscripts = append(subscripts, foldSubscriptGroup(operands, commas, groupStart, len(commas)))
-		exp.Index = first
-		found = append(found, SecondSubscript{Expansion: exp, Subscripts: subscripts})
 		return true
 	})
+	found := make([]SecondSubscript, 0, len(plans))
+	for _, plan := range plans {
+		found = append(found, plan.apply())
+	}
 	return found
+}
+
+// subscriptSplit is one expansion's comma spine, flattened into operands and
+// their joining commas in source order, with the indexes of the commas that
+// were `][` in the source.
+type subscriptSplit struct {
+	exp        *syntax.ParamExp
+	operands   []syntax.ArithmExpr
+	commas     []*syntax.BinaryArithm
+	boundaries []int
+}
+
+// planSubscriptSplit reads an expansion's index without changing it and
+// reports whether any of its commas is a masked subscript boundary.
+func planSubscriptSplit(exp *syntax.ParamExp, src []byte) (subscriptSplit, bool) {
+	spine := commaSpine(exp.Index)
+	if len(spine) == 0 {
+		return subscriptSplit{}, false
+	}
+	plan := subscriptSplit{exp: exp}
+	plan.operands = append(plan.operands, spine[len(spine)-1].X)
+	for i := len(spine) - 1; i >= 0; i-- {
+		plan.operands = append(plan.operands, spine[i].Y)
+		plan.commas = append(plan.commas, spine[i])
+	}
+	for i, comma := range plan.commas {
+		offset := int(comma.OpPos.Offset())
+		if offset+1 < len(src) && src[offset] == ']' && src[offset+1] == '[' {
+			plan.boundaries = append(plan.boundaries, i)
+		}
+	}
+	return plan, len(plan.boundaries) > 0
+}
+
+// apply folds each group between boundaries back into one expression, keeps
+// the first in the expansion's Index, and returns the rest.
+func (plan subscriptSplit) apply() SecondSubscript {
+	var subscripts []syntax.ArithmExpr
+	var first syntax.ArithmExpr
+	groupStart := 0
+	for _, i := range plan.boundaries {
+		group := foldSubscriptGroup(plan.operands, plan.commas, groupStart, i)
+		if first == nil {
+			first = group
+		} else {
+			subscripts = append(subscripts, group)
+		}
+		groupStart = i + 1
+	}
+	subscripts = append(subscripts, foldSubscriptGroup(plan.operands, plan.commas, groupStart, len(plan.commas)))
+	plan.exp.Index = first
+	return SecondSubscript{Expansion: plan.exp, Subscripts: subscripts}
 }
 
 // foldSubscriptGroup rebuilds operands[start:end+1] as one left-associative
