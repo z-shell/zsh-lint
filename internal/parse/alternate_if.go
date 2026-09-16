@@ -88,6 +88,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		kindElifThen
 		kindElse
 		kindWhileDo
+		kindParamExpansion
 	)
 	type blockFrame struct {
 		kind       blockKind
@@ -345,6 +346,18 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			}
 		}
 
+		if b == '$' && i+1 < len(src) && src[i+1] == '{' {
+			// `${` opens a parameter expansion, not a block. Its `}` is
+			// matched below so brace depth stays balanced, but the byte
+			// after it is inside a word: `${#a}` is the length operator,
+			// not a comment that would swallow the body's closing brace.
+			blockStack = append(blockStack, blockFrame{kind: kindParamExpansion, openOffset: i})
+			i += 2
+			atWordStart = false
+			atCommandStart = false
+			continue
+		}
+
 		if b == '{' {
 			blockStack = append(blockStack, blockFrame{kind: kindNormalBlock, openOffset: i})
 			i++
@@ -357,6 +370,12 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			if len(blockStack) > 0 {
 				top := blockStack[len(blockStack)-1]
 				blockStack = blockStack[:len(blockStack)-1]
+				if top.kind == kindParamExpansion {
+					i++
+					atWordStart = false
+					atCommandStart = false
+					continue
+				}
 				// Native Zsh continues a brace-form if with else or elif
 				// only on the same logical line as the closing brace. After a
 				// newline, `;`, or comment the if is complete and a following
