@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"sort"
+	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -81,8 +82,19 @@ func parseAnonymousFunctionArgs(
 // keyword, or an ordinary `followErr` single required token). A `followErr`
 // built from a free-form description (for example "must be followed by `in`,
 // `do`, `;`, or a newline") does not end in a backtick pair, so it correctly
-// fails to match and is treated as non-extendable below.
+// fails to match and is treated as non-extendable below. The one exception is
+// the closer being a literal backtick itself (an unclosed legacy backtick
+// command substitution): Go's "%#q" verb, which mvdan/sh formats every token
+// with, falls back to a double-quoted Go string for any token whose text
+// contains a backquote, so that case is handled separately below instead of
+// by this regexp.
 var closingTokenRe = regexp.MustCompile("`([^`]*)`$")
+
+// closingBacktickSuffix is how mvdan/sh's "%#q" verb renders a literal
+// backtick closer: Go's %#q falls back to a double-quoted string, not a
+// backtick-delimited one, for any token text that itself contains a
+// backquote.
+const closingBacktickSuffix = `"` + "`" + `"`
 
 // closingToken extracts the token that would resolve an "incomplete
 // construct" parse error, if err has that shape.
@@ -90,6 +102,9 @@ func closingToken(err error) (string, bool) {
 	var parseErr syntax.ParseError
 	if !errors.As(err, &parseErr) {
 		return "", false
+	}
+	if strings.HasSuffix(parseErr.Text, closingBacktickSuffix) {
+		return "`", true
 	}
 	m := closingTokenRe.FindStringSubmatch(parseErr.Text)
 	if m == nil {
@@ -120,16 +135,28 @@ func closingToken(err error) (string, bool) {
 // whole-file check for free from bindAnonymousInvocations, so this is
 // reserved for the rarer error-return path, where each already-accepted
 // candidate is confirmed once before its mask is trusted.
+//
+// maxClosers bounds the retry: closingToken matches any error ending in a
+// backtick-quoted (or literal-backtick) token, not just genuine
+// incompleteness ("not a valid parameter expansion operator: `+`" matches
+// too), and adapter rewrites on a truncated prefix can in principle ping-pong
+// between requested closers instead of converging. A real anonymous function
+// is never nested anywhere near this deep, so exhausting the bound only ever
+// means a false rejection, reported as the true, unmasked firstErr by the
+// caller, never a false acceptance.
 func prefixEndsWithAnonymousFunction(src []byte, name string, close int) bool {
 	if close < 0 || close >= len(src) || src[close] != '}' {
 		return false
 	}
 	prefix := append([]byte(nil), src[:close+1]...)
-	const maxClosers = 12
-	for i := 0; i < maxClosers; i++ {
+	const maxClosers = 32
+	for appended := 0; ; appended++ {
 		tree, err := parseWithAdapters(prefix, name)
 		if err == nil {
 			return funcDeclEndsAt(tree, close)
+		}
+		if appended >= maxClosers {
+			return false
 		}
 		token, ok := closingToken(err)
 		if !ok {
@@ -139,7 +166,6 @@ func prefixEndsWithAnonymousFunction(src []byte, name string, close int) bool {
 		prefix = append(prefix, token...)
 		prefix = append(prefix, '\n')
 	}
-	return false
 }
 
 func funcDeclEndsAt(tree *syntax.File, close int) bool {

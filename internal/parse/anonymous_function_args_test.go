@@ -2,6 +2,7 @@ package parse
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -104,6 +105,21 @@ func TestAnonymousFunctionInvocationAcrossLineContinuation(t *testing.T) {
 	}
 }
 
+// TestAnonymousFunctionInvocationCandidateInsideBacktickSubstitution
+// regression-tests validating a candidate whose enclosing, still-open
+// construct is a legacy backtick command substitution: mvdan/sh's "%#q" verb
+// renders a literal backtick closer as a double-quoted Go string, not the
+// usual backtick-delimited form, so closingToken must recognize that shape
+// too or a genuine candidate fails validation and the retry reports the
+// stale first error instead of the real, later blocker.
+func TestAnonymousFunctionInvocationCandidateInsideBacktickSubstitution(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/invalid-255-anonymous-invocation-backtick-nesting.txt")
+	if err != nil {
+		t.Fatalf("read invalid fixture: %v", err)
+	}
+	assertParseErrorAt(t, fixture, "`)` can only be used to close a subshell", 3, 1)
+}
+
 func TestAnonymousFunctionArgumentsComposeWithEarlierAdapters(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -186,6 +202,28 @@ func TestAnonymousFunctionArgsRetryReportsLaterBlocker(t *testing.T) {
 	}
 	if parseErr.Pos.Line() != 4 || parseErr.Pos.Col() != 1 {
 		t.Fatalf("error position = %d:%d, want 4:1 (the real later blocker, not the resolved candidate)", parseErr.Pos.Line(), parseErr.Pos.Col())
+	}
+}
+
+// TestAnonymousFunctionArgsRetryHandlesDeepNesting regression-tests the
+// maxClosers boundary in prefixEndsWithAnonymousFunction: a genuine
+// anonymous invocation nested 32 functions deep, followed by a later,
+// unrelated blocker, must still validate and report that later blocker
+// rather than being spuriously rejected as unvalidated.
+func TestAnonymousFunctionArgsRetryHandlesDeepNesting(t *testing.T) {
+	const depth = 32
+	source := strings.Repeat("f() {\n", depth) + "() { x; } y\n" + strings.Repeat("}\n", depth) + ")\n"
+	_, err := Parse(strings.NewReader(source), "deep-nesting.zsh")
+	if err == nil {
+		t.Fatal("Parse() unexpectedly accepted a trailing unmatched `)`")
+	}
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error type = %T, want syntax.ParseError", err)
+	}
+	wantLine := uint(2*depth + 2)
+	if parseErr.Pos.Line() != wantLine || parseErr.Pos.Col() != 1 {
+		t.Fatalf("error position = %d:%d, want %d:1 (the real later blocker, not a rejected deep candidate)", parseErr.Pos.Line(), parseErr.Pos.Col(), wantLine)
 	}
 }
 
