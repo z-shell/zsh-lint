@@ -29,14 +29,14 @@ gate commands described below.
 
 ## Inventory
 
-| Repository                      | Files                                                                        | Rationale                                                                                                                                                                      |
-| ------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `z-shell/src`                   | `public/zsh/init.zsh`                                                        | Zi loader; heaviest real-world Zsh (parameter-expansion flags, `always` blocks).                                                                                               |
-| `z-shell/zd`                    | `docker/utils.zsh`, `docker/zshrc`, `docker/zshenv`                          | CI bootstrap Zsh; mixes POSIX-ish and Zsh-native style.                                                                                                                        |
-| `z-shell/zunit`                 | `build.zsh`                                                                  | Build script; representative tooling Zsh.                                                                                                                                      |
-| `z-shell/z-a-meta-plugins`      | `z-a-meta-plugins.plugin.zsh`, `functions/` (dot-prefixed handler functions) | Annex entry plus handler functions using the strict-emulation pattern.                                                                                                         |
-| `z-shell/zsh-fancy-completions` | `zsh-fancy-completions.plugin.zsh`, `lib/`                                   | Completion-style plugin; globbing, zstyle, and completion-discovery heavy.                                                                                                     |
-| `z-shell/zsh-eza`               | `zsh-eza.plugin.zsh`, `functions/` (dot-prefixed handler function)           | Small, typical plugin entry file plus a strict-emulation handler function, the same pattern `z-a-meta-plugins` was included for; omitted from the initial corpus by oversight. |
+| Repository                      | Files                                                                              | Rationale                                                                                                                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `z-shell/src`                   | `public/zsh/init.zsh`                                                              | Zi loader; heaviest real-world Zsh (parameter-expansion flags, `always` blocks).                                                                                               |
+| `z-shell/zd`                    | `docker/utils.zsh`, `docker/zshrc`, `docker/zshenv`                                | CI bootstrap Zsh; mixes POSIX-ish and Zsh-native style.                                                                                                                        |
+| `z-shell/zunit`                 | `build.zsh`                                                                        | Build script; representative tooling Zsh.                                                                                                                                      |
+| `z-shell/z-a-meta-plugins`      | `z-a-meta-plugins.plugin.zsh`, `functions/` (underscore-prefixed handler function) | Annex entry plus a handler function using the strict-emulation pattern.                                                                                                        |
+| `z-shell/zsh-fancy-completions` | `zsh-fancy-completions.plugin.zsh`, `lib/`                                         | Completion-style plugin; globbing, zstyle, and completion-discovery heavy.                                                                                                     |
+| `z-shell/zsh-eza`               | `zsh-eza.plugin.zsh`, `functions/` (underscore-prefixed handler function)          | Small, typical plugin entry file plus a strict-emulation handler function, the same pattern `z-a-meta-plugins` was included for; omitted from the initial corpus by oversight. |
 
 Inclusion rationale, per family: the corpus deliberately spans the loader
 (`src`), the CI environment (`zd`), test tooling (`zunit`), an annex
@@ -98,7 +98,7 @@ that the analyzer change did not cause the difference.
 For a local run, arrange the repositories as siblings under `$CORPUS_ROOT`,
 build `cmd/zsh-lint-survey` and `cmd/zsh-lint`, then execute the same commands
 from the workflow. Directory entries are passed through NUL-delimited
-`find -type f`, which includes dot-prefixed extensionless function files.
+`find -type f`, which includes extensionless function files.
 
 ## Changing the corpus
 

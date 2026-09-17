@@ -65,7 +65,7 @@ func TestCorpusGateRunsTheFullReadinessContract(t *testing.T) {
 		"permissions:\n  contents: read",
 		`mapfile -t roots < ../zsh-lint/docs/project/corpus-paths.txt`,
 		`mapfile -d '' files < <(find "${roots[@]}" -type f -print0 | sort -z)`,
-		`EXPECTED_CORPUS_FILES: "18"`,
+		`EXPECTED_CORPUS_FILES: "16"`,
 		`zsh -f -n -- "$file"`,
 		`"$RUNNER_TEMP/zsh-lint-survey" "${files[@]}"`,
 		`"$RUNNER_TEMP/zsh-lint" --format=json --no-config "${files[@]}"`,
