@@ -56,12 +56,12 @@ func parseMultiNameForWithParser(
 	}
 
 	transformed, sourceMap := applyForEdits(src, edits)
+	lineStarts := originalLineStarts(src)
 	tree, err := parse(transformed, name)
 	if err != nil {
-		return nil, err
+		return nil, rebaseForError(err, sourceMap, lineStarts)
 	}
 
-	lineStarts := originalLineStarts(src)
 	if err := rebaseForPositions(reflect.ValueOf(tree), sourceMap, lineStarts); err != nil {
 		return nil, fmt.Errorf("%s: rebasing for loop positions: %w", name, err)
 	}
@@ -409,4 +409,50 @@ func rebaseForPositions(value reflect.Value, sm forSourceMap, lineStarts []int) 
 		}
 	}
 	return nil
+}
+
+// rebaseForError rewrites the position of a parser error raised on the
+// transformed source so it points into the original file. The synthetic
+// ` in `, `; `, `do\n`, and `\ndone\n` text otherwise shifts every later line
+// number, and the retry error is the useful one: it names the gap that
+// remains after the alternate-form for loop was accepted. An error the
+// mapping cannot place is returned unchanged rather than dropped.
+func rebaseForError(err error, sm forSourceMap, lineStarts []int) error {
+	var parseErr syntax.ParseError
+	if errors.As(err, &parseErr) && parseErr.Pos.IsValid() {
+		if rebased, mapErr := rebaseForPos(parseErr.Pos, sm, lineStarts); mapErr == nil {
+			parseErr.Pos = rebased
+			return parseErr
+		}
+		return err
+	}
+	var langErr syntax.LangError
+	if errors.As(err, &langErr) && langErr.Pos.IsValid() {
+		if rebased, mapErr := rebaseForPos(langErr.Pos, sm, lineStarts); mapErr == nil {
+			langErr.Pos = rebased
+			return langErr
+		}
+	}
+	return err
+}
+
+// rebaseForPos maps one transformed position back to the original source.
+func rebaseForPos(position syntax.Pos, sm forSourceMap, lineStarts []int) (syntax.Pos, error) {
+	transformedOffset := int(position.Offset())
+	if transformedOffset < 0 || transformedOffset >= len(sm.origByTransformed) {
+		return syntax.Pos{}, fmt.Errorf("transformed position %d is outside source map", transformedOffset)
+	}
+	origOffset := sm.origByTransformed[transformedOffset]
+	if origOffset < 0 {
+		origOffset = 0
+	}
+	lineIndex := sort.Search(len(lineStarts), func(index int) bool {
+		return lineStarts[index] > origOffset
+	}) - 1
+	if lineIndex < 0 {
+		lineIndex = 0
+	}
+	line := lineIndex + 1
+	col := origOffset - lineStarts[lineIndex] + 1
+	return syntax.NewPos(uint(origOffset), uint(line), uint(col)), nil
 }

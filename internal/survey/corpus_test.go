@@ -14,6 +14,7 @@ import (
 // against accidental deletion without asserting a brittle total count
 // (issue #14): new fixtures can be added freely without touching this test.
 var requiredFixtures = []string{
+	"ok-alternate-for-then-anonymous-args-in-function.zsh",
 	"ok-alternate-if-brace-continuation.zsh",
 	"ok-alternate-if-brace-length-expansion.zsh",
 	"ok-alternate-if-brace.zsh",

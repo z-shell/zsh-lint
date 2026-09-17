@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -72,6 +73,18 @@ done
 			}
 		})
 	}
+}
+
+// TestParseMultiNameForRebasesRetryErrorPosition regression-tests issue #255:
+// a failed retry on the alternate `for name ( words ) { ... }` sugar must
+// rebase its error position into the original source, not the longer
+// transformed text the retry actually parsed.
+func TestParseMultiNameForRebasesRetryErrorPosition(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/invalid-255-multi-name-for-retry-later-blocker.txt")
+	if err != nil {
+		t.Fatalf("read invalid fixture: %v", err)
+	}
+	assertParseErrorAt(t, fixture, "statements must be separated by &, ; or a newline", 2, 12)
 }
 
 func TestParseMultiNameForPositions(t *testing.T) {
