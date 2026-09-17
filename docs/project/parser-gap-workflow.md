@@ -108,6 +108,10 @@ without changing the selected parser dependency only when all of these hold:
 - the adapter activates for one exact parser error and one language construct;
 - the full-file retry has the same byte length as the original source;
 - every transformed byte is restored in the typed AST before analysis;
+- no mask swallows a byte that produces a `*syntax.Comment` node: the parser
+  runs with `KeepComments(true)` and `internal/suppress` reads those nodes for
+  directives, so a shape whose comment would have to be masked keeps the
+  parser error;
 - regression tests prove original AST text, diagnostic positions, suppression
   behavior, and invalid-syntax rejection; and
 - the minimized fixture is `ok-*` only after the normal analyzer path passes.
