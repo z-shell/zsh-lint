@@ -36,6 +36,15 @@ func TestParseSubscriptPatternAfterComma(t *testing.T) {
 		{"index flag", "print -r -- ${m[(i)a,[^:]]}\n", "i", "a", "[^:]", 22},
 		{"mask byte in expression", "print -r -- ${m[(r)a,_[^:]_]}\n", "r", "a", "_[^:]_", 22},
 		{"assignment", "m[(r)a,[^:]##]=1\n", "r", "a", "[^:]##", 8},
+		{"double-quoted string", "print -r -- ${m[(r)a,[^:]\"x\"]}\n", "r", "a", "[^:]\"x\"", 22},
+		{"single-quoted string", "print -r -- ${m[(r)a,[^:]'x y']}\n", "r", "a", "[^:]'x y'", 22},
+		{"comma in a quoted string", "print -r -- ${m[(r)a,[^:]\"x,y\"]}\n", "r", "a", "[^:]\"x,y\"", 22},
+		{"escaped quote in a quoted string", "print -r -- ${m[(r)a,[^:]\"x\\\"y\"]}\n", "r", "a", "[^:]\"x\\\"y\"", 22},
+		{"ansi-c quoted string", "print -r -- ${m[(r)a,[^:]$'x\\'y']}\n", "r", "a", "[^:]$'x\\'y'", 22},
+		{"quoted bracket expression after double dash", "print -r -- ${m[(r)a,--\"[^:]\"]}\n", "r", "a", "--\"[^:]\"", 22},
+		{"escaped bracket in a single-quoted string", "print -r -- ${m[(r)a,[^:]'x\\]y']}\n", "r", "a", "[^:]'x\\]y'", 22},
+		{"escaped backslash and bracket in a single-quoted string", "print -r -- ${m[(r)a,[^:]'x\\\\\\]y']}\n", "r", "a", "[^:]'x\\\\\\]y'", 22},
+		{"bracket expression in an ansi-c quoted string", "print -r -- ${m[(r)a,[^:]$'[x]']}\n", "r", "a", "[^:]$'[x]'", 22},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -203,9 +212,16 @@ func TestParseSubscriptPatternAfterCommaCorpusLine(t *testing.T) {
 }
 
 // Native-invalid sources keep the base front end's error family and original
-// position; the retry must not move or replace the failure with a mask.
+// position; the retry must not move or replace the failure with a mask. An
+// unterminated quoted string is a lexer error (`unmatched "`); a `]` inside a
+// quoted string still ends the subscript, so the quote runs past it and zsh
+// reports `bad substitution` for the expansion.
 func TestSubscriptPatternAfterCommaRejectsUnterminated(t *testing.T) {
 	fixture, err := os.ReadFile("testdata/invalid-277-unterminated-pattern-after-comma.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoteFixture, err := os.ReadFile("testdata/invalid-277-unterminated-quote-after-comma.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,6 +233,18 @@ func TestSubscriptPatternAfterCommaRejectsUnterminated(t *testing.T) {
 	}{
 		{"unterminated subscript", fixture, "`[` must follow a name like a[i]", 12},
 		{"unterminated expansion", []byte("x=${m[(r)a,[^:]]\n"), "not a valid parameter expansion operator: \"\\n\"", 17},
+		{"unterminated double quote", quoteFixture, "`[` must follow a name like a[i]", 12},
+		{"unterminated single quote", []byte("x=${m[(r)a,[^:]']}\n"), "`[` must follow a name like a[i]", 12},
+		{"unterminated quote before the bracket", []byte("x=${m[(r)a,--\"[^:]]}\n"), "`--` must be followed by a literal", 12},
+		{"closing bracket in a double-quoted string", []byte("x=${m[(r)a,[^:]\"]\"]}\n"), "`[` must follow a name like a[i]", 12},
+		{"closing bracket in a single-quoted string", []byte("x=${m[(r)a,[^:]'x]y']}\n"), "`[` must follow a name like a[i]", 12},
+		{"escaped quote in a single-quoted string", []byte("x=${m[(r)a,[^:]'x\\'y']}\n"), "`[` must follow a name like a[i]", 12},
+		{"escaped dollar before a single-quoted string", []byte("x=${m[(r)a,[^:]\\$'x\\'y']}\n"), "`[` must follow a name like a[i]", 12},
+		{"escaped backslash before a closing bracket in a single-quoted string", []byte("x=${m[(r)a,[^:]'x\\\\]y']}\n"), "`[` must follow a name like a[i]", 12},
+		{"quote reopened after a quoted string", []byte("x=${m[(r)a,[^:]\"x\"y\"]}\n"), "`[` must follow a name like a[i]", 12},
+		{"closing bracket in an ansi-c quoted string", []byte("x=${m[(r)a,[^:]$'x]y']}\n"), "`[` must follow a name like a[i]", 12},
+		{"closing bracket ending a double-quoted string", []byte("x=${m[(r)a,[^:]\"x]\"]}\n"), "`[` must follow a name like a[i]", 12},
+		{"opening bracket in a double-quoted string", []byte("x=${m[(r)a,[^:]\"[x\"]}\n"), "`[` must follow a name like a[i]", 12},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

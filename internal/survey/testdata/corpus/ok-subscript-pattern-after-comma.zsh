@@ -16,3 +16,12 @@ print -r -- ${___opt_map[(r)a,--[^:]##]:-none}
 print -r -- ${a[(r)y,--x]}
 ___opt_map[(r)a,[^:]##]=1
 local msg=${___opt_map[$opt]#*:} txt=${___opt_map[(r)opt_$opt,--[^:]##]}
+print -r -- ${___opt_map[(r)a,[^:]"x"]}
+print -r -- ${___opt_map[(r)a,[^:]'x y']}
+print -r -- ${___opt_map[(r)a,[^:]"x,y"]}
+print -r -- ${___opt_map[(r)a,[^:]"x\"y"]}
+print -r -- ${___opt_map[(r)a,[^:]$'x\'y']}
+print -r -- ${___opt_map[(r)a,"[^:]"]}
+print -r -- ${___opt_map[(r)a,--"[^:]"]}
+print -r -- ${___opt_map[(r)a,[^:]'x\]y']}
+print -r -- ${___opt_map[(r)a,[^:]'x\\\]y']}

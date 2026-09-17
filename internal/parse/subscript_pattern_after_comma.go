@@ -145,15 +145,24 @@ func flagPatternComma(src []byte, start int) (int, bool) {
 	return 0, false
 }
 
-// scanPatternAfterComma walks the expression after the `,` at comma to the
-// `]` that closes the subscript, masking every byte of the expression with
-// `_`. Bracket expressions nest by counting, and a backslash escapes the next
-// byte. The scan reports false for an empty expression, a second `,` outside a
-// bracket expression, a `}`, a newline, a backtick, or a nested expansion or
-// command substitution, whose extent it does not decide.
+// scanPatternAfterComma walks the expression after the `,` at comma to the `]`
+// that closes the subscript, masking every byte of the expression with `_`.
+// Bracket expressions nest by counting, and a quoted string (`'...'`, `"..."`,
+// `$'...'`) is masked whole, so a `,` inside it does not end the scan. A
+// backslash escapes the next byte, except that inside `'...'` the lexer keeps
+// it literal and only the subscript reader honours `\]` and `\\`. Native Zsh
+// counts `[` and `]` inside a quoted string too, so a `]` at depth 0 inside one
+// ends the subscript before the quote closes (`bad substitution`) and the scan
+// reports false, as it does for an unterminated quoted string, an empty
+// expression, a second `,` outside a bracket expression or a quoted string, a
+// `}`, a newline, a backtick, and a nested expansion or command substitution,
+// whose extent it does not decide.
 func scanPatternAfterComma(src []byte, comma int) (patternAfterCommaSite, bool) {
 	site := patternAfterCommaSite{comma: comma, start: comma + 1}
 	depth := 0
+	var quote byte  // the byte that closes the open quoted string, or 0
+	escapes := true // whether a backslash escapes the next byte here
+	dollar := false // whether the previous byte is an unescaped `$`
 	mask := func(offset int) {
 		if src[offset] != '_' {
 			site.edits = append(site.edits, patternEdit{offset: offset, original: src[offset], replacement: '_'})
@@ -161,25 +170,37 @@ func scanPatternAfterComma(src []byte, comma int) (patternAfterCommaSite, bool) 
 	}
 	for i := site.start; i < len(src); {
 		b := src[i]
+		afterDollar := dollar
+		dollar = false
 		switch {
-		case b == '\\':
+		case b == '\\' && (escapes || i+1 < len(src) && (src[i+1] == ']' || src[i+1] == '\\')):
 			if i+1 >= len(src) || src[i+1] == '\n' {
 				return patternAfterCommaSite{}, false
 			}
 			mask(i)
 			mask(i + 1)
 			i += 2
-		case b == '\n', b == '`', b == '}' && depth == 0, b == ',' && depth == 0:
+		case b == '\n', b == '`', b == '}' && depth == 0, b == ',' && depth == 0 && quote == 0:
 			return patternAfterCommaSite{}, false
 		case b == '$' && i+1 < len(src) && (src[i+1] == '{' || src[i+1] == '('):
 			return patternAfterCommaSite{}, false
+		case quote != 0 && b == quote:
+			quote = 0
+			escapes = true
+			mask(i)
+			i++
+		case quote == 0 && (b == '\'' || b == '"'):
+			quote = b
+			escapes = b == '"' || afterDollar
+			mask(i)
+			i++
 		case b == '[':
 			depth++
 			mask(i)
 			i++
 		case b == ']':
 			if depth == 0 {
-				if i == site.start {
+				if quote != 0 || i == site.start {
 					return patternAfterCommaSite{}, false
 				}
 				site.end = i
@@ -189,6 +210,7 @@ func scanPatternAfterComma(src []byte, comma int) (patternAfterCommaSite, bool) 
 			mask(i)
 			i++
 		default:
+			dollar = b == '$'
 			mask(i)
 			i++
 		}
