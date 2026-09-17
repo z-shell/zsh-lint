@@ -6,12 +6,12 @@ import (
 
 // unsupportedLoopWords are Zsh reserved words that the front end does not
 // recognise. In command position mvdan/sh reads them as ordinary command
-// names, so `repeat 3; print hi` becomes two unrelated commands and
-// `foreach x (a b)` becomes a call named foreach. A silent tree of the wrong
-// shape is worse than a parse error for every rule that reasons about loop
-// bodies, so the front end fails closed until the constructs are supported.
+// names, so `foreach x (a b)` becomes a call named foreach. A silent tree of
+// the wrong shape is worse than a parse error for every rule that reasons
+// about loop bodies, so the front end fails closed until the constructs are
+// supported. `repeat` left this list when resolveRepeatLoops (repeat.go)
+// started rewriting the loop.
 var unsupportedLoopWords = map[string]string{
-	"repeat":  "`repeat` loops are not supported yet (z-shell/zsh-lint#208)",
 	"foreach": "`foreach ... end` loops are not supported yet (z-shell/zsh-lint#214)",
 }
 

@@ -49,6 +49,7 @@ func adapterChain() []adapterAttempt {
 		parseFunctionSemicolonBody,
 		parseAssignAlways,
 		parseDeclarationBraceClose,
+		parseRepeat,
 	}
 }
 
