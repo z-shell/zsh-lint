@@ -94,10 +94,11 @@ its text is historical).
   shape, not pass vacuously: v3.14.1 turns `foreach ... end` (#214) from a parse
   error into a silent three-command tree.
 - Fork the `syntax` package only when a tracked gap needs an AST node the
-  upstream tree lacks and the metadata exception below cannot carry it (#208
-  `repeat` is the first candidate), or when the adapter composition matrix
-  becomes the bottleneck. The fork then replaces adapters for the constructs it
-  covers.
+  upstream tree lacks and the metadata exception below cannot carry it, or
+  when the adapter composition matrix becomes the bottleneck. The fork then
+  replaces adapters for the constructs it covers. `repeat` (#208) was the first
+  candidate; the metadata exception carries it as a `while` loop plus
+  `File.RepeatLoops`, so no fork exists yet.
 
 ### Local compatibility adapters
 
@@ -105,7 +106,14 @@ A narrowly scoped adapter in `internal/parse` may close a proven valid-Zsh gap
 without changing the selected parser dependency only when all of these hold:
 
 - the released Zsh manual and `zsh -f -n` establish the construct's validity;
-- the adapter activates for one exact parser error and one language construct;
+- the adapter activates for one language construct and, by default, one exact
+  parser error. A construct the parser reads as an ordinary command until its
+  body fails (`repeat count do ...` fails on `do`, `then`, `}` or whatever the
+  body's first reserved token is) has no exact error to gate on; such an
+  adapter may gate on the error position instead, at or after a site of the
+  construct found by scanning the source, provided the retry is verified: the
+  tree the retry produced must contain the construct's expected node at the
+  site, or the adapter returns the parser error;
 - the full-file retry maps every byte back to the original source, either
   by keeping the original byte length or through a source map;
 - every transformed byte is restored in the typed AST before analysis;
@@ -165,7 +173,7 @@ full-file retry.
 
 When an upstream AST has no field for a native construct, the parser result may
 retain source-mapped typed syntax nodes as explicit `parse.File` metadata. This
-exception requires the same exact-error gate and byte-preserving retry, plus a
+exception requires the adapter gate and byte-preserving retry above, plus a
 stable association with the owning AST node. Consumers must inspect the typed
 metadata rather than recover masked source text. Anonymous-function invocation
 words use this boundary because mvdan/sh v3.13.1 represents the declaration but
@@ -178,3 +186,20 @@ the retry joins both subscripts into the one index as a comma expression, and
 `Parse` splits that expression at the commas whose source bytes are `][`,
 leaving the first subscript in `Index` and the rest, as the parser's own typed
 arithmetic nodes, in `File.SecondSubscripts`.
+The `repeat count sublist` loop (#208) has no node at all in mvdan/sh through
+v3.14.1, which reads `repeat` as a command name. `resolveRepeatLoops` rewrites
+each loop, after the file parses, into a `WhileClause` positioned at the
+`repeat` word whose only condition is the count word, with source-mapped
+`do` and `done` inserted around the body native Zsh runs (the next sublist,
+a `do ... done` block or a `{ ... }` block); `File.RepeatLoops` names each
+loop and its count so a consumer can tell it from a `while`. The loop is the
+one construct whose typed node is synthesized rather than carried: a `while`
+is the closest upstream shape, and the count word is kept as its condition
+rather than moved into metadata so every rule that walks loop bodies sees
+the body once. The condition statement is synthesized, not a command the
+script runs, so the analyzer's shared walk feeds neither it nor its
+`CallExpr` to any rule (`synthesizedStatements`,
+`internal/analyzer/analyzer.go`) while still walking the expansions inside
+the count. That skip covers only the shared walk: a rule that traverses the
+tree itself from the `File` node still sees the count as a command and
+today matches specific command names there.

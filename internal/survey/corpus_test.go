@@ -43,6 +43,7 @@ var requiredFixtures = []string{
 	"ok-param-expansion-flags.zsh",
 	"ok-param-glob-toggle.zsh",
 	"ok-rc-expand-caret.zsh",
+	"ok-repeat.zsh",
 	"ok-reverse-subscript-pattern-slash.zsh",
 	"ok-reverse-subscript.zsh",
 	"ok-try-always.zsh",

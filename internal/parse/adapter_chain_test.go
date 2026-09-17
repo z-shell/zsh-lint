@@ -41,6 +41,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
 	"assignAlways":      {attempt: parseAssignAlways, source: "print ${x::=value}"},
 	"declBraceClose":    {attempt: parseDeclarationBraceClose, source: "{ typeset -g C=1 }"},
+	"repeat":            {attempt: parseRepeat, source: "repeat 3; do print hi; done"},
 }
 
 func parseString(t *testing.T, src string) error {

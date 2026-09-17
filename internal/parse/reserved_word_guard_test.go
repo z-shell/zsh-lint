@@ -8,9 +8,10 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// The front end has no node for repeat or foreach. mvdan/sh v3.14.1 parses
-// both as ordinary calls, so these sources would otherwise yield a tree of the
-// wrong shape with no error. Each row is `zsh -f -n` valid.
+// The front end has no node for foreach. mvdan/sh v3.14.1 parses it as an
+// ordinary call, so these sources would otherwise yield a tree of the wrong
+// shape with no error. Each row is `zsh -f -n` valid. `repeat` left the guard
+// when repeat.go started rewriting the loop; repeat_test.go covers it.
 func TestParseRejectsUnsupportedLoopWords(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -19,9 +20,8 @@ func TestParseRejectsUnsupportedLoopWords(t *testing.T) {
 		wantCol  uint
 		wantText string
 	}{
-		{"repeat short form", "repeat 3; print hi\n", 1, 1, "z-shell/zsh-lint#208"},
-		{"repeat nested short form", "if true; then\n  repeat 2; print hi\nfi\n", 2, 3, "z-shell/zsh-lint#208"},
 		{"foreach end form", "foreach v ($a)\n  cmd $v\nend\n", 1, 1, "z-shell/zsh-lint#214"},
+		{"foreach nested end form", "if true; then\n  foreach v ($a)\n    cmd $v\n  end\nfi\n", 2, 3, "z-shell/zsh-lint#214"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -37,19 +37,6 @@ func TestParseRejectsUnsupportedLoopWords(t *testing.T) {
 				t.Errorf("text = %q, want reference to %s", perr.Text, test.wantText)
 			}
 		})
-	}
-}
-
-// The do and brace forms already fail in the parser itself; the guard only
-// has to cover the forms that would otherwise parse silently.
-func TestParseStillRejectsLoudRepeatForms(t *testing.T) {
-	for _, src := range []string{
-		"repeat 3; do print hi; done\n",
-		"repeat 3 { print hi }\n",
-	} {
-		if _, err := Parse(strings.NewReader(src), "loud.zsh"); err == nil {
-			t.Errorf("Parse(%q) error = nil, want a parse error", src)
-		}
 	}
 }
 

@@ -16,7 +16,8 @@ applyTo: "internal/parse/**, internal/survey/**, cmd/zsh-lint-survey/**"
 ## Adapter invariants
 
 - Register the adapter once in `adapterChain` (`adapter_chain.go`) and route its masked retry through `parseWithAdapters`. Never call `parseTree` for a retry and never hand-write a list of peer adapters.
-- Gate on one exact parser error and one language construct. The retried source maps every byte back to the original, either by keeping the original byte length or through an explicit source map, and every transformed byte is restored in the typed AST before analysis.
+- Gate on one language construct and, by default, one exact parser error. A construct whose error text depends on its body's first token (`repeat count do ...`, #208) may gate on the error position at or after a scanned site of the construct instead, and must then verify the retry's tree holds the expected node at that site before returning it. The retried source maps every byte back to the original, either by keeping the original byte length or through an explicit source map, and every transformed byte is restored in the typed AST before analysis.
+- A construct the upstream tree cannot hold may be carried as `parse.File` metadata beside the closest typed shape (for example `File.AnonymousInvocations`, `File.AssignAlwaysExpansions`, `File.SecondSubscripts`, `File.RepeatLoops`); consumers read the metadata rather than masked source text. A statement the front end synthesizes (the `repeat` count condition) is not fed to rules by the analyzer's shared walk; its expansions still are, and a rule that traverses the tree itself is not covered.
 - If recognition or restoration is uncertain, return the parser error. No generic error suppression or recovery ASTs.
 
 ## Fixtures
