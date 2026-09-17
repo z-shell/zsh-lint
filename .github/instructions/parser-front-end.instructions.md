@@ -16,7 +16,7 @@ applyTo: "internal/parse/**, internal/survey/**, cmd/zsh-lint-survey/**"
 ## Adapter invariants
 
 - Register the adapter once in `adapterChain` (`adapter_chain.go`) and route its masked retry through `parseWithAdapters`. Never call `parseTree` for a retry and never hand-write a list of peer adapters.
-- Gate on one exact parser error and one language construct. The retried source has the same byte length as the original, and every transformed byte is restored in the typed AST before analysis.
+- Gate on one exact parser error and one language construct. The retried source maps every byte back to the original, either by keeping the original byte length or through an explicit source map, and every transformed byte is restored in the typed AST before analysis.
 - If recognition or restoration is uncertain, return the parser error. No generic error suppression or recovery ASTs.
 
 ## Fixtures

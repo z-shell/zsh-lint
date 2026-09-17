@@ -19,6 +19,7 @@ const (
 	editShortForClose
 	editShortForDo
 	editShortForDone
+	editMaskListNewline
 )
 
 type forEdit struct {
@@ -193,16 +194,19 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 					if afterName1 < len(src) {
 						if src[afterName1] == '(' && (afterName1+1 >= len(src) || src[afterName1+1] != '(') {
 							parenOpen := afterName1
-							parenClose := scanClosingParen(src, parenOpen)
+							parenClose, newlines, listOK := scanShortForList(src, parenOpen)
 							if parenClose > parenOpen {
 								braceOpen := skipSpacesAndComments(src, parenClose)
 								if braceOpen < len(src) && src[braceOpen] == '{' {
 									braceClose := scanClosingBrace(src, braceOpen)
-									if braceClose > braceOpen {
+									if braceClose > braceOpen && listOK {
 										if forStart <= seedOffset && seedOffset <= braceClose {
 											seedRecognized = true
 										}
 										edits = append(edits, forEdit{start: parenOpen, end: parenOpen + 1, kind: editShortForOpen})
+										for _, nl := range newlines {
+											edits = append(edits, forEdit{start: nl, end: nl + 1, kind: editMaskListNewline})
+										}
 										edits = append(edits, forEdit{start: parenClose - 1, end: parenClose, kind: editShortForClose})
 										edits = append(edits, forEdit{start: braceOpen, end: braceOpen + 1, kind: editShortForDo})
 										edits = append(edits, forEdit{start: braceClose - 1, end: braceClose, kind: editShortForDone})
@@ -286,22 +290,72 @@ func skipSpaces(src []byte, i int) int {
 	return i
 }
 
-func scanClosingParen(src []byte, start int) int {
-	i := start + 1
-	depth := 1
-	for i < len(src) {
-		switch src[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				return i + 1
+// scanShortForList finds the `)` that closes the word list of an alternate-form
+// for loop opened at parenOpen, and the newlines inside that list which native
+// zsh treats as plain word separators, so that the rewritten
+// `for name in words; do` form, which cannot hold a newline before `do`,
+// keeps every word. The word extents come from the front-end's own word lexer
+// (syntax.Parser.WordsSeq) rather than a hand-written state machine, so a `)`
+// inside a quoted word, a `${...}` operator, a `$(...)` case pattern, or a
+// comment inside a command substitution never closes the list; the lexer stops
+// at the first token that is not a word, and only a bare `)` there closes the
+// list. The gaps between words hold only what the lexer skipped: blanks,
+// newlines, `\`-newline continuations, and comments. A newline in a gap is
+// masked unless a backslash precedes it, so a continuation keeps joining its
+// two lines. parenClose is the offset just past the closing `)`, or -1 when
+// the list never closes or the lexer rejects a word. A list carrying a `#`
+// comment reports ok=false and is not rewritten at all: masking the comment
+// would drop a `*syntax.Comment` node the suppression pass may read, so the
+// parser error stands for that loop.
+func scanShortForList(src []byte, parenOpen int) (parenClose int, newlines []int, ok bool) {
+	base := parenOpen + 1
+	var spans [][2]int
+	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh))
+	var err error
+	for w, wordErr := range parser.WordsSeq(bytes.NewReader(src[base:])) {
+		if wordErr != nil {
+			err = wordErr
+			break
+		}
+		spans = append(spans, [2]int{base + int(w.Pos().Offset()), base + int(w.End().Offset())})
+	}
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) || parseErr.Text != "`)` is not a valid word" {
+		return -1, nil, false
+	}
+	closeAt := base + int(parseErr.Pos.Offset())
+	if closeAt >= len(src) || src[closeAt] != ')' {
+		return -1, nil, false
+	}
+
+	ok = true
+	gapStart := base
+	spans = append(spans, [2]int{closeAt, closeAt})
+	for _, span := range spans {
+		for i := gapStart; i < span[0]; i++ {
+			switch src[i] {
+			case ' ', '\t', '\r':
+			case '\\':
+				if i+1 < span[0] && src[i+1] == '\n' {
+					i++
+					continue
+				}
+				return -1, nil, false
+			case '\n':
+				newlines = append(newlines, i)
+			case '#':
+				ok = false
+				for i+1 < span[0] && src[i+1] != '\n' {
+					i++
+				}
+			default:
+				return -1, nil, false
 			}
 		}
-		i++
+		gapStart = span[1]
 	}
-	return -1
+
+	return closeAt + 1, newlines, ok
 }
 
 func applyForEdits(src []byte, edits []forEdit) ([]byte, forSourceMap) {
@@ -344,6 +398,8 @@ func applyForEdits(src []byte, edits []forEdit) ([]byte, forSourceMap) {
 			appendSynthetic("do\n", e.start)
 		case editShortForDone:
 			appendSynthetic("\ndone\n", e.start)
+		case editMaskListNewline:
+			appendOriginal(' ', e.start)
 		}
 		last = e.end
 	}
