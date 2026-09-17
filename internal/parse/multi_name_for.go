@@ -294,136 +294,64 @@ func skipSpaces(src []byte, i int) int {
 // for loop opened at parenOpen, and the newlines inside that list which native
 // zsh treats as plain word separators, so that the rewritten
 // `for name in words; do` form, which cannot hold a newline before `do`,
-// keeps every word. One pass tracks the quote, escape, and nesting state, so a
-// `)` inside a quoted word or a nested substitution never closes the list, and
-// only a newline at nesting depth zero, outside every quote, and not preceded
-// by a backslash is masked; a newline inside `$(...)`, `${...}`, backticks, or
-// a quoted word is part of that word and is left as it is. parenClose is the
-// offset just past the closing `)`, or -1 when the list never closes. A list
-// carrying a `#` comment reports ok=false and is not rewritten at all: masking
-// the comment would drop a `*syntax.Comment` node the suppression pass may
-// read, so the parser error stands for that loop.
+// keeps every word. The word extents come from the front-end's own word lexer
+// (syntax.Parser.Words) rather than a hand-written state machine, so a `)`
+// inside a quoted word, a `${...}` operator, a `$(...)` case pattern, or a
+// comment inside a command substitution never closes the list; the lexer stops
+// at the first token that is not a word, and only a bare `)` there closes the
+// list. The gaps between words hold only what the lexer skipped: blanks,
+// newlines, `\`-newline continuations, and comments. A newline in a gap is
+// masked unless a backslash precedes it, so a continuation keeps joining its
+// two lines. parenClose is the offset just past the closing `)`, or -1 when
+// the list never closes or the lexer rejects a word. A list carrying a `#`
+// comment reports ok=false and is not rewritten at all: masking the comment
+// would drop a `*syntax.Comment` node the suppression pass may read, so the
+// parser error stands for that loop.
 func scanShortForList(src []byte, parenOpen int) (parenClose int, newlines []int, ok bool) {
-	inSingleQuote := false
-	inDoubleQuote := false
-	inANSICQuote := false
-	inBacktick := false
-	inComment := false
-	escaped := false
-	parenDepth := 0
-	braceDepth := 0
-	atWordStart := true
-	ok = true
-
-	for i := parenOpen + 1; i < len(src); i++ {
-		b := src[i]
-
-		if inComment {
-			if b == '\n' {
-				inComment = false
-				atWordStart = true
-			}
-			continue
-		}
-		if escaped {
-			escaped = false
-			atWordStart = false
-			continue
-		}
-		if inSingleQuote {
-			if b == '\'' {
-				inSingleQuote = false
-			}
-			continue
-		}
-		if inANSICQuote {
-			switch b {
-			case '\\':
-				escaped = true
-			case '\'':
-				inANSICQuote = false
-			}
-			continue
-		}
-		if inDoubleQuote {
-			switch b {
-			case '\\':
-				escaped = true
-			case '"':
-				inDoubleQuote = false
-			}
-			continue
-		}
-		if inBacktick {
-			switch b {
-			case '\\':
-				escaped = true
-			case '`':
-				inBacktick = false
-			}
-			continue
-		}
-
-		switch b {
-		case '\\':
-			escaped = true
-			atWordStart = false
-			continue
-		case '\'':
-			inSingleQuote = true
-		case '"':
-			inDoubleQuote = true
-		case '`':
-			inBacktick = true
-		case '$':
-			if i+1 < len(src) {
-				switch src[i+1] {
-				case '\'':
-					inANSICQuote = true
-					i++
-				case '(':
-					parenDepth++
-					i++
-				case '{':
-					braceDepth++
-					i++
-				}
-			}
-		case '(':
-			parenDepth++
-		case ')':
-			if parenDepth == 0 {
-				return i + 1, newlines, ok
-			}
-			parenDepth--
-		case '{':
-			if braceDepth > 0 {
-				braceDepth++
-			}
-		case '}':
-			if braceDepth > 0 {
-				braceDepth--
-			}
-		case '#':
-			if atWordStart && parenDepth == 0 && braceDepth == 0 {
-				inComment = true
-				ok = false
-				continue
-			}
-		case '\n':
-			if parenDepth == 0 && braceDepth == 0 {
-				newlines = append(newlines, i)
-			}
-			atWordStart = true
-			continue
-		case ' ', '\t':
-			atWordStart = true
-			continue
-		}
-		atWordStart = false
+	base := parenOpen + 1
+	var spans [][2]int
+	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh))
+	err := parser.Words(bytes.NewReader(src[base:]), func(w *syntax.Word) bool {
+		spans = append(spans, [2]int{base + int(w.Pos().Offset()), base + int(w.End().Offset())})
+		return true
+	})
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) || parseErr.Text != "`)` is not a valid word" {
+		return -1, nil, false
+	}
+	closeAt := base + int(parseErr.Pos.Offset())
+	if closeAt >= len(src) || src[closeAt] != ')' {
+		return -1, nil, false
 	}
 
-	return -1, nil, false
+	ok = true
+	gapStart := base
+	spans = append(spans, [2]int{closeAt, closeAt})
+	for _, span := range spans {
+		for i := gapStart; i < span[0]; i++ {
+			switch src[i] {
+			case ' ', '\t', '\r':
+			case '\\':
+				if i+1 < span[0] && src[i+1] == '\n' {
+					i++
+					continue
+				}
+				return -1, nil, false
+			case '\n':
+				newlines = append(newlines, i)
+			case '#':
+				ok = false
+				for i+1 < span[0] && src[i+1] != '\n' {
+					i++
+				}
+			default:
+				return -1, nil, false
+			}
+		}
+		gapStart = span[1]
+	}
+
+	return closeAt + 1, newlines, ok
 }
 
 func applyForEdits(src []byte, edits []forEdit) ([]byte, forSourceMap) {

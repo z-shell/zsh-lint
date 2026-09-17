@@ -52,3 +52,17 @@ for item ( "one)
 two" three\) ) {
   print -r -- "$item"
 }
+
+# A `)` that is part of a nested construct never closes the list: a case
+# pattern terminator inside a command substitution, a `)` inside a parameter
+# expansion operator, and a `)` inside a comment that a command substitution
+# carries all stay inside their word.
+local v=value
+for item (
+  $(case y in y) print one;; esac)
+  ${v%)}
+  $(print two # )
+print three)
+) {
+  print -r -- "$item"
+}

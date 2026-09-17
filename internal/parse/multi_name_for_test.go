@@ -217,6 +217,48 @@ print two) three) {
 `,
 			wantItems: []string{"$(print one\nprint two)", "three"},
 		},
+		{
+			name: "case pattern paren inside a command substitution does not end the list",
+			src: `for item (
+  $(case y in y) print one;; esac)
+  two
+) {
+  print -r -- "$item"
+}
+`,
+			wantItems: []string{"$(case y in y) print one;; esac)", "two"},
+		},
+		{
+			name: "case pattern paren inside a one-line command substitution does not end the list",
+			src: `for item ( $(case y in y) print one;; esac) two ) {
+  print -r -- "$item"
+}
+`,
+			wantItems: []string{"$(case y in y) print one;; esac)", "two"},
+		},
+		{
+			name: "paren inside a parameter expansion operator does not end the list",
+			src: `for item (
+  ${v%)}
+  two
+) {
+  print -r -- "$item"
+}
+`,
+			wantItems: []string{"${v%)}", "two"},
+		},
+		{
+			name: "comment inside a command substitution does not end the list",
+			src: `for item (
+  $(print one # )
+print two)
+  three
+) {
+  print -r -- "$item"
+}
+`,
+			wantItems: []string{"$(print one # )\nprint two)", "three"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -305,6 +347,44 @@ func TestParseMultiNameForRejectsCommentInsideList(t *testing.T) {
 }
 `)
 	assertParseErrorAt(t, src, "`for foo` must be followed by `in`, `do`, `;`, or a newline", 1, 1)
+}
+
+// TestParseMultiNameForDeclinesUnlexableList asserts that a list the
+// front-end's word lexer cannot read, or that never closes, leaves the loop
+// untouched so the raw parser error stands instead of a rewrite built on a
+// guessed boundary.
+func TestParseMultiNameForDeclinesUnlexableList(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{
+			// mvdan reads a zsh flag group as a literal ending at its first
+			// `)`, so the `.` delimiter that follows is not a valid operator.
+			name: "flag group delimiter",
+			src: `for item ( ${(s.).)v} two ) {
+  print -r -- "$item"
+}
+`,
+		},
+		{
+			name: "list never closes",
+			src: `for item ( one two
+`,
+		},
+		{
+			name: "operator inside the list",
+			src: `for item ( one < two ) {
+  print -r -- "$item"
+}
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertParseErrorAt(t, []byte(tt.src), "`for foo` must be followed by `in`, `do`, `;`, or a newline", 1, 1)
+		})
+	}
 }
 
 // TestParseMultiNameForKeepsInFormNewlineInvalid asserts that the newline
