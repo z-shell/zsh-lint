@@ -373,6 +373,15 @@ func TestParseMultiNameForDeclinesUnlexableList(t *testing.T) {
 `,
 		},
 		{
+			// #270 tracks the `;` separator; until it is implemented the
+			// loop stays untouched and this raw error is the promised report.
+			name: "semicolon separator inside the list",
+			src: `for item ( one; two ) {
+  print -r -- "$item"
+}
+`,
+		},
+		{
 			name: "operator inside the list",
 			src: `for item ( one < two ) {
   print -r -- "$item"
