@@ -295,7 +295,7 @@ func skipSpaces(src []byte, i int) int {
 // zsh treats as plain word separators, so that the rewritten
 // `for name in words; do` form, which cannot hold a newline before `do`,
 // keeps every word. The word extents come from the front-end's own word lexer
-// (syntax.Parser.Words) rather than a hand-written state machine, so a `)`
+// (syntax.Parser.WordsSeq) rather than a hand-written state machine, so a `)`
 // inside a quoted word, a `${...}` operator, a `$(...)` case pattern, or a
 // comment inside a command substitution never closes the list; the lexer stops
 // at the first token that is not a word, and only a bare `)` there closes the
@@ -311,10 +311,14 @@ func scanShortForList(src []byte, parenOpen int) (parenClose int, newlines []int
 	base := parenOpen + 1
 	var spans [][2]int
 	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh))
-	err := parser.Words(bytes.NewReader(src[base:]), func(w *syntax.Word) bool {
+	var err error
+	for w, wordErr := range parser.WordsSeq(bytes.NewReader(src[base:])) {
+		if wordErr != nil {
+			err = wordErr
+			break
+		}
 		spans = append(spans, [2]int{base + int(w.Pos().Offset()), base + int(w.End().Offset())})
-		return true
-	})
+	}
 	var parseErr syntax.ParseError
 	if !errors.As(err, &parseErr) || parseErr.Text != "`)` is not a valid word" {
 		return -1, nil, false
