@@ -46,3 +46,9 @@ for item ($(print one
 print two) three) {
   print -r -- "$item"
 }
+
+# A quoted or escaped `)` is part of its word and does not close the list.
+for item ( "one)
+two" three\) ) {
+  print -r -- "$item"
+}

@@ -190,6 +190,25 @@ two" three ) {
 			wantItems: []string{"\"one\ntwo\"", "three"},
 		},
 		{
+			name: "quoted closing paren does not end the list",
+			src: `for item ( "one)
+two" three
+) {
+  print -r -- "$item"
+}
+`,
+			wantItems: []string{"\"one)\ntwo\"", "three"},
+		},
+		{
+			name: "escaped closing paren does not end the list",
+			src: `for item ( one\) two
+  three ) {
+  print -r -- "$item"
+}
+`,
+			wantItems: []string{"one\\)", "two", "three"},
+		},
+		{
 			name: "newline inside a command substitution is not a separator",
 			src: `for item ($(print one
 print two) three) {
@@ -279,7 +298,7 @@ func TestParseMultiNameForMultilineListRetryError(t *testing.T) {
 // error stands for that loop.
 func TestParseMultiNameForRejectsCommentInsideList(t *testing.T) {
 	src := []byte(`for p (
-  a # comment
+  a # comment )
   b
 ) {
   x=1

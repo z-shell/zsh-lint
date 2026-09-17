@@ -194,12 +194,11 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 					if afterName1 < len(src) {
 						if src[afterName1] == '(' && (afterName1+1 >= len(src) || src[afterName1+1] != '(') {
 							parenOpen := afterName1
-							parenClose := scanClosingParen(src, parenOpen)
+							parenClose, newlines, listOK := scanShortForList(src, parenOpen)
 							if parenClose > parenOpen {
 								braceOpen := skipSpacesAndComments(src, parenClose)
 								if braceOpen < len(src) && src[braceOpen] == '{' {
 									braceClose := scanClosingBrace(src, braceOpen)
-									newlines, listOK := scanListNewlines(src, parenOpen+1, parenClose-1)
 									if braceClose > braceOpen && listOK {
 										if forStart <= seedOffset && seedOffset <= braceClose {
 											seedRecognized = true
@@ -291,48 +290,41 @@ func skipSpaces(src []byte, i int) int {
 	return i
 }
 
-func scanClosingParen(src []byte, start int) int {
-	i := start + 1
-	depth := 1
-	for i < len(src) {
-		switch src[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				return i + 1
-			}
-		}
-		i++
-	}
-	return -1
-}
-
-// scanListNewlines finds the newlines in the word list of an alternate-form
-// for loop that native zsh treats as plain word separators, so that the
-// rewritten `for name in words; do` form, which cannot hold a newline before
-// `do`, keeps every word. Only a newline at nesting depth zero, outside every
-// quote, and not preceded by a backslash qualifies; a newline inside `$(...)`,
-// `${...}`, backticks, or a quoted word is part of that word and is left as
-// it is. A list carrying a `#` comment is not rewritten at all: masking the
-// comment would drop a `*syntax.Comment` node the suppression pass may read,
-// so the parser error stands for that loop.
-func scanListNewlines(src []byte, start, end int) ([]int, bool) {
-	var newlines []int
-
+// scanShortForList finds the `)` that closes the word list of an alternate-form
+// for loop opened at parenOpen, and the newlines inside that list which native
+// zsh treats as plain word separators, so that the rewritten
+// `for name in words; do` form, which cannot hold a newline before `do`,
+// keeps every word. One pass tracks the quote, escape, and nesting state, so a
+// `)` inside a quoted word or a nested substitution never closes the list, and
+// only a newline at nesting depth zero, outside every quote, and not preceded
+// by a backslash is masked; a newline inside `$(...)`, `${...}`, backticks, or
+// a quoted word is part of that word and is left as it is. parenClose is the
+// offset just past the closing `)`, or -1 when the list never closes. A list
+// carrying a `#` comment reports ok=false and is not rewritten at all: masking
+// the comment would drop a `*syntax.Comment` node the suppression pass may
+// read, so the parser error stands for that loop.
+func scanShortForList(src []byte, parenOpen int) (parenClose int, newlines []int, ok bool) {
 	inSingleQuote := false
 	inDoubleQuote := false
 	inANSICQuote := false
 	inBacktick := false
+	inComment := false
 	escaped := false
 	parenDepth := 0
 	braceDepth := 0
 	atWordStart := true
+	ok = true
 
-	for i := start; i < end; i++ {
+	for i := parenOpen + 1; i < len(src); i++ {
 		b := src[i]
 
+		if inComment {
+			if b == '\n' {
+				inComment = false
+				atWordStart = true
+			}
+			continue
+		}
 		if escaped {
 			escaped = false
 			atWordStart = false
@@ -384,7 +376,7 @@ func scanListNewlines(src []byte, start, end int) ([]int, bool) {
 		case '`':
 			inBacktick = true
 		case '$':
-			if i+1 < end {
+			if i+1 < len(src) {
 				switch src[i+1] {
 				case '\'':
 					inANSICQuote = true
@@ -400,9 +392,10 @@ func scanListNewlines(src []byte, start, end int) ([]int, bool) {
 		case '(':
 			parenDepth++
 		case ')':
-			if parenDepth > 0 {
-				parenDepth--
+			if parenDepth == 0 {
+				return i + 1, newlines, ok
 			}
+			parenDepth--
 		case '{':
 			if braceDepth > 0 {
 				braceDepth++
@@ -413,7 +406,9 @@ func scanListNewlines(src []byte, start, end int) ([]int, bool) {
 			}
 		case '#':
 			if atWordStart && parenDepth == 0 && braceDepth == 0 {
-				return nil, false
+				inComment = true
+				ok = false
+				continue
 			}
 		case '\n':
 			if parenDepth == 0 && braceDepth == 0 {
@@ -428,7 +423,7 @@ func scanListNewlines(src []byte, start, end int) ([]int, bool) {
 		atWordStart = false
 	}
 
-	return newlines, true
+	return -1, nil, false
 }
 
 func applyForEdits(src []byte, edits []forEdit) ([]byte, forSourceMap) {
