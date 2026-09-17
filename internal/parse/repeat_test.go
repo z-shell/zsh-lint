@@ -427,7 +427,7 @@ func TestParseRepeatAdapterKeepsFirstErrorWhenRetryDoesNotAdvance(t *testing.T) 
 // inner level already retried the site; the adapter must not repeat that
 // retry, which would cost a whole chained parse per level.
 func TestParseRepeatAdapterSkipsSitesPastPlainParseError(t *testing.T) {
-	src := []byte("print ${x::=1}\nrepeat 3 do\n  print hi\ndone\nprint ${y[(r)a,[^:]]}\n")
+	src := []byte("print ${x::=1}\nrepeat 3 do\n  print hi\ndone\nprint ${y[a,[^:]]}\n")
 	_, plainErr := parseTree(src, "levels.zsh")
 	var perr syntax.ParseError
 	if !errors.As(plainErr, &perr) || perr.Pos.Line() != 1 {

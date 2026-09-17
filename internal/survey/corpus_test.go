@@ -46,6 +46,7 @@ var requiredFixtures = []string{
 	"ok-repeat.zsh",
 	"ok-reverse-subscript-pattern-slash.zsh",
 	"ok-reverse-subscript.zsh",
+	"ok-subscript-pattern-after-comma.zsh",
 	"ok-try-always.zsh",
 }
 
