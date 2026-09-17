@@ -413,6 +413,34 @@ func TestParseRepeatAdapterKeepsFirstErrorWhenRetryDoesNotAdvance(t *testing.T) 
 	}
 }
 
+// The chain hands an error it could not place to the adapter at every level
+// of its recursion. On a level whose plain parse stops before the site, an
+// inner level already retried the site; the adapter must not repeat that
+// retry, which would cost a whole chained parse per level.
+func TestParseRepeatAdapterSkipsSitesPastPlainParseError(t *testing.T) {
+	src := []byte("print ${x::=1}\nrepeat 3 do\n  print hi\ndone\nprint ${y[(r)a,[^:]]}\n")
+	_, plainErr := parseTree(src, "levels.zsh")
+	var perr syntax.ParseError
+	if !errors.As(plainErr, &perr) || perr.Pos.Line() != 1 {
+		t.Fatalf("parseTree() error = %v, want an error on line 1", plainErr)
+	}
+	_, chainErr := parseWithAdapters(src, "levels.zsh")
+	if !errors.As(chainErr, &perr) || perr.Pos.Line() != 5 {
+		t.Fatalf("parseWithAdapters() error = %v, want the line 5 blocker", chainErr)
+	}
+	calls := 0
+	_, err := parseRepeatWithParser(src, "levels.zsh", chainErr, func([]byte, string) (*syntax.File, error) {
+		calls++
+		return nil, errors.New("retry must not run")
+	})
+	if !errors.Is(err, chainErr) {
+		t.Fatalf("error = %v, want the chain error %v", err, chainErr)
+	}
+	if calls != 0 {
+		t.Fatalf("retry ran %d times, want 0", calls)
+	}
+}
+
 // Every site in command position is found, and none elsewhere.
 func TestScanRepeatSites(t *testing.T) {
 	src := "repeat 1 a\n" +

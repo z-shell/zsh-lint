@@ -479,6 +479,22 @@ func parseRepeatWithParser(
 	if !bytes.Contains(src[:min(len(src), errOffset+len("repeat"))], []byte("repeat")) {
 		return nil, firstErr
 	}
+	// The chain hands an error it could not place to this adapter at every
+	// level of its recursion, so the error may lie far past where the
+	// parser stops on this level's source: an inner level, whose source
+	// carries one more mask, already retried the site and carried the
+	// error past it. A site the plain parse never reaches cannot be what
+	// blocks this level, and its retry would repeat the inner level's whole
+	// work. The plain parse fails at that earlier point quickly.
+	if _, plainErr := parseTree(src, name); plainErr != nil {
+		var plainParseErr syntax.ParseError
+		if errors.As(plainErr, &plainParseErr) {
+			errOffset = min(errOffset, int(plainParseErr.Pos.Offset()))
+		}
+	}
+	if !bytes.Contains(src[:min(len(src), errOffset+len("repeat"))], []byte("repeat")) {
+		return nil, firstErr
+	}
 	sites := scanRepeatSites(src)
 	// The innermost site before the error is the one whose body the
 	// error is in. A site the parser already reads on its own is skipped
