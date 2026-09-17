@@ -186,6 +186,14 @@ the retry joins both subscripts into the one index as a comma expression, and
 `Parse` splits that expression at the commas whose source bytes are `][`,
 leaving the first subscript in `Index` and the rest, as the parser's own typed
 arithmetic nodes, in `File.SecondSubscripts`.
+The expression after `,` in a flagged subscript, `${name[(r)pattern,--[^:]##]}`
+(#277), needs no metadata: native Zsh reads that expression by the parameter's
+type (a pattern for an associative array, arithmetic or a flagged pattern for a
+plain array), which no parser can know, so an expression the parser already
+reads as arithmetic keeps that reading, and only one it rejects (a bracket
+expression, a leading `--`, a `^`) is retried as one literal, the shape the
+parser already gives `${name[(r)a,b]}`: a `BinaryArithm` `,` whose right
+operand is a `Word`.
 The `repeat count sublist` loop (#208) has no node at all in mvdan/sh through
 v3.14.1, which reads `repeat` as a command name. `resolveRepeatLoops` rewrites
 each loop, after the file parses, into a `WhileClause` positioned at the
