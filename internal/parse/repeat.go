@@ -696,7 +696,7 @@ func resolveRepeatLoops(
 	transformed, sm := applyRepeatEdits(src, nil)
 	limit := bytes.Count(src, []byte("repeat"))
 	for pass := 0; ; pass++ {
-		call, parents := lastRepeatCall(tree)
+		call, parents := lastRepeatCall(tree, src, sm)
 		if call == nil {
 			break
 		}
@@ -734,8 +734,12 @@ func resolveRepeatLoops(
 }
 
 // lastRepeatCall returns the `repeat` call with the greatest offset and the
-// parent of every node in the tree.
-func lastRepeatCall(tree *syntax.File) (*syntax.CallExpr, map[syntax.Node]syntax.Node) {
+// parent of every node in tree, whose positions are in the coordinates of
+// the source sm maps back to src. The count word of a loop already
+// rewritten is a call too when it is the literal `repeat` (`repeat repeat
+// print hi` runs `print hi` as many times as the parameter `repeat` counts);
+// it is the count, not a site, and is skipped.
+func lastRepeatCall(tree *syntax.File, src []byte, sm forSourceMap) (*syntax.CallExpr, map[syntax.Node]syntax.Node) {
 	parents := make(map[syntax.Node]syntax.Node)
 	var stack []syntax.Node
 	var last *syntax.CallExpr
@@ -749,13 +753,36 @@ func lastRepeatCall(tree *syntax.File) (*syntax.CallExpr, map[syntax.Node]syntax
 		}
 		stack = append(stack, node)
 		if cmd, ok := node.(syntax.Command); ok {
-			if call := repeatCall(cmd); call != nil && (last == nil || call.Pos().After(last.Pos())) {
+			call := repeatCall(cmd)
+			if call != nil && !isRewrittenRepeatCount(call, parents, src, sm) &&
+				(last == nil || call.Pos().After(last.Pos())) {
 				last = call
 			}
 		}
 		return true
 	})
 	return last, parents
+}
+
+// isRewrittenRepeatCount reports whether call is the count word of a loop
+// the front end has already rewritten from `repeat`: the only condition
+// statement of a `while` clause whose keyword maps back to a `repeat` word
+// in src. The condition of a `while` written as such is never one.
+func isRewrittenRepeatCount(
+	call *syntax.CallExpr,
+	parents map[syntax.Node]syntax.Node,
+	src []byte,
+	sm forSourceMap,
+) bool {
+	stmt, ok := parents[call].(*syntax.Stmt)
+	if !ok {
+		return false
+	}
+	loop, ok := parents[stmt].(*syntax.WhileClause)
+	if !ok || len(loop.Cond) != 1 || loop.Cond[0] != stmt {
+		return false
+	}
+	return matchSourceWord(src, sm.origByTransformed[loop.WhilePos.Offset()], "repeat")
 }
 
 // repeatCallEdits returns the edits, in the coordinates of src, that turn

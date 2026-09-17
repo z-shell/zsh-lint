@@ -55,6 +55,11 @@ func TestParseRepeat(t *testing.T) {
 		{"brace form with redirect", "repeat 3 { print hi } > file\n", "while 3; do print hi; done >file\n", "3", "1:1", "1:10", "1:21", "", 1},
 		{"expanded count", "repeat $(( n + 1 )) print hi\n", "while $((n + 1)); do print hi; done\n", "$(( n + 1 ))", "1:1", "1:21", "1:29", "", 1},
 		{"quoted count", "repeat \"$n\"; print hi\n", "while \"$n\"; do print hi; done\n", "\"$n\"", "1:1", "1:14", "1:22", "1:12", 1},
+		// The count is the parameter `repeat`; the rewritten condition must
+		// not be taken for a second site on the next pass.
+		{"literal repeat count", "repeat repeat print hi\n", "while repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:23", "", 1},
+		{"literal repeat count do form", "repeat repeat do print hi; done\n", "while repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:28", "", 1},
+		{"literal repeat count brace form", "repeat repeat { print hi }\n", "while repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:26", "", 1},
 		{"empty body at end of input", "repeat 2\n", "while 2; do; done\n", "2", "1:1", "1:9", "1:9", "", 0},
 		{"empty body before pipe", "repeat 2 | cat; print hi\n", "while 2; do; done | cat\nprint hi\n", "2", "1:1", "1:9", "1:9", "", 0},
 		{"empty body before and", "repeat 2 && print x; print y\n", "while 2; do; done && print x\nprint y\n", "2", "1:1", "1:9", "1:9", "", 0},
@@ -157,6 +162,10 @@ func TestParseRepeatNested(t *testing.T) {
 		{"repeat 2 ( repeat 3 (( x++ )) )\n", "while 2; do (while 3; do ((x++)); done); done\n"},
 		{"( repeat 3 do print hi; done )\n", "(while 3; do print hi; done)\n"},
 		{"repeat 2 if true; then\n  repeat 3 { print hi }\nfi\n", "while 2; do if true; then\n\twhile 3; do print hi; done\nfi; done\n"},
+		// A loop in the condition of a `while` written as such is a site.
+		{"while repeat 2 print hi; do break; done\n", "while while 2; do print hi; done; do break; done\n"},
+		{"while repeat 2; print hi; do break; done\n", "while while 2; do print hi; done; do break; done\n"},
+		{"repeat 2 while repeat 3 print a; do break; done\n", "while 2; do while while 3; do print a; done; do break; done; done\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.src, func(t *testing.T) {
