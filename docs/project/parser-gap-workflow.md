@@ -196,4 +196,10 @@ loop and its count so a consumer can tell it from a `while`. The loop is the
 one construct whose typed node is synthesized rather than carried: a `while`
 is the closest upstream shape, and the count word is kept as its condition
 rather than moved into metadata so every rule that walks loop bodies sees
-the body once.
+the body once. The condition statement is synthesized, not a command the
+script runs, so the analyzer's shared walk feeds neither it nor its
+`CallExpr` to any rule (`synthesizedStatements`,
+`internal/analyzer/analyzer.go`) while still walking the expansions inside
+the count. That skip covers only the shared walk: a rule that runs its own
+`syntax.Walk` from the `File` node still sees the count as a command and
+today matches specific builtin names there.

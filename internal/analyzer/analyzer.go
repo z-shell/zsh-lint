@@ -53,10 +53,13 @@ func (a *Analyzer) analyzeSource(file *parse.File, path string, source projectco
 	}
 
 	// Pass 2: Rule Evaluation (Linter)
-	// Traverse the AST and feed each node to the registered rules.
+	// Traverse the AST and feed each node to the registered rules. A
+	// synthesized statement is not a command the script runs, so no rule sees
+	// it; its expansions are still walked.
 	if ast != nil {
+		synthesized := synthesizedStatements(file)
 		syntax.Walk(ast, func(node syntax.Node) bool {
-			if node == nil {
+			if node == nil || synthesized[node] {
 				return true
 			}
 			for _, rule := range a.rules {
@@ -79,6 +82,28 @@ func (a *Analyzer) analyzeSource(file *parse.File, path string, source projectco
 
 	ctx.Diagnostics.Sort()
 	return ctx.Diagnostics
+}
+
+// synthesizedStatements returns the statements the front end synthesized to
+// carry a construct the upstream tree cannot hold, keyed by the statement and
+// by its command. The count of a `repeat` loop (parse.File.RepeatLoops) is
+// the condition statement of the WhileClause that stands for the loop: a
+// rule that reads it as a command would report `repeat eval print hi` as a
+// use of eval and `repeat $n print hi` as an unquoted argument. The words
+// inside a synthesized statement are real source, so they are not returned.
+func synthesizedStatements(file *parse.File) map[syntax.Node]bool {
+	loops := file.RepeatLoops()
+	if len(loops) == 0 {
+		return nil
+	}
+	synthesized := make(map[syntax.Node]bool, 2*len(loops))
+	for _, loop := range loops {
+		for _, cond := range loop.Loop.Cond {
+			synthesized[cond] = true
+			synthesized[cond.Cmd] = true
+		}
+	}
+	return synthesized
 }
 
 // AnalyzeProject runs per-file analysis and then project rules over the

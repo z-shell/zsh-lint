@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -118,5 +119,26 @@ print -r -- "quoted:$#"
 	}
 	if got, want := string(output), "unquoted:0\nquoted:1\n"; got != want {
 		t.Fatalf("native Zsh argument counts = %q, want %q", got, want)
+	}
+}
+
+// The count of a repeat loop is an arithmetic expression, not a command
+// argument, so `repeat $n` is not flagged; the loop body still is.
+func TestUnquotedVarIgnoresRepeatCount(t *testing.T) {
+	src := "repeat $n print hi\nrepeat ${count} { print $x }\nrepeat $n; do print $y; done\n"
+	f, err := parse.Parse(strings.NewReader(src), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	diags := analyzer.New(UnquotedVar{}).Analyze(f, "test.zsh")
+
+	want := []string{"2:25", "3:21"}
+	var got []string
+	for _, d := range diags {
+		got = append(got, fmt.Sprintf("%d:%d", d.Range.Start.Line, d.Range.Start.Column))
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("expected diagnostics at %v, got %v", want, got)
 	}
 }

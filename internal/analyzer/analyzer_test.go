@@ -1,6 +1,7 @@
 package analyzer_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -52,6 +53,18 @@ func (r *fileRule) AnalyzeFile(ctx *analyzer.Context) {
 	ctx.Report(syntax.Pos{}, syntax.Pos{}, r.ID(), diag.Hint, "file finding")
 }
 
+// expansionRule reports every parameter expansion, so a test can prove the
+// walk still reaches the expansions inside a statement no rule is fed.
+type expansionRule struct{}
+
+func (r *expansionRule) ID() diag.RuleID { return "test/expansion" }
+func (r *expansionRule) Name() string    { return "Expansion Rule" }
+func (r *expansionRule) Analyze(ctx *analyzer.Context, node syntax.Node) {
+	if expansion, ok := node.(*syntax.ParamExp); ok {
+		ctx.Report(expansion.Pos(), expansion.End(), r.ID(), diag.Hint, "expansion "+expansion.Param.Value)
+	}
+}
+
 func (r *scopeRule) ID() diag.RuleID { return "test/scope" }
 func (r *scopeRule) Name() string    { return "Scope Rule" }
 func (r *scopeRule) NeedsScope() bool {
@@ -84,6 +97,38 @@ func TestAnalyzer(t *testing.T) {
 	}
 	if d.Range.Start.Line != 2 {
 		t.Errorf("expected line 2, got %d", d.Range.Start.Line)
+	}
+}
+
+// The count of a repeat loop is carried as the condition statement of a
+// WhileClause (parse.File.RepeatLoops). It is not a command, so no rule is
+// fed that statement or its CallExpr; the expansions inside the count are
+// still walked, and the body is analyzed once like any loop body.
+func TestAnalyzerSkipsRepeatCountStatement(t *testing.T) {
+	code := "repeat badcmd print hi\nrepeat $n badcmd fail\nrepeat ${count} { badcmd $x }\n"
+	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if got := len(file.RepeatLoops()); got != 3 {
+		t.Fatalf("expected 3 repeat loops, got %d", got)
+	}
+
+	diags := analyzer.New(&dummyRule{}, &expansionRule{}).Analyze(file, "test.zsh")
+
+	want := []string{
+		"2:8 test/expansion expansion n",
+		"2:11 test/dummy Found badcmd",
+		"3:8 test/expansion expansion count",
+		"3:19 test/dummy Found badcmd",
+		"3:26 test/expansion expansion x",
+	}
+	var got []string
+	for _, d := range diags {
+		got = append(got, fmt.Sprintf("%d:%d %s %s", d.Range.Start.Line, d.Range.Start.Column, d.RuleID, d.Message))
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("diagnostics mismatch\nwant:\n%s\ngot:\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
 	}
 }
 
