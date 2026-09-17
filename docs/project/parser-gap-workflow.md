@@ -200,6 +200,6 @@ the body once. The condition statement is synthesized, not a command the
 script runs, so the analyzer's shared walk feeds neither it nor its
 `CallExpr` to any rule (`synthesizedStatements`,
 `internal/analyzer/analyzer.go`) while still walking the expansions inside
-the count. That skip covers only the shared walk: a rule that runs its own
-`syntax.Walk` from the `File` node still sees the count as a command and
-today matches specific builtin names there.
+the count. That skip covers only the shared walk: a rule that traverses the
+tree itself from the `File` node still sees the count as a command and
+today matches specific command names there.
