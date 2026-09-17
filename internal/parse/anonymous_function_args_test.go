@@ -246,7 +246,7 @@ func TestAnonymousFunctionArgsRetryHandlesDeepNesting(t *testing.T) {
 // of the 33-deep brace nesting here, so a genuine candidate at exactly this
 // depth was spuriously rejected and the caller reported the resolved
 // candidate's stale seedErr instead of the real, later blocker below.
-// maxClosers now adds the prefix's own unclosed brace count on top of that
+// maxClosers now adds the prefix's own brace opener count on top of that
 // fixed base, so this depth is no longer a special case.
 func TestAnonymousFunctionArgsRetryHandlesNestingPastFixedBound(t *testing.T) {
 	const depth = 33
@@ -268,7 +268,7 @@ func TestAnonymousFunctionArgsRetryHandlesNestingPastFixedBound(t *testing.T) {
 // TestAnonymousFunctionArgsRetryHandlesNonBraceEnclosingConstructs
 // regression-tests that maxClosers's fixed base still covers a genuine
 // candidate enclosed by non-brace constructs (here `if`/`then`/`fi` and
-// `for`/`do`/`done`), which unclosedBraceCount cannot bound.
+// `for`/`do`/`done`), which braceOpenerCount cannot bound.
 func TestAnonymousFunctionArgsRetryHandlesNonBraceEnclosingConstructs(t *testing.T) {
 	source := "if true; then\n  for x in a; do\n    () { x; } y\n  done\nfi\n)\n"
 	_, err := Parse(strings.NewReader(source), "non-brace-nesting.zsh")
@@ -281,6 +281,34 @@ func TestAnonymousFunctionArgsRetryHandlesNonBraceEnclosingConstructs(t *testing
 	}
 	if parseErr.Pos.Line() != 6 || parseErr.Pos.Col() != 1 {
 		t.Fatalf("error position = %d:%d, want 6:1 (the real later blocker, not a rejected candidate)", parseErr.Pos.Line(), parseErr.Pos.Col())
+	}
+}
+
+// TestAnonymousFunctionArgsRetryHandlesCommentBracesBeforeCandidate
+// regression-tests that a `}` byte inside a comment must not deflate
+// braceOpenerCount's contribution to maxClosers. With 33 enclosing `f() {`
+// bodies and a comment line of 33 `}` bytes, a net `{` minus `}` count would
+// be 0 and leave maxClosers at the fixed 32, one short of the genuine depth,
+// so the candidate would be spuriously rejected and the caller would report
+// its stale seedErr instead of the real, later blocker below.
+func TestAnonymousFunctionArgsRetryHandlesCommentBracesBeforeCandidate(t *testing.T) {
+	const depth = 33
+	source := strings.Repeat("f() {\n", depth) +
+		"# " + strings.Repeat("}", depth) + "\n" +
+		"() { x; } y\n" +
+		strings.Repeat("}\n", depth) +
+		")\n"
+	_, err := Parse(strings.NewReader(source), "comment-braces-before-candidate.zsh")
+	if err == nil {
+		t.Fatal("Parse() unexpectedly accepted a trailing unmatched `)`")
+	}
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error type = %T, want syntax.ParseError", err)
+	}
+	wantLine := uint(2*depth + 3)
+	if parseErr.Pos.Line() != wantLine || parseErr.Pos.Col() != 1 {
+		t.Fatalf("error position = %d:%d, want %d:1 (the real later blocker, not a rejected candidate)", parseErr.Pos.Line(), parseErr.Pos.Col(), wantLine)
 	}
 }
 
