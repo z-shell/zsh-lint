@@ -106,7 +106,8 @@ without changing the selected parser dependency only when all of these hold:
 
 - the released Zsh manual and `zsh -f -n` establish the construct's validity;
 - the adapter activates for one exact parser error and one language construct;
-- the full-file retry has the same byte length as the original source;
+- the full-file retry maps every byte back to the original source, either
+  by keeping the original byte length or through a source map;
 - every transformed byte is restored in the typed AST before analysis;
 - no mask swallows a byte that produces a `*syntax.Comment` node: the parser
   runs with `KeepComments(true)` and `internal/suppress` reads those nodes for
