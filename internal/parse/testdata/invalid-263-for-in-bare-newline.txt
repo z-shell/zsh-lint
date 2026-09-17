@@ -1,0 +1,4 @@
+for x in
+ a b c; do
+  print $x
+done

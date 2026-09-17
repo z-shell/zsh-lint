@@ -19,6 +19,7 @@ const (
 	editShortForClose
 	editShortForDo
 	editShortForDone
+	editMaskListNewline
 )
 
 type forEdit struct {
@@ -198,11 +199,15 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 								braceOpen := skipSpacesAndComments(src, parenClose)
 								if braceOpen < len(src) && src[braceOpen] == '{' {
 									braceClose := scanClosingBrace(src, braceOpen)
-									if braceClose > braceOpen {
+									newlines, listOK := scanListNewlines(src, parenOpen+1, parenClose-1)
+									if braceClose > braceOpen && listOK {
 										if forStart <= seedOffset && seedOffset <= braceClose {
 											seedRecognized = true
 										}
 										edits = append(edits, forEdit{start: parenOpen, end: parenOpen + 1, kind: editShortForOpen})
+										for _, nl := range newlines {
+											edits = append(edits, forEdit{start: nl, end: nl + 1, kind: editMaskListNewline})
+										}
 										edits = append(edits, forEdit{start: parenClose - 1, end: parenClose, kind: editShortForClose})
 										edits = append(edits, forEdit{start: braceOpen, end: braceOpen + 1, kind: editShortForDo})
 										edits = append(edits, forEdit{start: braceClose - 1, end: braceClose, kind: editShortForDone})
@@ -304,6 +309,128 @@ func scanClosingParen(src []byte, start int) int {
 	return -1
 }
 
+// scanListNewlines finds the newlines in the word list of an alternate-form
+// for loop that native zsh treats as plain word separators, so that the
+// rewritten `for name in words; do` form, which cannot hold a newline before
+// `do`, keeps every word. Only a newline at nesting depth zero, outside every
+// quote, and not preceded by a backslash qualifies; a newline inside `$(...)`,
+// `${...}`, backticks, or a quoted word is part of that word and is left as
+// it is. A list carrying a `#` comment is not rewritten at all: masking the
+// comment would drop a `*syntax.Comment` node the suppression pass may read,
+// so the parser error stands for that loop.
+func scanListNewlines(src []byte, start, end int) ([]int, bool) {
+	var newlines []int
+
+	inSingleQuote := false
+	inDoubleQuote := false
+	inANSICQuote := false
+	inBacktick := false
+	escaped := false
+	parenDepth := 0
+	braceDepth := 0
+	atWordStart := true
+
+	for i := start; i < end; i++ {
+		b := src[i]
+
+		if escaped {
+			escaped = false
+			atWordStart = false
+			continue
+		}
+		if inSingleQuote {
+			if b == '\'' {
+				inSingleQuote = false
+			}
+			continue
+		}
+		if inANSICQuote {
+			switch b {
+			case '\\':
+				escaped = true
+			case '\'':
+				inANSICQuote = false
+			}
+			continue
+		}
+		if inDoubleQuote {
+			switch b {
+			case '\\':
+				escaped = true
+			case '"':
+				inDoubleQuote = false
+			}
+			continue
+		}
+		if inBacktick {
+			switch b {
+			case '\\':
+				escaped = true
+			case '`':
+				inBacktick = false
+			}
+			continue
+		}
+
+		switch b {
+		case '\\':
+			escaped = true
+			atWordStart = false
+			continue
+		case '\'':
+			inSingleQuote = true
+		case '"':
+			inDoubleQuote = true
+		case '`':
+			inBacktick = true
+		case '$':
+			if i+1 < end {
+				switch src[i+1] {
+				case '\'':
+					inANSICQuote = true
+					i++
+				case '(':
+					parenDepth++
+					i++
+				case '{':
+					braceDepth++
+					i++
+				}
+			}
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case '{':
+			if braceDepth > 0 {
+				braceDepth++
+			}
+		case '}':
+			if braceDepth > 0 {
+				braceDepth--
+			}
+		case '#':
+			if atWordStart && parenDepth == 0 && braceDepth == 0 {
+				return nil, false
+			}
+		case '\n':
+			if parenDepth == 0 && braceDepth == 0 {
+				newlines = append(newlines, i)
+			}
+			atWordStart = true
+			continue
+		case ' ', '\t':
+			atWordStart = true
+			continue
+		}
+		atWordStart = false
+	}
+
+	return newlines, true
+}
+
 func applyForEdits(src []byte, edits []forEdit) ([]byte, forSourceMap) {
 	sort.Slice(edits, func(i, j int) bool {
 		return edits[i].start < edits[j].start
@@ -344,6 +471,8 @@ func applyForEdits(src []byte, edits []forEdit) ([]byte, forSourceMap) {
 			appendSynthetic("do\n", e.start)
 		case editShortForDone:
 			appendSynthetic("\ndone\n", e.start)
+		case editMaskListNewline:
+			appendOriginal(' ', e.start)
 		}
 		last = e.end
 	}
