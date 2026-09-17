@@ -150,16 +150,20 @@ func closingToken(err error) (string, bool) {
 // backtick-quoted (or literal-backtick) token, not just genuine
 // incompleteness ("not a valid parameter expansion operator: `+`" matches
 // too), and adapter rewrites on a truncated prefix can in principle ping-pong
-// between requested closers instead of converging. A real anonymous function
-// is never nested anywhere near this deep, so exhausting the bound only ever
-// means a false rejection, reported as the true, unmasked firstErr by the
-// caller, never a false acceptance.
+// between requested closers instead of converging. The fixed base of 32
+// guards against those non-converging retries and also covers a candidate
+// nested inside non-brace constructs (`if`, `for`, `case`, a subshell, an
+// open quote), whose depth is not derived from the source here. Brace
+// nesting is derived on top of that base via unclosedBraceCount, so a fixed
+// bound alone no longer caps genuine brace depth. Exhausting the combined
+// bound only ever means a false rejection, reported as the candidate's own
+// seedErr by the caller, never a false acceptance.
 func prefixEndsWithAnonymousFunction(src []byte, name string, close int) bool {
 	if close < 0 || close >= len(src) || src[close] != '}' {
 		return false
 	}
 	prefix := append([]byte(nil), src[:close+1]...)
-	const maxClosers = 32
+	maxClosers := 32 + unclosedBraceCount(prefix)
 	for appended := 0; ; appended++ {
 		tree, err := parseWithAdapters(prefix, name)
 		if err == nil {
@@ -176,6 +180,27 @@ func prefixEndsWithAnonymousFunction(src []byte, name string, close int) bool {
 		prefix = append(prefix, token...)
 		prefix = append(prefix, '\n')
 	}
+}
+
+// unclosedBraceCount returns a safe upper bound on how many additional
+// closers prefixEndsWithAnonymousFunction's retry loop can need purely from
+// brace nesting, added on top of maxClosers's fixed base: the candidate
+// itself and every enclosing function or brace group around it are each
+// opened by one `{` and, once fully closed, closed by one `}`, so the number
+// of `{` bytes not yet matched by a `}` byte in prefix bounds the number of
+// enclosing brace constructs still open at close. It counts raw bytes without
+// quote or comment awareness: a `{` inside a string or comment only inflates
+// the count, which only grows the bound and so stays safe, it can never make
+// the bound too small for genuine nesting. A stray `}` in a string or comment
+// can push the raw difference negative; clamp to 0. It says nothing about
+// non-brace constructs; those already have headroom from the fixed base this
+// is added to.
+func unclosedBraceCount(prefix []byte) int {
+	n := bytes.Count(prefix, []byte{'{'}) - bytes.Count(prefix, []byte{'}'})
+	if n < 0 {
+		return 0
+	}
+	return n
 }
 
 func funcDeclEndsAt(tree *syntax.File, close int) bool {

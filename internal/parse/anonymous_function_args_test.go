@@ -241,6 +241,49 @@ func TestAnonymousFunctionArgsRetryHandlesDeepNesting(t *testing.T) {
 	}
 }
 
+// TestAnonymousFunctionArgsRetryHandlesNestingPastFixedBound regression-tests
+// part of issue #255: the previous maxClosers bound was a fixed 32, one short
+// of the 33-deep brace nesting here, so a genuine candidate at exactly this
+// depth was spuriously rejected and the caller reported the resolved
+// candidate's stale seedErr instead of the real, later blocker below.
+// maxClosers now adds the prefix's own unclosed brace count on top of that
+// fixed base, so this depth is no longer a special case.
+func TestAnonymousFunctionArgsRetryHandlesNestingPastFixedBound(t *testing.T) {
+	const depth = 33
+	source := strings.Repeat("f() {\n", depth) + "() { x; } y\n" + strings.Repeat("}\n", depth) + ")\n"
+	_, err := Parse(strings.NewReader(source), "deep-nesting-past-bound.zsh")
+	if err == nil {
+		t.Fatal("Parse() unexpectedly accepted a trailing unmatched `)`")
+	}
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error type = %T, want syntax.ParseError", err)
+	}
+	wantLine := uint(2*depth + 2)
+	if parseErr.Pos.Line() != wantLine || parseErr.Pos.Col() != 1 {
+		t.Fatalf("error position = %d:%d, want %d:1 (the real later blocker, not a rejected deep candidate)", parseErr.Pos.Line(), parseErr.Pos.Col(), wantLine)
+	}
+}
+
+// TestAnonymousFunctionArgsRetryHandlesNonBraceEnclosingConstructs
+// regression-tests that maxClosers's fixed base still covers a genuine
+// candidate enclosed by non-brace constructs (here `if`/`then`/`fi` and
+// `for`/`do`/`done`), which unclosedBraceCount cannot bound.
+func TestAnonymousFunctionArgsRetryHandlesNonBraceEnclosingConstructs(t *testing.T) {
+	source := "if true; then\n  for x in a; do\n    () { x; } y\n  done\nfi\n)\n"
+	_, err := Parse(strings.NewReader(source), "non-brace-nesting.zsh")
+	if err == nil {
+		t.Fatal("Parse() unexpectedly accepted a trailing unmatched `)`")
+	}
+	var parseErr syntax.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error type = %T, want syntax.ParseError", err)
+	}
+	if parseErr.Pos.Line() != 6 || parseErr.Pos.Col() != 1 {
+		t.Fatalf("error position = %d:%d, want 6:1 (the real later blocker, not a rejected candidate)", parseErr.Pos.Line(), parseErr.Pos.Col())
+	}
+}
+
 func TestAnonymousFunctionTextControlsRemainOrdinary(t *testing.T) {
 	source := `print -r -- '} argument'
 # } argument
