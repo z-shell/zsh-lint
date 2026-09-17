@@ -13,6 +13,13 @@ import (
 type anonymousInvocationCandidate struct {
 	close int
 	words []*syntax.Word
+	// seedErr is the error whose position seeded this candidate's discovery,
+	// captured before it was masked. When this specific candidate turns out
+	// not to be a genuine anonymous function, seedErr is the true, unmasked
+	// error the source actually has here, distinct from firstErr (an
+	// earlier, already-resolved candidate's error) or currentErr (a later
+	// iteration's, possibly unrelated to this candidate).
+	seedErr error
 }
 
 // parseAnonymousFunctionArgs closes the native-Zsh gap where an anonymous
@@ -40,11 +47,14 @@ func parseAnonymousFunctionArgs(
 			// candidate is found (expensive: it re-enters the full adapter
 			// chain on truncated buffers), validate every accepted
 			// candidate once here, only on this rarer error-return path,
-			// before trusting currentErr. On any failure, report firstErr,
-			// the genuine, unmasked error, instead.
+			// before trusting currentErr. On any failure, report that
+			// specific candidate's own seedErr, the genuine, unmasked error
+			// it hid, rather than firstErr: an earlier candidate in the
+			// same file can already be genuine and resolved, in which case
+			// firstErr's position no longer names a real problem.
 			for _, candidate := range candidates {
 				if !prefixEndsWithAnonymousFunction(masked, name, candidate.close) {
-					return nil, nil, firstErr
+					return nil, nil, candidate.seedErr
 				}
 			}
 			// currentErr, not firstErr: once every candidate has been
@@ -56,7 +66,7 @@ func parseAnonymousFunctionArgs(
 			return nil, nil, currentErr
 		}
 		seen[close] = true
-		candidates = append(candidates, anonymousInvocationCandidate{close: close, words: words})
+		candidates = append(candidates, anonymousInvocationCandidate{close: close, words: words, seedErr: currentErr})
 		for offset := close + 1; offset < end; offset++ {
 			if masked[offset] != '\n' {
 				masked[offset] = ' '
@@ -68,9 +78,9 @@ func parseAnonymousFunctionArgs(
 			currentErr = err
 			continue
 		}
-		invocations, ok := bindAnonymousInvocations(tree, candidates)
+		invocations, ok, failed := bindAnonymousInvocations(tree, candidates)
 		if !ok {
-			return nil, nil, firstErr
+			return nil, nil, failed.seedErr
 		}
 		return tree, invocations, nil
 	}
@@ -331,10 +341,14 @@ func parseAnonymousInvocationWords(src []byte, name string, close, end int) ([]*
 	return nil, false
 }
 
+// bindAnonymousInvocations pairs each candidate with the FuncDecl it names.
+// On failure it also returns the specific candidate that did not bind, so
+// the caller can report that candidate's own seedErr instead of an
+// unrelated one.
 func bindAnonymousInvocations(
 	tree *syntax.File,
 	candidates []anonymousInvocationCandidate,
-) ([]AnonymousInvocation, bool) {
+) ([]AnonymousInvocation, bool, anonymousInvocationCandidate) {
 	functionsByClose := make(map[int]*syntax.FuncDecl)
 	syntax.Walk(tree, func(node syntax.Node) bool {
 		decl, ok := node.(*syntax.FuncDecl)
@@ -349,14 +363,14 @@ func bindAnonymousInvocations(
 	for _, candidate := range candidates {
 		decl := functionsByClose[candidate.close]
 		if decl == nil {
-			return nil, false
+			return nil, false, candidate
 		}
 		invocations = append(invocations, AnonymousInvocation{
 			Function: decl,
 			Words:    candidate.words,
 		})
 	}
-	return invocations, true
+	return invocations, true, anonymousInvocationCandidate{}
 }
 
 func getParseWordLiteral(word *syntax.Word) string {

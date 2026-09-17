@@ -120,6 +120,20 @@ func TestAnonymousFunctionInvocationCandidateInsideBacktickSubstitution(t *testi
 	assertParseErrorAt(t, fixture, "`)` can only be used to close a subshell", 3, 1)
 }
 
+// TestAnonymousFunctionArgsRetryReportsFailedCandidateOwnError
+// regression-tests a mix of one genuine and one false candidate: the first
+// invocation is a real anonymous function and resolves; the second is an
+// ordinary brace group glued to a stray word, which does not validate as an
+// anonymous function. The reported error must be the second candidate's own
+// position, not the first, already-resolved candidate's firstErr.
+func TestAnonymousFunctionArgsRetryReportsFailedCandidateOwnError(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/invalid-255-anonymous-invocation-mixed-candidates.txt")
+	if err != nil {
+		t.Fatalf("read invalid fixture: %v", err)
+	}
+	assertParseErrorAt(t, fixture, "statements must be separated by &, ; or a newline", 2, 8)
+}
+
 func TestAnonymousFunctionArgumentsComposeWithEarlierAdapters(t *testing.T) {
 	tests := []struct {
 		name   string
