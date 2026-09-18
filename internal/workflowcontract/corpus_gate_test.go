@@ -3,6 +3,7 @@ package workflowcontract
 import (
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestCorpusManifestIsExactAndContained(t *testing.T) {
 	}
 }
 
-func TestCorpusGateUsesReadOnlyMainCheckouts(t *testing.T) {
+func TestCorpusGateUsesReadOnlyPinnedCheckouts(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github", "workflows", "corpus-gate.yml")
 	if got := strings.Count(workflow, "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"); got != 14 {
 		t.Fatalf("two corpus jobs must use fourteen pinned checkout steps; got %d", got)
@@ -44,14 +45,44 @@ func TestCorpusGateUsesReadOnlyMainCheckouts(t *testing.T) {
 	if got := strings.Count(workflow, "persist-credentials: false"); got != 14 {
 		t.Fatalf("every corpus checkout must disable persisted credentials; got %d", got)
 	}
+	if got := strings.Count(workflow, "- name: Resolve pinned corpus revisions\n        id: revisions"); got != 2 {
+		t.Fatalf("both corpus jobs must resolve docs/project/corpus-revisions.txt before checking consumers out; got %d", got)
+	}
+	if got := strings.Count(workflow, `done < zsh-lint/docs/project/corpus-revisions.txt`); got != 2 {
+		t.Fatalf("both corpus jobs must read the revision pins from the manifest; got %d", got)
+	}
 
-	for _, repository := range []string{"src", "zd", "zunit", "z-a-meta-plugins", "zsh-fancy-completions", "zsh-eza"} {
+	for _, repository := range corpusRepositories {
 		want := "repository: z-shell/" + repository + "\n" +
-			"          ref: main\n" +
+			"          ref: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'main' || steps.revisions.outputs." + repository + " }}\n" +
 			"          path: corpus/" + repository + "\n" +
 			"          persist-credentials: false"
 		if got := strings.Count(workflow, want); got != 2 {
-			t.Errorf("both corpus jobs must check out %s from main in its isolated path; got %d", repository, got)
+			t.Errorf("both corpus jobs must check out %s at its pinned revision (main only on schedule and dispatch) in its isolated path; got %d", repository, got)
+		}
+	}
+}
+
+var corpusRepositories = []string{"src", "zd", "zunit", "z-a-meta-plugins", "zsh-fancy-completions", "zsh-eza"}
+
+var fullCommitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+func TestCorpusRevisionsPinEveryRepository(t *testing.T) {
+	manifest := readRepositoryFile(t, "docs", "project", "corpus-revisions.txt")
+	lines := strings.Split(strings.TrimSuffix(manifest, "\n"), "\n")
+	if len(lines) != len(corpusRepositories) {
+		t.Fatalf("corpus-revisions.txt must pin exactly the %d corpus repositories; got %d lines", len(corpusRepositories), len(lines))
+	}
+	for index, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			t.Fatalf("corpus-revisions.txt line %d must be `<repository> <sha>`: %q", index+1, line)
+		}
+		if fields[0] != corpusRepositories[index] {
+			t.Errorf("corpus-revisions.txt line %d pins %q, want %q (same order as the corpus jobs)", index+1, fields[0], corpusRepositories[index])
+		}
+		if !fullCommitSHA.MatchString(fields[1]) {
+			t.Errorf("corpus-revisions.txt pins %s to %q, want a full 40-character commit SHA", fields[0], fields[1])
 		}
 	}
 }
@@ -95,8 +126,7 @@ func TestConfiguredCorpusContract(t *testing.T) {
 		}
 	}
 
-	repositories := []string{"src", "zd", "zunit", "z-a-meta-plugins", "zsh-fancy-completions", "zsh-eza"}
-	for _, repository := range repositories {
+	for _, repository := range corpusRepositories {
 		path := repositoryFilePath(t, "docs", "project", "corpus-configs", repository+".json")
 		config, err := projectconfig.Load(path)
 		if err != nil {

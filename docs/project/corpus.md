@@ -9,10 +9,16 @@ analyzer (`cmd/zsh-lint`). Survey runs and parser-gap issues must reference
 corpus entries by repository and path so results stay comparable across runs
 and front ends ([#17](https://github.com/z-shell/zsh-lint/issues/17)).
 
-`corpus-paths.txt` is the machine-readable path inventory. This document owns
-the rationale for those entries. `.github/workflows/corpus-gate.yml` checks out
-the six repositories at their `main` branches, records the resolved revisions,
-and applies the strict gate to the exact discovered file set.
+`corpus-paths.txt` is the machine-readable path inventory and
+`corpus-revisions.txt` pins each repository to the reviewed commit. This
+document owns the rationale for those entries. On pull requests and pushes,
+`.github/workflows/corpus-gate.yml` checks out the six repositories at their
+pinned revisions, records the resolved revisions, and applies the strict gate
+to the exact discovered file set. The weekly schedule and a manual dispatch
+check out `main` instead, so a failure there is the drift signal that a
+consumer changed and a reviewed revision bump is due; an ordinary zsh-lint pull
+request is never failed by an unrelated consumer change
+([#291](https://github.com/z-shell/zsh-lint/issues/291)).
 
 `corpus-configs/` contains reviewed, non-enrollment configurations for a
 second configured-profile pass. The workflow copies each fixture into its
@@ -64,8 +70,9 @@ must not be copied into repository enrollment without repository-owned review.
 ## Running the gate
 
 The `Corpus Gate` workflow is the canonical automated execution. It runs on
-relevant `zsh-lint` changes, weekly to detect consumer drift, and by manual
-dispatch. It performs all of these checks:
+relevant `zsh-lint` changes against the pinned revisions, and weekly and by
+manual dispatch against consumer `main` to detect drift. It performs all of
+these checks:
 
 - every listed root exists and expands to the reviewed file count;
 - native `zsh -f -n` accepts every file;
@@ -90,10 +97,10 @@ rule. The unconfigured reference pass does not reject a directive merely
 because its configured-only rule is inactive; the configured pass still fails
 unknown or stale expected diagnostics.
 
-The expected identities track the current `main` revisions recorded by each
-run. When a consumer fixes or moves an admitted finding, refresh the expected
-file only after comparing the old and new consumer revisions and confirming
-that the analyzer change did not cause the difference.
+The expected identities track the revisions pinned in `corpus-revisions.txt`.
+When a consumer fixes or moves an admitted finding, refresh the expected file
+only after comparing the old and new consumer revisions and confirming that
+the analyzer change did not cause the difference.
 
 For a local run, arrange the repositories as siblings under `$CORPUS_ROOT`,
 build `cmd/zsh-lint-survey` and `cmd/zsh-lint`, then execute the same commands
@@ -110,6 +117,23 @@ survey is insufficient: every corpus change must re-run the complete native,
 parser, unconfigured analyzer, configured analyzer, classification, and
 profile-owned suppression checks. Reports under `docs/project/` record the
 revisions they ran against, so older reports stay interpretable.
+
+### Bumping a consumer revision
+
+A consumer change reaches the gate only through `corpus-revisions.txt`. When
+the weekly `main` run fails, or when a consumer fix is wanted in the corpus:
+
+1. Compare the old and new consumer revisions (`git log --stat <old>..<new>`
+   over the roots in `corpus-paths.txt`) so that a changed file count or a
+   moved finding is attributed to the consumer, not to the analyzer.
+2. Update the pinned SHA, the workflow's `EXPECTED_CORPUS_FILES` if the count
+   changed, and `configured-corpus-expected.json` if a classified finding
+   moved, all in one reviewed change.
+3. Re-run the complete gate locally at the new pins before opening the pull
+   request; the pull-request run then proves the same pins in CI.
+
+Pins are full 40-character commit SHAs, one `<repository> <sha>` line per
+corpus repository in the order the workflow checks them out.
 
 ## Repositories outside the strict corpus
 
