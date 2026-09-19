@@ -5,5 +5,5 @@
     "minimum_zsh": "5.8.1",
     "identifier": "z-shell-src"
   },
-  "sources": [{ "root": "public/zsh", "profile": "sourced-library" }]
+  "sources": [{ "root": "public/zsh", "profile": "startup-file" }]
 }
