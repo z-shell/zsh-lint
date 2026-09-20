@@ -54,6 +54,7 @@ func adapterChain() []adapterAttempt {
 		parseDeclarationBraceClose,
 		parseDoLeadingSeparator,
 		parseRepeat,
+		parseSelectShortForm,
 	}
 }
 
