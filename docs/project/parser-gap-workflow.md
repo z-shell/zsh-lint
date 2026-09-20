@@ -203,10 +203,9 @@ unread site and parses through the chain; the statement at the body's first
 byte, widened through the `&&`, `||`, `|` and `time` operators it is the left
 operand of, is the sublist native Zsh runs, and its end is where `done` goes.
 The last unread site is rewritten first, so a site whose body is another
-site sees that loop with a real `done`. A `{ list }` body, an empty body, the
-parenthesized list form, and a body whose last token is a closing keyword
-another adapter synthesized (its rebased position does not carry the
-keyword's length) keep the parser error.
+site sees that loop with a real `done`, and the sublist's end is scanned back
+from the source as the `repeat` and short `if` adapters do (#300). A `{ list }`
+body, an empty body and the parenthesized list form keep the parser error.
 The `repeat count sublist` loop (#208) has no node at all in mvdan/sh through
 v3.14.1, which reads `repeat` as a command name. `resolveRepeatLoops` rewrites
 each loop, after the file parses, into a `WhileClause` positioned at the
