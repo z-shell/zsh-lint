@@ -1,0 +1,1 @@
+while true; do { local x }; done; { local y }; done

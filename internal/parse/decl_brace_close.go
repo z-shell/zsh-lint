@@ -11,15 +11,31 @@ import (
 // unmatchedBraceClose is the tail of every error the parser reports for a
 // `{` it never closes: `reached EOF without matching ...`, and the `)`, `;;`
 // and backtick variants when the block sits inside a subshell, a case arm,
-// or a legacy substitution.
+// or a legacy substitution. The error lands on the open `{`, so the block
+// to close is the first candidate after it.
 const unmatchedBraceClose = "without matching `{` with `}`"
+
+// keywordInsideBlockErrors are the errors the parser reports when the block
+// sits inside a loop, an `if` or a `case` and a separator follows the brace
+// (issue #298): the clause stops at the `;` with the `}` swallowed, the
+// block stays open, and the parser meets the enclosing construct's keyword
+// inside it. The error lands on that keyword, after the block to close, so
+// for this shape the site is the first candidate before the error.
+var keywordInsideBlockErrors = map[string]bool{
+	"`then` can only be used in an `if`":      true,
+	"`elif` can only be used in an `if`":      true,
+	"`fi` can only be used to end an `if`":    true,
+	"`do` can only be used in a loop":         true,
+	"`done` can only be used to end a loop":   true,
+	"`esac` can only be used to end a `case`": true,
+}
 
 // parseDeclarationBraceClose adapts a brace block whose last command is a
 // declaration builtin or `let` with no separator before the closing `}`
-// (issues #231 and #259). The parser reads those clauses up to a stop token,
-// and a `}` word is not one, so `{ local x=1 }` makes the brace a naked
-// argument and leaves the block open. The retry replaces the whitespace byte
-// before that `}` with a `;`, which keeps every offset, and the synthetic
+// (issues #231, #259 and #298). The parser reads those clauses up to a stop
+// token, and a `}` word is not one, so `{ local x=1 }` makes the brace a
+// naked argument and leaves the block open. The retry replaces the whitespace
+// byte before that `}` with a `;`, which keeps every offset, and the synthetic
 // separator is cleared from the statement afterwards so the tree matches the
 // original source. An unquoted `}` glued to the preceding word or followed
 // by a word byte is not the closing brace in Zsh either and keeps the error.
@@ -34,15 +50,25 @@ func parseDeclarationBraceCloseWithParser(
 	parse func([]byte, string) (*syntax.File, error),
 ) (*syntax.File, error) {
 	var parseErr syntax.ParseError
-	if !errors.As(firstErr, &parseErr) || !strings.HasSuffix(parseErr.Text, unmatchedBraceClose) {
+	if !errors.As(firstErr, &parseErr) {
+		return nil, firstErr
+	}
+	// The unmatched error lands on the innermost `{` still open at the stop
+	// token, so the candidate is the first `}` after it; the keyword error
+	// lands past the open block, so the candidate is the first `}` before
+	// it. A `}` the clause consumed leaves its own block open, and a second
+	// block is reached by re-entering the chain after this retry.
+	after, before := -1, len(src)
+	switch {
+	case strings.HasSuffix(parseErr.Text, unmatchedBraceClose):
+		after = int(parseErr.Pos.Offset())
+	case keywordInsideBlockErrors[parseErr.Text]:
+		before = int(parseErr.Pos.Offset())
+	default:
 		return nil, firstErr
 	}
 
-	// The error lands on the innermost `{` still open at the stop token. A
-	// `}` the clause consumed leaves its own block open, so the first
-	// occurrence after that brace is the one to close; an earlier one is
-	// reached by re-entering the chain after this retry.
-	space, brace, ok := findDeclarationBraceClose(src, int(parseErr.Pos.Offset()))
+	space, brace, ok := findDeclarationBraceClose(src, after, before)
 	if !ok {
 		return nil, firstErr
 	}
@@ -74,10 +100,11 @@ var declarationClauseWords = map[string]bool{
 }
 
 // findDeclarationBraceClose scans syntactically active source for the first
-// declaration clause after seed whose argument list ends at a whole-word `}`
-// on the same logical line. It returns the offsets of the whitespace byte
-// before the brace and of the brace itself.
-func findDeclarationBraceClose(src []byte, seed int) (int, int, bool) {
+// declaration clause whose argument list ends at a whole-word `}` on the
+// same logical line, with that brace after and before the given offsets. It
+// returns the offsets of the whitespace byte before the brace and of the
+// brace itself.
+func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 	inSingleQuote := false
 	inDoubleQuote := false
 	inANSICQuote := false
@@ -176,7 +203,7 @@ func findDeclarationBraceClose(src []byte, seed int) (int, int, bool) {
 		switch b {
 		case '\\':
 			if inClause && !nestedInClause() && i > 0 && isDeclarationSpace(src[i-1]) && i+2 < len(src) &&
-				src[i+1] == '\n' && src[i+2] == '}' && isDeclarationBraceCandidate(src, i+2, seed) {
+				src[i+1] == '\n' && src[i+2] == '}' && isDeclarationBraceCandidate(src, i+2, after, before) {
 				// A `\`-newline before the brace is removed by the shell, so
 				// the backslash is the byte that becomes the separator.
 				return i, i + 2, true
@@ -263,7 +290,7 @@ func findDeclarationBraceClose(src []byte, seed int) (int, int, bool) {
 					// list, not to the block around the clause.
 					continue
 				}
-				if i > 0 && isDeclarationSpace(src[i-1]) && isDeclarationBraceCandidate(src, i, seed) {
+				if i > 0 && isDeclarationSpace(src[i-1]) && isDeclarationBraceCandidate(src, i, after, before) {
 					return i - 1, i, true
 				}
 				// A glued `}` is part of the word (`x=1}`) or a stray brace
@@ -312,12 +339,12 @@ func findDeclarationBraceClose(src []byte, seed int) (int, int, bool) {
 	return 0, 0, false
 }
 
-// isDeclarationBraceCandidate reports whether the `}` at brace closes a block
-// opened at or after the seed and is followed by a separator, a redirection,
-// a closing token, or the end of the source. The caller checks the byte
-// before the brace.
-func isDeclarationBraceCandidate(src []byte, brace, seed int) bool {
-	if brace <= seed {
+// isDeclarationBraceCandidate reports whether the `}` at brace lies strictly
+// between after and before and is followed by a separator, a redirection, a
+// closing token, or the end of the source. The caller checks the byte before
+// the brace.
+func isDeclarationBraceCandidate(src []byte, brace, after, before int) bool {
+	if brace <= after || brace >= before {
 		return false
 	}
 	return brace+1 == len(src) || isDeclarationBraceFollower(src[brace+1])
