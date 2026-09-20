@@ -349,7 +349,7 @@ func TestFindDeclarationBraceCloseSkipsInactiveBraces(t *testing.T) {
 			if test.name == "brace before seed" {
 				seed = strings.LastIndex(test.src, "{")
 			}
-			space, brace, ok := findDeclarationBraceClose([]byte(test.src), seed)
+			space, brace, ok := findDeclarationBraceClose([]byte(test.src), seed, len(test.src))
 			if ok != test.ok {
 				t.Fatalf("ok = %t, want %t", ok, test.ok)
 			}
@@ -361,6 +361,167 @@ func TestFindDeclarationBraceCloseSkipsInactiveBraces(t *testing.T) {
 			}
 			if test.src[brace] != '}' {
 				t.Fatalf("byte at %d is %q, want a brace", brace, test.src[brace])
+			}
+		})
+	}
+}
+
+// Issue #298: inside a loop, an `if` or a `case` body, a separator after the
+// brace makes the clause stop at the `;` with the `}` swallowed, so the parser
+// meets the enclosing keyword inside the open block and reports it instead
+// of the unclosed brace. The adapter must gate on those keyword errors and
+// close the first candidate block before the keyword, with the same
+// restoration as the unmatched-brace shape.
+func TestParseDeclarationBraceCloseInsideBody(t *testing.T) {
+	tests := []struct {
+		name   string
+		src    string
+		errTxt string
+		braces []string
+	}{
+		{"while then separator", "while true; do { local x }; done\n", "`done` can only be used to end a loop", []string{"1:26"}},
+		{"while then newline", "while true; do { local x }\ndone\n", "`done` can only be used to end a loop", []string{"1:26"}},
+		{"if body", "if true; then { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:25"}},
+		{"loop in function", "f() { while true; do { local x }; done }\n", "`done` can only be used to end a loop", []string{"1:32"}},
+		{"until body", "until false; do { typeset -g y=1 }; done\n", "`done` can only be used to end a loop", []string{"1:34"}},
+		{"for body", "for i in 1; do { export z=2 }; done\n", "`done` can only be used to end a loop", []string{"1:29"}},
+		{"select body", "select i in 1; do { local x }; done\n", "`done` can only be used to end a loop", []string{"1:29"}},
+		// The bare parser reads `repeat` as a command and fails on the `}`;
+		// the keyword error appears inside the repeat adapter's retry.
+		{"repeat body", "repeat 2 do { local x }; done\n", "`}` can only be used to close a block", []string{"1:23"}},
+		{"elif body", "if true; then :; elif true; then { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:44"}},
+		{"else body", "if true; then :; else { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:33"}},
+		{"then body before elif", "if true; then { local x }; elif true; then :; fi\n", "`elif` can only be used in an `if`", []string{"1:25"}},
+		{"then body before else", "if true; then { local x }; else :; fi\n", "`fi` can only be used to end an `if`", []string{"1:25"}},
+		{"case arm with separator", "case x in (x) { local x }; esac\n", "`esac` can only be used to end a `case`", []string{"1:25"}},
+		{"case arm then newline", "case x in (x) { local x }\nesac\n", "`esac` can only be used to end a `case`", []string{"1:25"}},
+		{"while condition", "while { local x }; do :; done\n", "`do` can only be used in a loop", []string{"1:17"}},
+		{"if condition", "if { local x }; then :; fi\n", "`then` can only be used in an `if`", []string{"1:14"}},
+		{"multi-line body", "while true; do\n  { local x }\ndone\n", "`done` can only be used to end a loop", []string{"2:13"}},
+		{"comment before done", "while true; do { local x } # c\ndone\n", "`done` can only be used to end a loop", []string{"1:26"}},
+		{"two blocks in one body", "while true; do { local x }; { local y }; done\n", "`done` can only be used to end a loop", []string{"1:26", "1:39"}},
+		{"pipe in body", "while true; do { local x } | cat; done\n", "`done` can only be used to end a loop", []string{"1:26"}},
+		{"and list in body", "while true; do { local x } && :; done\n", "`done` can only be used to end a loop", []string{"1:26"}},
+		{"if in function", "g() { if true; then { local x }; fi }\n", "`fi` can only be used to end an `if`", []string{"1:31"}},
+		{"block before the loop", "{ local a }; while true; do { local b }; done\n", "`done` can only be used to end a loop", []string{"1:11", "1:39"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			src := []byte(test.src)
+			_, firstErr := parseTree(src, test.name+".zsh")
+			var parseErr syntax.ParseError
+			if !errors.As(firstErr, &parseErr) || parseErr.Text != test.errTxt {
+				t.Fatalf("parseTree() error = %v, want %q", firstErr, test.errTxt)
+			}
+
+			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+			tree := file.AST()
+			assertLiteralsMatchSource(t, tree, test.src)
+
+			blocks := declarationBlocks(tree)
+			if len(blocks) != len(test.braces) {
+				t.Fatalf("found %d declaration blocks, want %d", len(blocks), len(test.braces))
+			}
+			for index, block := range blocks {
+				if got := block.Rbrace.String(); got != test.braces[index] {
+					t.Errorf("block %d closes at %s, want %s", index, got, test.braces[index])
+				}
+				if test.src[block.Rbrace.Offset()] != '}' {
+					t.Errorf("block %d Rbrace offset %d is not a brace in the source", index, block.Rbrace.Offset())
+				}
+				last := block.Stmts[len(block.Stmts)-1]
+				if last.Semicolon.IsValid() {
+					t.Errorf("block %d last statement keeps a separator at %s", index, last.Semicolon)
+				}
+				if last.End().Offset() >= block.Rbrace.Offset() {
+					t.Errorf("block %d last statement ends at %d, past the brace at %d", index, last.End().Offset(), block.Rbrace.Offset())
+				}
+			}
+		})
+	}
+}
+
+// The same-line shapes without a separator keep the unmatched-brace error and
+// the original site search, so widening the gate must not change them.
+func TestParseDeclarationBraceCloseInsideBodyWithoutSeparator(t *testing.T) {
+	for name, src := range map[string]string{
+		"while": "while true; do { local x } done\n",
+		"if":    "if true; then { local x } fi\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, firstErr := parseTree([]byte(src), name+".zsh")
+			var parseErr syntax.ParseError
+			if !errors.As(firstErr, &parseErr) || !strings.HasSuffix(parseErr.Text, unmatchedBraceClose) {
+				t.Fatalf("parseTree() error = %v, want an unmatched brace error", firstErr)
+			}
+			file, err := Parse(strings.NewReader(src), name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+			if blocks := declarationBlocks(file.AST()); len(blocks) != 1 {
+				t.Fatalf("found %d declaration blocks, want 1", len(blocks))
+			}
+		})
+	}
+}
+
+func TestParseDeclarationBraceCloseInsideBodyRejectsInvalidSources(t *testing.T) {
+	tests := []struct {
+		fixture string
+		text    string
+		line    uint
+		col     uint
+	}{
+		// The block closes on the retry and the stray keyword keeps its own
+		// error at its own position, as native Zsh reports it.
+		{"invalid-298-top-level-done.txt", "`done` can only be used to end a loop", 1, 14},
+		{"invalid-298-done-closes-if.txt", "`done` can only be used to end a loop", 1, 28},
+		// Both blocks close across two retries and the error lands on the
+		// last `done`, where native Zsh reports it.
+		{"invalid-298-double-done.txt", "`done` can only be used to end a loop", 1, 48},
+		// `;;` after the brace is a different error family, so the gate
+		// does not fire.
+		{"invalid-298-case-separator-in-loop.txt", "`;;` can only be used in a case clause", 1, 28},
+	}
+	for _, test := range tests {
+		t.Run(test.fixture, func(t *testing.T) {
+			src, err := os.ReadFile("testdata/" + test.fixture)
+			if err != nil {
+				t.Fatalf("read fixture: %v", err)
+			}
+			assertParseErrorAt(t, src, test.text, test.line, test.col)
+		})
+	}
+}
+
+// A keyword error with no candidate block before it, or a `}` error, hands
+// the incoming error on without a retry.
+func TestParseDeclarationBraceCloseInsideBodyLeavesOtherErrorsUntouched(t *testing.T) {
+	for name, src := range map[string]string{
+		"stray done":       "print x; done\n",
+		"stray fi":         "fi\n",
+		"brace error":      "print x }\n",
+		"candidate after":  "done; { local x }\n",
+		"block with colon": "while true; do { local x; }; done; done\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, firstErr := parseTree([]byte(src), name+".zsh")
+			if firstErr == nil {
+				t.Fatal("parseTree() unexpectedly accepted the source")
+			}
+			calls := 0
+			_, err := parseDeclarationBraceCloseWithParser([]byte(src), name+".zsh", firstErr, func([]byte, string) (*syntax.File, error) {
+				calls++
+				return nil, nil
+			})
+			if err != firstErr {
+				t.Fatalf("error = %v, want the incoming error %v", err, firstErr)
+			}
+			if calls != 0 {
+				t.Fatalf("parser called %d times, want 0", calls)
 			}
 		})
 	}

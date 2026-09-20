@@ -33,6 +33,7 @@ var requiredFixtures = []string{
 	"ok-brace-decl-termination.zsh",
 	"ok-brace-termination.zsh",
 	"ok-cond-group-quoted-paren.zsh",
+	"ok-decl-brace-close-in-body.zsh",
 	"ok-fd-var-redirect.zsh",
 	"ok-function-semicolon-body.zsh",
 	"ok-glob-patterns.zsh",
