@@ -714,14 +714,14 @@ func resolveRepeatLoops(
 	transformed, sm := applyRepeatEdits(src, nil)
 	limit := bytes.Count(src, []byte("repeat"))
 	for pass := 0; ; pass++ {
-		call, parents := lastRepeatCall(tree, src, sm)
+		call, parents, comments := lastRepeatCall(tree, src, sm)
 		if call == nil {
 			break
 		}
 		if pass >= limit {
 			return nil, nil, fmt.Errorf("%s: repeat loop rewrite did not converge", name)
 		}
-		passEdits, err := repeatCallEdits(transformed, name, call, parents, invocations)
+		passEdits, err := repeatCallEdits(transformed, name, call, parents, comments, invocations)
 		if err != nil {
 			return nil, nil, rebaseForError(err, sm, lineStarts)
 		}
@@ -757,8 +757,9 @@ func resolveRepeatLoops(
 // rewritten is a call too when it is the literal `repeat` (`repeat repeat
 // print hi` runs `print hi` as many times as the parameter `repeat` counts);
 // it is the count, not a site, and is skipped.
-func lastRepeatCall(tree *syntax.File, src []byte, sm forSourceMap) (*syntax.CallExpr, map[syntax.Node]syntax.Node) {
+func lastRepeatCall(tree *syntax.File, src []byte, sm forSourceMap) (*syntax.CallExpr, map[syntax.Node]syntax.Node, []*syntax.Comment) {
 	parents := make(map[syntax.Node]syntax.Node)
+	var comments []*syntax.Comment
 	var stack []syntax.Node
 	var last *syntax.CallExpr
 	syntax.Walk(tree, func(node syntax.Node) bool {
@@ -770,6 +771,9 @@ func lastRepeatCall(tree *syntax.File, src []byte, sm forSourceMap) (*syntax.Cal
 			parents[node] = stack[len(stack)-1]
 		}
 		stack = append(stack, node)
+		if comment, ok := node.(*syntax.Comment); ok {
+			comments = append(comments, comment)
+		}
 		if cmd, ok := node.(syntax.Command); ok {
 			call := repeatCall(cmd)
 			if call != nil && !isRewrittenRepeatCount(call, parents, src, sm) &&
@@ -779,7 +783,7 @@ func lastRepeatCall(tree *syntax.File, src []byte, sm forSourceMap) (*syntax.Cal
 		}
 		return true
 	})
-	return last, parents
+	return last, parents, comments
 }
 
 // isRewrittenRepeatCount reports whether call is the count word of a loop
@@ -810,6 +814,7 @@ func repeatCallEdits(
 	name string,
 	call *syntax.CallExpr,
 	parents map[syntax.Node]syntax.Node,
+	comments []*syntax.Comment,
 	invocations []AnonymousInvocation,
 ) ([]repeatEdit, error) {
 	shapeErr := syntax.ParseError{Filename: name, Pos: call.Args[0].Pos(), Text: repeatShapeError}
@@ -854,8 +859,11 @@ func repeatCallEdits(
 			}
 			outer = next
 		}
-		closer, ok := repeatSublistCloser(src, outer, repeatCloserOffset(outer, invocations))
+		closer, ok := repeatSublistEnd(src, parents, outer, comments, invocations)
 		if !ok {
+			return nil, shapeErr
+		}
+		if closer, ok = repeatSublistCloser(src, outer, closer); !ok {
 			return nil, shapeErr
 		}
 		return append(edits,
@@ -925,8 +933,11 @@ walk:
 			repeatEdit{start: rbrace, end: rbrace + 1, text: "\ndone"},
 		), nil
 	}
-	closer, ok := repeatSublistCloser(src, next, repeatCloserOffset(next, invocations))
+	closer, ok := repeatSublistEnd(src, parents, next, comments, invocations)
 	if !ok {
+		return nil, shapeErr
+	}
+	if closer, ok = repeatSublistCloser(src, next, closer); !ok {
 		return nil, shapeErr
 	}
 	return append(edits,
@@ -935,24 +946,42 @@ walk:
 	), nil
 }
 
-// repeatCloserOffset is where `done` goes after a sublist statement: before
-// its `;` or `&` when it has one, else after its last word or redirect. The
-// words of an anonymous function invocation in the statement are metadata
-// the tree does not span, so a statement without a separator ends after
-// the last of them; a separator always follows those words.
-func repeatCloserOffset(stmt *syntax.Stmt, invocations []AnonymousInvocation) int {
-	if stmt.Semicolon.IsValid() {
-		return int(stmt.Semicolon.Offset())
+// repeatSublistEnd returns the offset after the last byte of the sublist
+// statement stmt, or false when the list holding it is unknown. The bound
+// is the first byte after the statement that belongs to something else
+// (ifShortFormAnchor), and the end is scanned back from it over blanks,
+// separators and whole comments (ifShortFormCloser), never taken from the
+// statement's End(): a closing keyword another adapter synthesized (a `done`
+// at the `}` of `for i (a b) { ... }`, a `fi` at the `}` of `if list { ... }`)
+// maps to the byte it was written over, and End() adds the keyword's length
+// past it, into the next line or past the end of the source (#300). A
+// sublist that ends in an anonymous function invocation closes right after
+// the invocation's last word instead: the retry that reads those words
+// masks the rest of their line with them, so a redirection, comment or `&`
+// placed inside the loop there would vanish from the tree, while after
+// `done` it stays on the loop.
+func repeatSublistEnd(
+	src []byte,
+	parents map[syntax.Node]syntax.Node,
+	stmt *syntax.Stmt,
+	comments []*syntax.Comment,
+	invocations []AnonymousInvocation,
+) (int, bool) {
+	anchor := ifShortFormAnchor(src, parents, stmt)
+	if anchor < 0 {
+		return -1, false
 	}
-	closer := int(stmt.End().Offset())
+	end := ifShortFormCloser(src, int(stmt.Pos().Offset()), anchor, comments)
 	for _, invocation := range invocations {
 		if len(invocation.Words) == 0 || invocation.Function.Pos().Offset() < stmt.Pos().Offset() ||
 			invocation.Function.End().Offset() > stmt.End().Offset() {
 			continue
 		}
-		closer = max(closer, int(invocation.Words[len(invocation.Words)-1].End().Offset()))
+		if wordsEnd := int(invocation.Words[len(invocation.Words)-1].End().Offset()); wordsEnd >= int(stmt.End().Offset()) && wordsEnd < end {
+			end = wordsEnd
+		}
 	}
-	return closer
+	return end, true
 }
 
 // repeatSublistCloser returns where `done` goes after a sublist statement

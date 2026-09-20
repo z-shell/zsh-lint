@@ -212,7 +212,10 @@ v3.14.1, which reads `repeat` as a command name. `resolveRepeatLoops` rewrites
 each loop, after the file parses, into a `WhileClause` positioned at the
 `repeat` word whose only condition is the count word, with source-mapped
 `do` and `done` inserted around the body native Zsh runs (the next sublist,
-a `do ... done` block or a `{ ... }` block); `File.RepeatLoops` names each
+a `do ... done` block or a `{ ... }` block); the sublist's last byte is
+scanned back from the next statement or the enclosing closer, as the short
+`if` adapter does, since a closing keyword another adapter synthesized makes
+the statement's `End()` overshoot (#300); `File.RepeatLoops` names each
 loop and its count so a consumer can tell it from a `while`. The loop is the
 one construct whose typed node is synthesized rather than carried: a `while`
 is the closest upstream shape, and the count word is kept as its condition

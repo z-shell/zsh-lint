@@ -77,6 +77,14 @@ func TestParseRepeat(t *testing.T) {
 		{"heredoc before redirect", "repeat 2 cat <<EOT >out\nhi\nEOT\nprint x\n", "while 2; do\n\tcat <<EOT >out\nhi\nEOT\ndone\nprint x\n", "2", "1:1", "1:10", "3:4", "", 1},
 		{"heredoc before semicolon", "repeat 2 cat <<EOT;\nhi\nEOT\n", "while 2; do\n\tcat <<EOT\nhi\nEOT\ndone\n", "2", "1:1", "1:10", "3:4", "", 1},
 		{"two heredocs", "repeat 2 cat <<A <<B\na\nA\nb\nB\n", "while 2; do cat <<A <<B\na\nA\nb\nB\ndone\n", "2", "1:1", "1:10", "5:2", "", 1},
+		// The sublist ends in a closing keyword another adapter synthesized;
+		// its rebased position does not carry the keyword's length (#300).
+		{"sublist ending in alternate for", "repeat 3 for i (a b) { print $i }\nprint after\n", "while 3; do for i in a b; do print $i; done; done\nprint after\n", "3", "1:1", "1:10", "1:34", "", 1},
+		{"sublist ending in alternate for at end of input", "repeat 3 for i (a b) { print $i }\n", "while 3; do for i in a b; do print $i; done; done\n", "3", "1:1", "1:10", "1:34", "", 1},
+		{"sublist ending in brace if", "repeat 2 if (( 1 )) { print hi }\nprint after\n", "while 2; do if ((1)); then print hi; fi; done\nprint after\n", "2", "1:1", "1:10", "1:33", "", 1},
+		{"sublist ending in short if", "repeat 2 if (( 1 )) print a\nprint after\n", "while 2; do if ((1)); then print a; fi; done\nprint after\n", "2", "1:1", "1:10", "1:28", "", 1},
+		{"body after separator ending in alternate for", "repeat 2; for i (a b) { print $i }\nprint after\n", "while 2; do for i in a b; do print $i; done; done\nprint after\n", "2", "1:1", "1:11", "1:35", "1:9", 1},
+		{"alternate for body in function", "f() { repeat 2 for i (a b) { print $i } }\n", "f() { while 2; do for i in a b; do print $i; done; done; }\n", "2", "1:7", "1:16", "1:40", "", 1},
 		{"heredoc in block body", "repeat 2; { cat <<EOT\nhi\nEOT\n}\n", "while 2; do\n\tcat <<EOT\nhi\nEOT\ndone\n", "2", "1:1", "1:11", "4:1", "1:9", 1},
 		{"heredoc in command substitution", "repeat 2 print $(cat <<EOT\nhi\nEOT\n)\n", "while 2; do print $(\n\tcat <<EOT\nhi\nEOT\n); done\n", "2", "1:1", "1:10", "4:2", "", 1},
 		{"arithmetic body", "repeat 4 (( count++ ))\n", "while 4; do ((count++)); done\n", "4", "1:1", "1:10", "1:23", "", 1},
@@ -87,7 +95,7 @@ func TestParseRepeat(t *testing.T) {
 		{"case body", "repeat 2 case x in (x) print hi ;; esac\n", "while 2; do case x in x) print hi ;; esac done\n", "2", "1:1", "1:10", "1:40", "", 1},
 		{"function body", "repeat 2 f() { print hi }\n", "while 2; do f() { print hi; }; done\n", "2", "1:1", "1:10", "1:26", "", 1},
 		{"assignment body", "repeat 2 x=1\n", "while 2; do x=1; done\n", "2", "1:1", "1:10", "1:13", "", 1},
-		{"background", "repeat 3 print hi & print x\n", "while 3; do print hi; done &\nprint x\n", "3", "1:1", "1:10", "1:19", "", 1},
+		{"background", "repeat 3 print hi & print x\n", "while 3; do print hi; done &\nprint x\n", "3", "1:1", "1:10", "1:18", "", 1},
 		// The invocation words are metadata the tree does not span; the
 		// closer follows them, and what follows them on the line attaches
 		// to the loop.
