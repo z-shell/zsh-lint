@@ -16,3 +16,10 @@ cat <<EOF
 EOF
 f() { print -r -- '}' }
 { print -r -- \} }
+# A `}` that is not the last byte of its word, or that closes a `{` earlier
+# in the same word, stays text, and so does one in an assignment value.
+print -r -- a}b {a} a{b} {{a}} a{} {a,b} a}#c
+x=a} y=${x}} a}=1
+export z=a}
+case x in (a}) print -r -- pattern ;; esac
+print -r -- a}${x} ${x}{
