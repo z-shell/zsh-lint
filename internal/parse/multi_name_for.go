@@ -308,6 +308,14 @@ func skipSpaces(src []byte, i int) int {
 // would drop a `*syntax.Comment` node the suppression pass may read, so the
 // parser error stands for that loop.
 func scanShortForList(src []byte, parenOpen int) (parenClose int, newlines []int, ok bool) {
+	parenClose, newlines, _, ok = scanParenWordList(src, parenOpen)
+	return parenClose, newlines, ok
+}
+
+// scanParenWordList is scanShortForList returning the words' extents too,
+// as [start, end) offsets in src, for a caller that verifies the rewritten
+// loop's items against them (the select paren list adapter, #303).
+func scanParenWordList(src []byte, parenOpen int) (parenClose int, newlines []int, words [][2]int, ok bool) {
 	base := parenOpen + 1
 	var spans [][2]int
 	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh))
@@ -321,15 +329,16 @@ func scanShortForList(src []byte, parenOpen int) (parenClose int, newlines []int
 	}
 	var parseErr syntax.ParseError
 	if !errors.As(err, &parseErr) || parseErr.Text != "`)` is not a valid word" {
-		return -1, nil, false
+		return -1, nil, nil, false
 	}
 	closeAt := base + int(parseErr.Pos.Offset())
 	if closeAt >= len(src) || src[closeAt] != ')' {
-		return -1, nil, false
+		return -1, nil, nil, false
 	}
 
 	ok = true
 	gapStart := base
+	words = spans
 	spans = append(spans, [2]int{closeAt, closeAt})
 	for _, span := range spans {
 		for i := gapStart; i < span[0]; i++ {
@@ -340,7 +349,7 @@ func scanShortForList(src []byte, parenOpen int) (parenClose int, newlines []int
 					i++
 					continue
 				}
-				return -1, nil, false
+				return -1, nil, nil, false
 			case '\n':
 				newlines = append(newlines, i)
 			case '#':
@@ -349,13 +358,13 @@ func scanShortForList(src []byte, parenOpen int) (parenClose int, newlines []int
 					i++
 				}
 			default:
-				return -1, nil, false
+				return -1, nil, nil, false
 			}
 		}
 		gapStart = span[1]
 	}
 
-	return closeAt + 1, newlines, ok
+	return closeAt + 1, newlines, words, ok
 }
 
 func applyForEdits(src []byte, edits []forEdit) ([]byte, forSourceMap) {
