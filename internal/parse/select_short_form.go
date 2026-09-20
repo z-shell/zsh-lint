@@ -55,7 +55,8 @@ func scanSelectSites(src []byte) []selectSite {
 // word never ends it; the list ends at the first `;` or unescaped newline
 // after a word, as native Zsh reads it. The parenthesized form, a name that
 // is not an identifier, and a list the lexer rejects or that `&`, `|`, `)`
-// or `;;` ends report ok false.
+// or `;;` ends report ok false; the parenthesized form is
+// parseSelectParenList's (#303).
 func scanSelectSite(src []byte, start int) (selectSite, bool) {
 	nameStart := skipInlineSpaces(src, start+len("select"))
 	nameEnd := nameStart
@@ -218,7 +219,8 @@ func sublistStatements(tree *syntax.File, offset int) (inner, outer *syntax.Stmt
 // and `done` over its `}`, so the loop holds the block's list directly with
 // `do` and `done` on the brace bytes, and a tail such as `&& x` after the
 // `}` binds to the loop as native Zsh binds it. The parenthesized list form
-// keeps the parser error; it is another production of the loop.
+// is rewritten into the `in` form by parseSelectParenList (#303) and then
+// read here.
 func parseSelectShortForm(src []byte, name string, firstErr error) (*syntax.File, error) {
 	return parseSelectShortFormWithParser(src, name, firstErr, parseWithAdapters)
 }
