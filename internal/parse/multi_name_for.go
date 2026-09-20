@@ -270,6 +270,15 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 		case ';', '&', '|':
 			atWordStart = true
 			atCommandStart = true
+		case '!':
+			// A `!` word negates the pipeline and leaves the next word in
+			// command position (issue #321), as scanCommandWords reads it;
+			// a `!` inside a word ends the command position like any byte.
+			bangWord := atWordStart && i+1 < len(src) && (src[i+1] == ' ' || src[i+1] == '\t')
+			atWordStart = false
+			if !bangWord {
+				atCommandStart = false
+			}
 		default:
 			atWordStart = false
 			atCommandStart = false

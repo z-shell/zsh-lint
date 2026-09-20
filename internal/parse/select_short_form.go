@@ -257,6 +257,13 @@ func parseSelectShortFormWithParser(
 
 	probe := bytes.Clone(src)
 	for _, blanked := range unread {
+		// A `!` negating the loop (issue #321) owns the statement the
+		// probe would otherwise read at the body's first byte, so the
+		// probe drops it with the header; the retry keeps it, and the
+		// parser then reads the rewritten loop as the negated statement.
+		if bang, ok := negationBefore(src, blanked.start); ok {
+			probe[bang] = ' '
+		}
 		for i := blanked.start; i < blanked.bodyStart; i++ {
 			if probe[i] != '\n' {
 				probe[i] = ' '
@@ -418,6 +425,24 @@ func blockAt(tree *syntax.File, offset int) *syntax.Block {
 // command, and `then` when the loop is an `if` condition. A `do` is the
 // loop's own do-form and never reaches here (scanSelectSites).
 var selectClosers = []string{"done", "fi", "esac", "elif", "else", "then"}
+
+// negationBefore returns the offset of a `!` word that precedes the word at
+// start across blanks only, so that it negates the pipeline the word
+// begins: a `!` in command position, followed by a blank, as the parser
+// and native Zsh read it.
+func negationBefore(src []byte, start int) (int, bool) {
+	i := start - 1
+	for i >= 0 && (src[i] == ' ' || src[i] == '\t') {
+		i--
+	}
+	if i < 0 || src[i] != '!' || i == start-1 {
+		return -1, false
+	}
+	if i > 0 && !isRepeatWordBoundary(src[i-1]) {
+		return -1, false
+	}
+	return i, true
+}
 
 // selectEmptyBodyAt reports whether the byte at `at` ends the enclosing list
 // (a closer, or the end of the file) or begins an operator that takes the
