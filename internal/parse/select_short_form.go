@@ -205,7 +205,9 @@ func sublistStatements(tree *syntax.File, offset int) (inner, outer *syntax.Stmt
 // statement or the enclosing closer (repeatSublistEnd), so a body ending in
 // a keyword another adapter synthesized is closed on its real last byte.
 //
-// A `{ list }` body, an empty body, and the parenthesized list form keep
+// An empty body (issue #302), which native Zsh reads as an empty sublist
+// before a closer or at the end of the file, gets `do` and `done` on the
+// body's first byte. A `{ list }` body and the parenthesized list form keep
 // the parser error; they are other productions of the loop.
 func parseSelectShortForm(src []byte, name string, firstErr error) (*syntax.File, error) {
 	return parseSelectShortFormWithParser(src, name, firstErr, parseWithAdapters)
@@ -261,24 +263,38 @@ func parseSelectShortFormWithParser(
 		return nil, firstErr
 	}
 	inner, outer, parents, comments := sublistStatements(tree, site.bodyStart)
+	var closer int
 	if inner == nil {
-		return nil, firstErr
-	}
-	if _, ok := inner.Cmd.(*syntax.Block); ok && !inner.Negated {
-		return nil, firstErr
-	}
-	closer, ok := repeatSublistEnd(src, parents, outer, comments, nil)
-	if !ok {
-		return nil, firstErr
-	}
-	// The words of an anonymous function invocation are blanks in the
-	// source the retry outside the chain hands back, so blanks that run to
-	// the end of the line go inside the loop and `done` follows the words.
-	if end := skipSpaces(src, closer); end >= len(src) || src[end] == '\n' {
-		closer = end
-	}
-	if closer, ok = repeatSublistCloser(src, outer, closer); !ok {
-		return nil, firstErr
+		// Nothing starts at the body's first byte although the rest of the
+		// file parsed. That is an empty body (issue #302) only when the
+		// byte is a closer or the end of the file, where native
+		// par_sublist reads an empty sublist; `do` and `done` both go on
+		// that byte. Anything else there is a body the probe could not
+		// isolate (a negated loop's `!` owns the statement, a `;;` after
+		// the header is native-invalid) and keeps the parser error.
+		if !selectEmptyBodyAt(src, site.bodyStart) {
+			return nil, firstErr
+		}
+		closer = site.bodyStart
+	} else {
+		if _, ok := inner.Cmd.(*syntax.Block); ok && !inner.Negated {
+			return nil, firstErr
+		}
+		var ok bool
+		closer, ok = repeatSublistEnd(src, parents, outer, comments, nil)
+		if !ok {
+			return nil, firstErr
+		}
+		// The words of an anonymous function invocation are blanks in the
+		// source the retry outside the chain hands back, so blanks that run
+		// to the end of the line go inside the loop and `done` follows the
+		// words.
+		if end := skipSpaces(src, closer); end >= len(src) || src[end] == '\n' {
+			closer = end
+		}
+		if closer, ok = repeatSublistCloser(src, outer, closer); !ok {
+			return nil, firstErr
+		}
 	}
 
 	// The parser accepts one `;` and then newlines before `do`: every other
@@ -298,10 +314,14 @@ func parseSelectShortFormWithParser(
 	for _, at := range redundant {
 		edits = append(edits, repeatEdit{start: at, end: at + 1, text: " "})
 	}
-	edits = append(edits,
-		repeatEdit{start: site.bodyStart, end: site.bodyStart, text: opener},
-		repeatEdit{start: closer, end: closer, text: "\ndone"},
-	)
+	edits = append(edits, repeatEdit{start: site.bodyStart, end: site.bodyStart, text: opener})
+	if inner == nil {
+		// The closer that follows an empty body, or the end of the file,
+		// must not be glued to `done`.
+		edits = append(edits, repeatEdit{start: closer, end: closer, text: "done\n"})
+	} else {
+		edits = append(edits, repeatEdit{start: closer, end: closer, text: "\ndone"})
+	}
 	transformed, sm := applyRepeatEdits(src, edits)
 	lineStarts := originalLineStarts(src)
 	tree, err = parse(transformed, name)
@@ -322,9 +342,35 @@ func parseSelectShortFormWithParser(
 	return tree, nil
 }
 
+// selectClosers are the reserved words that end the list an empty select
+// body sits in, next to `}` and `)`: the closers of the enclosing compound
+// command, and `then` when the loop is an `if` condition. A `do` is the
+// loop's own do-form and never reaches here (scanSelectSites).
+var selectClosers = []string{"done", "fi", "esac", "elif", "else", "then"}
+
+// selectEmptyBodyAt reports whether the byte at `at` ends the enclosing list
+// (a closer, or the end of the file), so that a select header before it has
+// an empty body.
+func selectEmptyBodyAt(src []byte, at int) bool {
+	if at >= len(src) {
+		return true
+	}
+	if src[at] == '}' || src[at] == ')' {
+		return true
+	}
+	for _, word := range selectClosers {
+		if matchSourceWord(src, at, word) {
+			return true
+		}
+	}
+	return false
+}
+
 // verifySelectLoop reports whether tree holds a select loop at the site
 // whose `do` and first body statement are at the body's first byte and
-// whose `done` is at the closer.
+// whose `done` is at the closer; for an empty body (closer at the body's
+// first byte) the loop must hold no statement and its `done` sits on that
+// same byte.
 func verifySelectLoop(tree *syntax.File, site selectSite, closer int) bool {
 	verified := false
 	syntax.Walk(tree, func(node syntax.Node) bool {
@@ -335,10 +381,14 @@ func verifySelectLoop(tree *syntax.File, site selectSite, closer int) bool {
 		if !ok || !loop.Select || int(loop.ForPos.Offset()) != site.start {
 			return true
 		}
-		verified = int(loop.DoPos.Offset()) == site.bodyStart &&
-			len(loop.Do) > 0 &&
-			int(loop.Do[0].Pos().Offset()) == site.bodyStart &&
-			int(loop.DonePos.Offset()) == closer
+		if int(loop.DoPos.Offset()) != site.bodyStart || int(loop.DonePos.Offset()) != closer {
+			return false
+		}
+		if closer == site.bodyStart {
+			verified = len(loop.Do) == 0
+		} else {
+			verified = len(loop.Do) > 0 && int(loop.Do[0].Pos().Offset()) == site.bodyStart
+		}
 		return false
 	})
 	return verified
