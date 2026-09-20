@@ -52,6 +52,7 @@ func adapterChain() []adapterAttempt {
 		parseMultiNameFunction,
 		parseAssignAlways,
 		parseDeclarationBraceClose,
+		parseDoLeadingSeparator,
 		parseRepeat,
 	}
 }
