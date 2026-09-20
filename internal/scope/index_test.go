@@ -233,6 +233,11 @@ func firstFuncDecl(t *testing.T, root syntax.Node) *syntax.FuncDecl {
 	t.Helper()
 	var decl *syntax.FuncDecl
 	syntax.Walk(root, func(n syntax.Node) bool {
+		// Returning false only prunes the matched subtree; siblings are still
+		// visited, so stop assigning once the first declaration is found.
+		if decl != nil {
+			return false
+		}
 		if fn, ok := n.(*syntax.FuncDecl); ok {
 			decl = fn
 			return false
