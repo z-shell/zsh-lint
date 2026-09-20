@@ -262,6 +262,12 @@ func parseSelectShortFormWithParser(
 				probe[i] = ' '
 			}
 		}
+		// An operator that takes an empty-bodied loop as its left operand
+		// (issue #319) cannot start a statement on its own, so the probe
+		// drops it as well; its right operand must still parse.
+		for i := blanked.bodyStart; i < len(src) && selectOperatorByte(src, blanked.bodyStart, i); i++ {
+			probe[i] = ' '
+		}
 	}
 	tree, err := parse(probe, name)
 	if err != nil {
@@ -294,11 +300,13 @@ func parseSelectShortFormWithParser(
 	} else if inner == nil {
 		// Nothing starts at the body's first byte although the rest of the
 		// file parsed. That is an empty body (issue #302) only when the
-		// byte is a closer or the end of the file, where native
-		// par_sublist reads an empty sublist; `do` and `done` both go on
-		// that byte. Anything else there is a body the probe could not
-		// isolate (a negated loop's `!` owns the statement, a `;;` after
-		// the header is native-invalid) and keeps the parser error.
+		// byte is a closer, the end of the file, or a pipeline or list
+		// operator that takes the loop as its left operand (issue #319),
+		// where native par_sublist reads an empty sublist; `do` and `done`
+		// both go on that byte. Anything else there is a body the probe
+		// could not isolate (a negated loop's `!` owns the statement, a
+		// `;;` after the header is native-invalid) and keeps the parser
+		// error.
 		if !selectEmptyBodyAt(src, site.bodyStart) {
 			return nil, firstErr
 		}
@@ -348,10 +356,14 @@ func parseSelectShortFormWithParser(
 		)
 	case inner == nil:
 		// The closer that follows an empty body, or the end of the file,
-		// must not be glued to `done`.
+		// must not be glued to `done`; an operator must stay on its line.
+		text := "done\n"
+		if selectOperatorAt(src, closer) {
+			text = "done"
+		}
 		edits = append(edits,
 			repeatEdit{start: site.bodyStart, end: site.bodyStart, text: opener},
-			repeatEdit{start: closer, end: closer, text: "done\n"},
+			repeatEdit{start: closer, end: closer, text: text},
 		)
 	default:
 		edits = append(edits,
@@ -408,19 +420,49 @@ func blockAt(tree *syntax.File, offset int) *syntax.Block {
 var selectClosers = []string{"done", "fi", "esac", "elif", "else", "then"}
 
 // selectEmptyBodyAt reports whether the byte at `at` ends the enclosing list
-// (a closer, or the end of the file), so that a select header before it has
-// an empty body.
+// (a closer, or the end of the file) or begins an operator that takes the
+// loop as its left operand, so that a select header before it has an empty
+// body.
 func selectEmptyBodyAt(src []byte, at int) bool {
 	if at >= len(src) {
 		return true
 	}
-	if src[at] == '}' || src[at] == ')' {
+	if src[at] == '}' || src[at] == ')' || selectOperatorAt(src, at) {
 		return true
 	}
 	for _, word := range selectClosers {
 		if matchSourceWord(src, at, word) {
 			return true
 		}
+	}
+	return false
+}
+
+// selectOperatorByte reports whether byte i belongs to the operator that
+// starts at `at`: the `|`, `|&`, `||` or `&&` selectOperatorAt recognises.
+func selectOperatorByte(src []byte, at, i int) bool {
+	if !selectOperatorAt(src, at) {
+		return false
+	}
+	if i == at {
+		return true
+	}
+	return i == at+1 && (src[i] == '&' || src[i] == '|')
+}
+
+// selectOperatorAt reports whether a pipeline or list operator starts at
+// `at`: `|`, `|&`, `||` or `&&` (issue #319). A lone `&` would background
+// an empty sublist, which native Zsh rejects, and a `;`-led token is a case
+// terminator there.
+func selectOperatorAt(src []byte, at int) bool {
+	if at >= len(src) {
+		return false
+	}
+	switch src[at] {
+	case '|':
+		return true
+	case '&':
+		return at+1 < len(src) && src[at+1] == '&'
 	}
 	return false
 }

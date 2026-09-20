@@ -76,10 +76,14 @@ func parseSelectParenListWithParser(
 		}
 		// The parser wants one `;` or a newline between the list and the
 		// body, and the select adapters tolerate more; a separator the
-		// source already has after the `)` is kept as the term.
+		// source already has after the `)` is kept as the term. A `|` or
+		// `&` glued to the `)` gets a blank after the `;`, as `;|` and `;&`
+		// are case terminators (issue #319).
 		closer := ";"
 		if next := skipInlineSpaces(src, site.parenClose+1); next < len(src) && (src[next] == ';' || src[next] == '\n') {
 			closer = " "
+		} else if next := site.parenClose + 1; next < len(src) && (src[next] == '|' || src[next] == '&') {
+			closer = "; "
 		}
 		edits = append(edits, repeatEdit{start: site.parenClose, end: site.parenClose + 1, text: closer})
 	}
