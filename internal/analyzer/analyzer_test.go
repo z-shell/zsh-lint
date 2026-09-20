@@ -258,6 +258,32 @@ func TestAnalyzerSuppressionAfterNestedConditionalAlternation(t *testing.T) {
 	}
 }
 
+// Issue #210: the sublist of an `if list sublist` short form keeps its
+// original line, so a directive trailing it, and a directive on the line of
+// the `if` itself, apply to the findings there; a directive on the next line
+// does not.
+func TestAnalyzerSuppressionInIfShortForm(t *testing.T) {
+	const code = "if (( 1 )) eval $x # zsh-lint disable=security/eval -- static table\n" +
+		"if [[ -n $y ]] eval $y\n" +
+		"# zsh-lint disable=security/eval -- misplaced\n"
+	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	diags := analyzer.New(rules.Default()...).Analyze(file, "test.zsh")
+	got := findByID(diags, "security/eval")
+	if len(got) != 1 || got[0].Range.Start.Line != 2 {
+		t.Errorf("security/eval findings = %+v, want exactly the line 2 one", got)
+	}
+	if got := findByID(diags, "quoting/unquoted-var"); len(got) != 2 {
+		t.Errorf("quoting/unquoted-var count = %d, want 2: %+v", len(got), got)
+	}
+	if got := findByID(diags, "meta/unused-suppression"); len(got) != 1 || got[0].Range.Start.Line != 3 {
+		t.Errorf("meta/unused-suppression = %+v, want exactly the line 3 one", got)
+	}
+}
+
 func TestAnalyzerDiagnosticsAfterLegacyBacktickIsland(t *testing.T) {
 	tests := []struct {
 		name string

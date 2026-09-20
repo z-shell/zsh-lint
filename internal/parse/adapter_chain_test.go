@@ -31,6 +31,7 @@ type adapterSnippet struct {
 var adapterSnippets = map[string]adapterSnippet{
 	"nestedConditional": {attempt: parseNestedConditionalAlternation, source: "[[ $line == ((a|b)|(x\")\"y)) ]]"},
 	"alternateIf":       {attempt: parseAlternateIfBrace, source: "if (( 1 )) { x=1 }"},
+	"ifShortForm":       {attempt: parseIfShortForm, source: "if (( 1 )) x=1"},
 	"assocSubscript":    {attempt: parseAssociativeSubscript, source: "print ${functions[.foo]}"},
 	"secondSubscript":   {attempt: parseSecondSubscript, source: "print ${a[b][1,50]}"},
 	"flagBracket":       {attempt: parseSubscriptFlagBracketPattern, source: "print ${line[(i)[a]]}"},
