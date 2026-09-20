@@ -57,6 +57,7 @@ func adapterChain() []adapterAttempt {
 		parseRepeat,
 		parseSelectShortForm,
 		parseSelectParenList,
+		parseArithForSublist,
 	}
 }
 

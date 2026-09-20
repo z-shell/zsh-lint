@@ -23,6 +23,7 @@ var requiredFixtures = []string{
 	"ok-alternate-if-nested-in-classic-if.zsh",
 	"ok-anonymous-function-arguments.zsh",
 	"ok-ansic-heredoc.zsh",
+	"ok-arith-for-sublist.zsh",
 	"ok-assign-always.zsh",
 	"ok-assoc-key-dot-assignment.zsh",
 	"ok-assoc-key-expansion-colon.zsh",

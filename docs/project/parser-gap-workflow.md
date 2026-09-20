@@ -206,6 +206,7 @@ The last unread site is rewritten first, so a site whose body is another
 site sees that loop with a real `done`, and the sublist's end is scanned back
 from the source as the `repeat` and short `if` adapters do (#300). A `{ list }`
 body, an empty body and the parenthesized list form keep the parser error.
+The alternate form of the arithmetic for loop, `for (( expr1 ; expr2 ; expr3 )) sublist` (#241), needs no metadata either: the tree is the `ForClause` whose `Loop` is a `*syntax.CStyleLoop`, with `do` and `done` inserted through a source map (over `{` and `}` for the brace body, around the one sublist statement otherwise, with a `;` when the header has no separator). The arithmetic header is located by reading the header via a probe tree as the `do` form parses; the body has no tree before the retry, so a byte-preserving probe blanks the header of every unread site and parses through the chain; the statement at the body's first byte, widened through the `&&`, `||`, `|` and `time` operators it is the left operand of, is the sublist native Zsh runs, and its end is where `done` goes. The last unread site is rewritten first, and the tree is verified to hold a `ForClause` at the `for` word whose Loop is a `*syntax.CStyleLoop` and whose Do statements sit at their original offsets.
 The `repeat count sublist` loop (#208) has no node at all in mvdan/sh through
 v3.14.1, which reads `repeat` as a command name. `resolveRepeatLoops` rewrites
 each loop, after the file parses, into a `WhileClause` positioned at the

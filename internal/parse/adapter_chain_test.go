@@ -49,6 +49,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"repeat":            {attempt: parseRepeat, source: "repeat 3; do print hi; done"},
 	"selectShortForm":   {attempt: parseSelectShortForm, source: "select o in a b c; break"},
 	"selectParenList":   {attempt: parseSelectParenList, source: "select o (a b c) break"},
+	"arithForSublist":   {attempt: parseArithForSublist, source: "for (( i = 1; i < 3; i++ )) print $i"},
 }
 
 func parseString(t *testing.T, src string) error {
