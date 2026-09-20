@@ -91,7 +91,8 @@ func scanSelectSite(src []byte, start int) (selectSite, bool) {
 // word list starting at from. The lexer reads across newlines, so the gap
 // before each word, and the gap before the token that stops the lexer, is
 // checked for a newline that is not a `\`-newline continuation; a comment
-// in a gap runs to the newline that ends it.
+// in a gap runs to the newline that ends it. A bare `}` word, which Zsh
+// never lexes as a word, ends the scan with ok false.
 func scanSelectWordList(src []byte, from int) (int, bool) {
 	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh))
 	gapStart := from
@@ -104,6 +105,11 @@ func scanSelectWordList(src []byte, from int) (int, bool) {
 		wordStart := from + int(word.Pos().Offset())
 		if term, ok := selectListNewline(src, gapStart, wordStart); ok {
 			return term, true
+		}
+		// A bare `}` is never a word in Zsh (issue #314); the lexer reads
+		// one, so the list ends in a parse error and the header is no site.
+		if lit, ok := word.Parts[0].(*syntax.Lit); ok && len(word.Parts) == 1 && lit.Value == "}" {
+			return -1, false
 		}
 		gapStart = from + int(word.End().Offset())
 	}
