@@ -194,6 +194,19 @@ reads as arithmetic keeps that reading, and only one it rejects (a bracket
 expression, a leading `--`, a `^`) is retried as one literal, the shape the
 parser already gives `${name[(r)a,b]}`: a `BinaryArithm` `,` whose right
 operand is a `Word`.
+The short form of select, `select name [in word ...] term sublist` (#212),
+needs no metadata either: the tree is the `ForClause` with `Select` set that
+the parser gives the `do` form, with `do` and `done` inserted through a source
+map at the body's first byte and after the sublist. The body has no tree
+before the retry, so a byte-preserving probe first blanks the header of every
+unread site and parses through the chain; the statement at the body's first
+byte, widened through the `&&`, `||`, `|` and `time` operators it is the left
+operand of, is the sublist native Zsh runs, and its end is where `done` goes.
+The last unread site is rewritten first, so a site whose body is another
+site sees that loop with a real `done`. A `{ list }` body, an empty body, the
+parenthesized list form, and a body whose last token is a closing keyword
+another adapter synthesized (its rebased position does not carry the
+keyword's length) keep the parser error.
 The `repeat count sublist` loop (#208) has no node at all in mvdan/sh through
 v3.14.1, which reads `repeat` as a command name. `resolveRepeatLoops` rewrites
 each loop, after the file parses, into a `WhileClause` positioned at the

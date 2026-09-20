@@ -1,0 +1,2 @@
+select o in a b &
+print x
