@@ -122,7 +122,7 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err := rejectUnsupportedLoopWords(tree, name); err != nil {
 		return nil, err
 	}
-	if err := rejectBareCloseBraceWords(tree, name); err != nil {
+	if err := rejectCloseBraceWords(tree, name); err != nil {
 		return nil, err
 	}
 	repeatLoops, err := bindRepeatLoops(tree, src, name)
