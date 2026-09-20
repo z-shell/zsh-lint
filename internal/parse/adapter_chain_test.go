@@ -42,6 +42,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
 	"assignAlways":      {attempt: parseAssignAlways, source: "print ${x::=value}"},
 	"declBraceClose":    {attempt: parseDeclarationBraceClose, source: "{ typeset -g C=1 }"},
+	"doSeparator":       {attempt: parseDoLeadingSeparator, source: "while (( $# )); do; shift; done"},
 	"repeat":            {attempt: parseRepeat, source: "repeat 3; do print hi; done"},
 }
 

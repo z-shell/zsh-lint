@@ -50,6 +50,7 @@ func adapterChain() []adapterAttempt {
 		parseFunctionSemicolonBody,
 		parseAssignAlways,
 		parseDeclarationBraceClose,
+		parseDoLeadingSeparator,
 		parseRepeat,
 	}
 }
