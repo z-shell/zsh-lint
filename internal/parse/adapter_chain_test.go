@@ -31,6 +31,7 @@ type adapterSnippet struct {
 var adapterSnippets = map[string]adapterSnippet{
 	"nestedConditional": {attempt: parseNestedConditionalAlternation, source: "[[ $line == ((a|b)|(x\")\"y)) ]]"},
 	"alternateIf":       {attempt: parseAlternateIfBrace, source: "if (( 1 )) { x=1 }"},
+	"ifShortForm":       {attempt: parseIfShortForm, source: "if (( 1 )) x=1"},
 	"assocSubscript":    {attempt: parseAssociativeSubscript, source: "print ${functions[.foo]}"},
 	"secondSubscript":   {attempt: parseSecondSubscript, source: "print ${a[b][1,50]}"},
 	"flagBracket":       {attempt: parseSubscriptFlagBracketPattern, source: "print ${line[(i)[a]]}"},
@@ -40,6 +41,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"groupedCase":       {attempt: parseGroupedCasePattern, source: "case x in\n  (x|y)) : ;;\nesac"},
 	"ansiCHeredoc":      {attempt: parseANSICHeredocDelimiter, source: "cat <<$'E\\x4fF'\nbody\nEOF"},
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
+	"multiNameFunction": {attempt: parseMultiNameFunction, source: "a b () { print hi }"},
 	"assignAlways":      {attempt: parseAssignAlways, source: "print ${x::=value}"},
 	"declBraceClose":    {attempt: parseDeclarationBraceClose, source: "{ typeset -g C=1 }"},
 	"doSeparator":       {attempt: parseDoLeadingSeparator, source: "while (( $# )); do; shift; done"},

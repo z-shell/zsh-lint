@@ -39,6 +39,7 @@ func adapterChain() []adapterAttempt {
 	return []adapterAttempt{
 		parseNestedConditionalAlternation,
 		parseAlternateIfBrace,
+		parseIfShortForm,
 		parseAssociativeSubscript,
 		parseSecondSubscript,
 		parseSubscriptFlagBracketPattern,
@@ -48,6 +49,7 @@ func adapterChain() []adapterAttempt {
 		parseGroupedCasePattern,
 		parseANSICHeredocDelimiter,
 		parseFunctionSemicolonBody,
+		parseMultiNameFunction,
 		parseAssignAlways,
 		parseDeclarationBraceClose,
 		parseDoLeadingSeparator,

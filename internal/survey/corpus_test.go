@@ -38,6 +38,8 @@ var requiredFixtures = []string{
 	"ok-function-semicolon-body.zsh",
 	"ok-glob-patterns.zsh",
 	"ok-grouped-case-pattern.zsh",
+	"ok-if-short-form.zsh",
+	"ok-multi-name-function.zsh",
 	"ok-multi-name-loop.zsh",
 	"ok-nested-conditional-alternation.zsh",
 	"ok-nested-param-expansion.zsh",
