@@ -268,6 +268,8 @@ func TestParseSelectShortFormKeepsComments(t *testing.T) {
 
 // Shapes native Zsh accepts as other productions of the loop, or that the
 // adapter cannot place, keep the parser's own error at the `select` word.
+// The empty body before a closer or at the end of input parses since #302
+// (TestParseSelectEmptyBody).
 func TestParseSelectShortFormDeclines(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -275,8 +277,6 @@ func TestParseSelectShortFormDeclines(t *testing.T) {
 		wantPos string
 	}{
 		{"brace body", "select o in a b c; { break }\n", "1:1"},
-		{"empty body at end of input", "select o in a b c;\n", "1:1"},
-		{"empty body before brace", "f() { select o in a b c; }\n", "1:7"},
 		{"parenthesized list", "select o (a b c) break\n", "1:1"},
 		{"negated loop", "! select o in a b; break\n", "1:3"},
 	}
@@ -312,6 +312,10 @@ func TestParseSelectShortFormRejectsInvalidShapes(t *testing.T) {
 		{"invalid-212-then-body.txt", "1:20", "`then` can only be used in an `if`"},
 		{"invalid-212-brace-close-body.txt", "1:20", "`}` can only be used to close a block"},
 		{"invalid-212-brace-close-in-body.txt", "1:26", "`}` can only be used to close a block"},
+		{"invalid-302-double-semicolon-after-header.txt", "1:1", "`select foo [in words]` must be followed by `do`"},
+		{"invalid-302-double-semicolon-after-separator.txt", "1:20", "`;;` can only be used in a case clause"},
+		{"invalid-302-ampersand-opening-body.txt", "1:20", "`&` can only immediately follow a statement"},
+		{"invalid-302-unterminated-function.txt", "1:7", "`select foo [in words]` must be followed by `do`"},
 	}
 	for _, test := range tests {
 		t.Run(test.fixture, func(t *testing.T) {
