@@ -53,6 +53,7 @@ func adapterChain() []adapterAttempt {
 		parseAssignAlways,
 		parseDeclarationBraceClose,
 		parseDoLeadingSeparator,
+		parseThenLeadingSeparator,
 		parseRepeat,
 		parseSelectShortForm,
 	}

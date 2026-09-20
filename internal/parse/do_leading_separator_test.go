@@ -222,8 +222,8 @@ func TestParseDoLeadingSeparatorRejectsInvalidSources(t *testing.T) {
 }
 
 // A `;` that opens an `if` branch fails the same way in the parser but is a
-// different construct; the adapter finds no `do` site and hands the error on
-// without a retry.
+// different construct (the `then` adapter of #297); this adapter finds no
+// `do` site and hands the error on without a retry.
 func TestParseDoLeadingSeparatorLeavesOtherErrorsUntouched(t *testing.T) {
 	for _, src := range []string{"if true; then; print x; fi\n", "print x }\n"} {
 		src := []byte(src)
