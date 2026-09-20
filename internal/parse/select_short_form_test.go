@@ -52,7 +52,7 @@ func TestParseSelectShortForm(t *testing.T) {
 		{"positional parameters without separator", "select o break\n", "select o; do break; done\n", "1:1", "1:10", "1:15", 1, false},
 		{"and chain", "select o in a b c; print $o && break; print after\n", "select o in a b c; do print $o && break; done\nprint after\n", "1:1", "1:20", "1:37", 1, false},
 		{"pipeline", "select o in a b c; print $o | cat\n", "select o in a b c; do print $o | cat; done\n", "1:1", "1:20", "1:34", 1, false},
-		{"background binds to the loop", "select o in a b c; print $o &\n", "select o in a b c; do print $o; done &\n", "1:1", "1:20", "1:29", 1, true},
+		{"background binds to the loop", "select o in a b c; print $o &\n", "select o in a b c; do print $o; done &\n", "1:1", "1:20", "1:28", 1, true},
 		{"body after and", "true && select o in a b; break && print x\n", "true && select o in a b; do break && print x; done\n", "1:9", "1:26", "1:42", 1, false},
 		{"body after time", "time select o in a b; break\n", "time select o in a b; do break; done\n", "1:6", "1:23", "1:28", 1, false},
 		{"compound body", "select o in a b c; if [[ $o == a ]]; then break; fi\n", "select o in a b c; do if [[ $o == a ]]; then break; fi; done\n", "1:1", "1:20", "1:52", 1, false},
@@ -62,7 +62,12 @@ func TestParseSelectShortForm(t *testing.T) {
 		{"in command substitution", "x=$(select o in a b; break)\n", "x=$(select o in a b; do break; done)\n", "1:5", "1:22", "1:27", 1, false},
 		{"in case arm", "case x in (x) select o in a b; break ;; esac\n", "case x in x) select o in a b; do break; done ;; esac\n", "1:15", "1:32", "1:37", 1, false},
 		{"in if body", "if true; then select o in a b; break; fi\n", "if true; then select o in a b; do break; done; fi\n", "1:15", "1:32", "1:37", 1, false},
-		{"trailing comment", "select o in a b c; break # tail\nprint after\n", "select o in a b c; do break; done # tail\nprint after\n", "1:1", "1:20", "1:25", 1, false},
+		{"trailing comment stays with the body", "select o in a b c; break # tail\nprint after\n", "select o in a b c; do break # tail\ndone\nprint after\n", "1:1", "1:20", "1:32", 1, false},
+		// The body ends in a closing keyword another adapter synthesized; the
+		// end is scanned back from the source, so `done` follows the real `}`.
+		{"body ending in brace if", "select o in a b c; if (( 1 )) { break }\nprint after\n", "select o in a b c; do if ((1)); then break; fi; done\nprint after\n", "1:1", "1:20", "1:40", 1, false},
+		{"body ending in short if", "select o in a b c; if (( 1 )) break\nprint after\n", "select o in a b c; do if ((1)); then break; fi; done\nprint after\n", "1:1", "1:20", "1:36", 1, false},
+		{"body ending in alternate for", "select o in a b c; for i (a b) { print $i }\nprint after\n", "select o in a b c; do for i in a b; do print $i; done; done\nprint after\n", "1:1", "1:20", "1:44", 1, false},
 		{"heredoc body", "select o in a b c; cat <<EOT\n$o\nEOT\nprint after\n", "select o in a b c; do cat <<EOT\n$o\nEOT\ndone\nprint after\n", "1:1", "1:20", "3:4", 1, false},
 		{"body needing another adapter", "select o in a b c; print ${x::=y}\n", "select o in a b c; do print ${x:=y}; done\n", "1:1", "1:20", "1:34", 1, false},
 		{"reporter idiom", "select o in a b c; break\ncase $o in\n  (a) print a ;;\nesac\n", "select o in a b c; do break; done\ncase $o in\na) print a ;;\nesac\n", "1:1", "1:20", "1:25", 1, false},
@@ -274,7 +279,6 @@ func TestParseSelectShortFormDeclines(t *testing.T) {
 		{"empty body before brace", "f() { select o in a b c; }\n", "1:7"},
 		{"parenthesized list", "select o (a b c) break\n", "1:1"},
 		{"negated loop", "! select o in a b; break\n", "1:3"},
-		{"body closed by a synthesized keyword", "select o in a b c; if (( 1 )) { break }\nprint after\n", "1:1"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

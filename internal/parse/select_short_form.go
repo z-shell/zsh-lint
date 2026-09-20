@@ -149,54 +149,42 @@ func selectListNewline(src []byte, from, to int) (int, bool) {
 // the outermost statement of the sublist it begins: native Zsh reads a
 // sublist as the whole `&&`, `||` and `|` chain, so a statement on the left
 // of such an operator, or under `time`, widens to the statement that holds
-// the chain. Both are nil when no statement starts at offset.
-func sublistStatements(tree *syntax.File, offset int) (inner, outer *syntax.Stmt) {
+// the chain. Both are nil when no statement starts at offset. The parent of
+// every node and the tree's comments come along for the end scan.
+func sublistStatements(tree *syntax.File, offset int) (inner, outer *syntax.Stmt, parents map[syntax.Node]syntax.Node, comments []*syntax.Comment) {
+	parents = make(map[syntax.Node]syntax.Node)
 	var stack []syntax.Node
 	syntax.Walk(tree, func(node syntax.Node) bool {
 		if node == nil {
 			stack = stack[:len(stack)-1]
 			return true
 		}
-		if inner != nil {
-			return false
+		if len(stack) > 0 {
+			parents[node] = stack[len(stack)-1]
 		}
-		if stmt, ok := node.(*syntax.Stmt); ok && int(stmt.Pos().Offset()) == offset {
+		if comment, ok := node.(*syntax.Comment); ok {
+			comments = append(comments, comment)
+		}
+		if stmt, ok := node.(*syntax.Stmt); ok && inner == nil && int(stmt.Pos().Offset()) == offset {
 			inner, outer = stmt, stmt
 			for index := len(stack) - 1; index > 0; index -= 2 {
 				switch stack[index].(type) {
 				case *syntax.BinaryCmd, *syntax.TimeClause:
 				default:
-					return false
+					index = 0
+					continue
 				}
 				parent, ok := stack[index-1].(*syntax.Stmt)
 				if !ok {
-					return false
+					break
 				}
 				outer = parent
 			}
-			return false
 		}
 		stack = append(stack, node)
 		return true
 	})
-	return inner, outer
-}
-
-// sublistEndsAt reports whether a sublist may end at offset: the rest of
-// the line is blank, a comment or a separator, or a closer follows. A
-// closing keyword another adapter synthesized in the probe carries the
-// keyword's length past the byte it maps to, so a `done` inserted at that
-// end would split a word; this check declines such a body.
-func sublistEndsAt(src []byte, offset int) bool {
-	offset = skipInlineSpaces(src, offset)
-	if offset >= len(src) {
-		return true
-	}
-	switch src[offset] {
-	case '\n', ';', '&', '|', '#', '}', ')':
-		return true
-	}
-	return false
+	return inner, outer, parents, comments
 }
 
 // parseSelectShortForm adapts `select name [in word ...] term sublist`, the
@@ -212,6 +200,10 @@ func sublistEndsAt(src []byte, offset int) bool {
 // ends at the closer before every position is rebased. The last unread
 // site is rewritten first, so an enclosing site's probe sees the loop it
 // contains with a real `done`, and each site costs one probe and one retry.
+//
+// The sublist's end comes from the source, scanned back from the next
+// statement or the enclosing closer (repeatSublistEnd), so a body ending in
+// a keyword another adapter synthesized is closed on its real last byte.
 //
 // A `{ list }` body, an empty body, and the parenthesized list form keep
 // the parser error; they are other productions of the loop.
@@ -268,15 +260,15 @@ func parseSelectShortFormWithParser(
 		}
 		return nil, firstErr
 	}
-	inner, outer := sublistStatements(tree, site.bodyStart)
+	inner, outer, parents, comments := sublistStatements(tree, site.bodyStart)
 	if inner == nil {
 		return nil, firstErr
 	}
 	if _, ok := inner.Cmd.(*syntax.Block); ok && !inner.Negated {
 		return nil, firstErr
 	}
-	closer := repeatCloserOffset(outer, nil)
-	if !sublistEndsAt(src, closer) {
+	closer, ok := repeatSublistEnd(src, parents, outer, comments, nil)
+	if !ok {
 		return nil, firstErr
 	}
 	// The words of an anonymous function invocation are blanks in the
@@ -285,8 +277,7 @@ func parseSelectShortFormWithParser(
 	if end := skipSpaces(src, closer); end >= len(src) || src[end] == '\n' {
 		closer = end
 	}
-	closer, ok := repeatSublistCloser(src, outer, closer)
-	if !ok {
+	if closer, ok = repeatSublistCloser(src, outer, closer); !ok {
 		return nil, firstErr
 	}
 
