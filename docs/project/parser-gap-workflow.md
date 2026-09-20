@@ -194,12 +194,27 @@ reads as arithmetic keeps that reading, and only one it rejects (a bracket
 expression, a leading `--`, a `^`) is retried as one literal, the shape the
 parser already gives `${name[(r)a,b]}`: a `BinaryArithm` `,` whose right
 operand is a `Word`.
+The short form of select, `select name [in word ...] term sublist` (#212),
+needs no metadata either: the tree is the `ForClause` with `Select` set that
+the parser gives the `do` form, with `do` and `done` inserted through a source
+map at the body's first byte and after the sublist. The body has no tree
+before the retry, so a byte-preserving probe first blanks the header of every
+unread site and parses through the chain; the statement at the body's first
+byte, widened through the `&&`, `||`, `|` and `time` operators it is the left
+operand of, is the sublist native Zsh runs, and its end is where `done` goes.
+The last unread site is rewritten first, so a site whose body is another
+site sees that loop with a real `done`, and the sublist's end is scanned back
+from the source as the `repeat` and short `if` adapters do (#300). A `{ list }`
+body, an empty body and the parenthesized list form keep the parser error.
 The `repeat count sublist` loop (#208) has no node at all in mvdan/sh through
 v3.14.1, which reads `repeat` as a command name. `resolveRepeatLoops` rewrites
 each loop, after the file parses, into a `WhileClause` positioned at the
 `repeat` word whose only condition is the count word, with source-mapped
 `do` and `done` inserted around the body native Zsh runs (the next sublist,
-a `do ... done` block or a `{ ... }` block); `File.RepeatLoops` names each
+a `do ... done` block or a `{ ... }` block); the sublist's last byte is
+scanned back from the next statement or the enclosing closer, as the short
+`if` adapter does, since a closing keyword another adapter synthesized makes
+the statement's `End()` overshoot (#300); `File.RepeatLoops` names each
 loop and its count so a consumer can tell it from a `while`. The loop is the
 one construct whose typed node is synthesized rather than carried: a `while`
 is the closest upstream shape, and the count word is kept as its condition

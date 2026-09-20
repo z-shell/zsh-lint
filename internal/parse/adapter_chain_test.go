@@ -44,7 +44,9 @@ var adapterSnippets = map[string]adapterSnippet{
 	"multiNameFunction": {attempt: parseMultiNameFunction, source: "a b () { print hi }"},
 	"assignAlways":      {attempt: parseAssignAlways, source: "print ${x::=value}"},
 	"declBraceClose":    {attempt: parseDeclarationBraceClose, source: "{ typeset -g C=1 }"},
+	"doSeparator":       {attempt: parseDoLeadingSeparator, source: "while (( $# )); do; shift; done"},
 	"repeat":            {attempt: parseRepeat, source: "repeat 3; do print hi; done"},
+	"selectShortForm":   {attempt: parseSelectShortForm, source: "select o in a b c; break"},
 }
 
 func parseString(t *testing.T, src string) error {

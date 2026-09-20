@@ -142,3 +142,24 @@ func TestUnquotedVarIgnoresRepeatCount(t *testing.T) {
 		t.Fatalf("expected diagnostics at %v, got %v", want, got)
 	}
 }
+
+// The body of a select loop written in the short form is fed to rules on
+// its original bytes, exactly as the `do` form of the same loop is.
+func TestUnquotedVarSeesSelectShortFormBody(t *testing.T) {
+	src := "select o in a b c; print $o\nselect o in a b c; do print $o; done\nselect o in \"$@\"\n  eval $o && break\n"
+	f, err := parse.Parse(strings.NewReader(src), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	diags := analyzer.New(UnquotedVar{}).Analyze(f, "test.zsh")
+
+	want := []string{"1:26", "2:29", "4:8"}
+	var got []string
+	for _, d := range diags {
+		got = append(got, fmt.Sprintf("%d:%d", d.Range.Start.Line, d.Range.Start.Column))
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("expected diagnostics at %v, got %v", want, got)
+	}
+}

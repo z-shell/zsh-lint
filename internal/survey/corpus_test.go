@@ -34,6 +34,7 @@ var requiredFixtures = []string{
 	"ok-brace-termination.zsh",
 	"ok-cond-group-quoted-paren.zsh",
 	"ok-decl-brace-close-in-body.zsh",
+	"ok-do-leading-separator.zsh",
 	"ok-fd-var-redirect.zsh",
 	"ok-function-semicolon-body.zsh",
 	"ok-glob-patterns.zsh",
@@ -47,8 +48,10 @@ var requiredFixtures = []string{
 	"ok-param-glob-toggle.zsh",
 	"ok-rc-expand-caret.zsh",
 	"ok-repeat.zsh",
+	"ok-repeat-synthesized-closer.zsh",
 	"ok-reverse-subscript-pattern-slash.zsh",
 	"ok-reverse-subscript.zsh",
+	"ok-select-short-form.zsh",
 	"ok-subscript-pattern-after-comma.zsh",
 	"ok-try-always.zsh",
 }
