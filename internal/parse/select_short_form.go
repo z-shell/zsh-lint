@@ -207,8 +207,12 @@ func sublistStatements(tree *syntax.File, offset int) (inner, outer *syntax.Stmt
 //
 // An empty body (issue #302), which native Zsh reads as an empty sublist
 // before a closer or at the end of the file, gets `do` and `done` on the
-// body's first byte. A `{ list }` body and the parenthesized list form keep
-// the parser error; they are other productions of the loop.
+// body's first byte. A `{ list }` body (issue #301) is the loop's brace
+// form: the probe reads the block, and the retry writes `do` over its `{`
+// and `done` over its `}`, so the loop holds the block's list directly with
+// `do` and `done` on the brace bytes, and a tail such as `&& x` after the
+// `}` binds to the loop as native Zsh binds it. The parenthesized list form
+// keeps the parser error; it is another production of the loop.
 func parseSelectShortForm(src []byte, name string, firstErr error) (*syntax.File, error) {
 	return parseSelectShortFormWithParser(src, name, firstErr, parseWithAdapters)
 }
@@ -264,7 +268,22 @@ func parseSelectShortFormWithParser(
 	}
 	inner, outer, parents, comments := sublistStatements(tree, site.bodyStart)
 	var closer int
-	if inner == nil {
+	// body holds the offsets of the statements the loop must end up with:
+	// the block's list, the one sublist statement at the body's first byte
+	// (the probe may widen it to an enclosing chain, but the loop's own
+	// statement starts at that byte), or none.
+	var body []int
+	brace := repeatBodyForm(src, site.bodyStart) == repeatBodyBrace
+	if brace {
+		block := blockAt(tree, site.bodyStart)
+		if block == nil {
+			return nil, firstErr
+		}
+		closer = int(block.Rbrace.Offset())
+		for _, stmt := range block.Stmts {
+			body = append(body, int(stmt.Pos().Offset()))
+		}
+	} else if inner == nil {
 		// Nothing starts at the body's first byte although the rest of the
 		// file parsed. That is an empty body (issue #302) only when the
 		// byte is a closer or the end of the file, where native
@@ -277,9 +296,7 @@ func parseSelectShortFormWithParser(
 		}
 		closer = site.bodyStart
 	} else {
-		if _, ok := inner.Cmd.(*syntax.Block); ok && !inner.Negated {
-			return nil, firstErr
-		}
+		body = []int{site.bodyStart}
 		var ok bool
 		closer, ok = repeatSublistEnd(src, parents, outer, comments, nil)
 		if !ok {
@@ -314,13 +331,25 @@ func parseSelectShortFormWithParser(
 	for _, at := range redundant {
 		edits = append(edits, repeatEdit{start: at, end: at + 1, text: " "})
 	}
-	edits = append(edits, repeatEdit{start: site.bodyStart, end: site.bodyStart, text: opener})
-	if inner == nil {
+	switch {
+	case brace:
+		// The braces themselves become the loop's `do` and `done`.
+		edits = append(edits,
+			repeatEdit{start: site.bodyStart, end: site.bodyStart + 1, text: opener},
+			repeatEdit{start: closer, end: closer + 1, text: "\ndone"},
+		)
+	case inner == nil:
 		// The closer that follows an empty body, or the end of the file,
 		// must not be glued to `done`.
-		edits = append(edits, repeatEdit{start: closer, end: closer, text: "done\n"})
-	} else {
-		edits = append(edits, repeatEdit{start: closer, end: closer, text: "\ndone"})
+		edits = append(edits,
+			repeatEdit{start: site.bodyStart, end: site.bodyStart, text: opener},
+			repeatEdit{start: closer, end: closer, text: "done\n"},
+		)
+	default:
+		edits = append(edits,
+			repeatEdit{start: site.bodyStart, end: site.bodyStart, text: opener},
+			repeatEdit{start: closer, end: closer, text: "\ndone"},
+		)
 	}
 	transformed, sm := applyRepeatEdits(src, edits)
 	lineStarts := originalLineStarts(src)
@@ -336,10 +365,32 @@ func parseSelectShortFormWithParser(
 	if err := rebaseForPositions(reflect.ValueOf(tree), sm, lineStarts); err != nil {
 		return nil, fmt.Errorf("%s: rebasing select loop positions: %w", name, err)
 	}
-	if !verifySelectLoop(tree, site, closer) {
+	if !verifySelectLoop(tree, site, closer, body) {
 		return nil, firstErr
 	}
 	return tree, nil
+}
+
+// blockAt returns the block whose `{` is at offset in tree, when the
+// statement holding it is not negated: `! { list }` is a negated sublist,
+// not a brace body.
+func blockAt(tree *syntax.File, offset int) *syntax.Block {
+	var found *syntax.Block
+	syntax.Walk(tree, func(node syntax.Node) bool {
+		if found != nil {
+			return false
+		}
+		stmt, ok := node.(*syntax.Stmt)
+		if !ok || stmt.Negated {
+			return true
+		}
+		if block, ok := stmt.Cmd.(*syntax.Block); ok && int(block.Lbrace.Offset()) == offset {
+			found = block
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // selectClosers are the reserved words that end the list an empty select
@@ -367,11 +418,11 @@ func selectEmptyBodyAt(src []byte, at int) bool {
 }
 
 // verifySelectLoop reports whether tree holds a select loop at the site
-// whose `do` and first body statement are at the body's first byte and
-// whose `done` is at the closer; for an empty body (closer at the body's
-// first byte) the loop must hold no statement and its `done` sits on that
-// same byte.
-func verifySelectLoop(tree *syntax.File, site selectSite, closer int) bool {
+// whose `do` is at the body's first byte, whose `done` is at the closer,
+// and whose statements start exactly at the offsets in body: the block's
+// list for a brace body, the one sublist statement for the short form, none
+// for an empty body.
+func verifySelectLoop(tree *syntax.File, site selectSite, closer int, body []int) bool {
 	verified := false
 	syntax.Walk(tree, func(node syntax.Node) bool {
 		if verified {
@@ -381,14 +432,15 @@ func verifySelectLoop(tree *syntax.File, site selectSite, closer int) bool {
 		if !ok || !loop.Select || int(loop.ForPos.Offset()) != site.start {
 			return true
 		}
-		if int(loop.DoPos.Offset()) != site.bodyStart || int(loop.DonePos.Offset()) != closer {
+		if int(loop.DoPos.Offset()) != site.bodyStart || int(loop.DonePos.Offset()) != closer || len(loop.Do) != len(body) {
 			return false
 		}
-		if closer == site.bodyStart {
-			verified = len(loop.Do) == 0
-		} else {
-			verified = len(loop.Do) > 0 && int(loop.Do[0].Pos().Offset()) == site.bodyStart
+		for i, offset := range body {
+			if int(loop.Do[i].Pos().Offset()) != offset {
+				return false
+			}
 		}
+		verified = true
 		return false
 	})
 	return verified

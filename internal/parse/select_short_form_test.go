@@ -269,14 +269,14 @@ func TestParseSelectShortFormKeepsComments(t *testing.T) {
 // Shapes native Zsh accepts as other productions of the loop, or that the
 // adapter cannot place, keep the parser's own error at the `select` word.
 // The empty body before a closer or at the end of input parses since #302
-// (TestParseSelectEmptyBody).
+// (TestParseSelectEmptyBody) and the brace body since #301
+// (TestParseSelectBraceBody).
 func TestParseSelectShortFormDeclines(t *testing.T) {
 	tests := []struct {
 		name    string
 		src     string
 		wantPos string
 	}{
-		{"brace body", "select o in a b c; { break }\n", "1:1"},
 		{"parenthesized list", "select o (a b c) break\n", "1:1"},
 		{"negated loop", "! select o in a b; break\n", "1:3"},
 	}
