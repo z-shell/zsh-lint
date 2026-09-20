@@ -6,6 +6,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
+	"github.com/z-shell/zsh-lint/internal/scope"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -77,7 +78,7 @@ func (rule LoadOnlyHelper) AnalyzeProject(ctx *analyzer.ProjectContext) {
 		syntax.Walk(input.File.AST(), func(node syntax.Node) bool {
 			switch value := node.(type) {
 			case *syntax.FuncDecl:
-				names := functionDeclarationNames(value)
+				names := scope.FunctionNames(value)
 				if len(names) == 0 {
 					return true
 				}

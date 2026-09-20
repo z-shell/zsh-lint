@@ -17,15 +17,21 @@ func (m *Map) Index(node syntax.Node) {
 
 		// Track function entry/exit for local scoping
 		case *syntax.FuncDecl:
-			sym := Symbol{
-				Name: x.Name.Value,
-				Kind: KindFunction,
-				Node: x,
-				Pos:  x.Pos(),
+			// Name is nil for the multi-name form (function a b { }, a b () { })
+			// and for an anonymous function (() { }); FunctionNames yields one
+			// entry per declared name and none for an anonymous function.
+			for _, name := range FunctionNames(x) {
+				sym := Symbol{
+					Name: name.Value,
+					Kind: KindFunction,
+					Node: x,
+					Pos:  x.Pos(),
+				}
+				m.Add(sym)
 			}
-			m.Add(sym)
 
-			// Descend into the function body with context
+			// Descend into the function body with context. An anonymous
+			// function declares no symbol but still owns its locals.
 			prev := m.currentFunc
 			m.currentFunc = x
 			if x.Body != nil {
@@ -139,4 +145,17 @@ func extractLiteral(word *syntax.Word) string {
 		return lit.Value
 	}
 	return ""
+}
+
+// FunctionNames returns the names a function declaration binds: the single
+// Name of a one-name definition, the Names of a multi-name definition, and
+// nothing for an anonymous function (LangZsh sets neither).
+func FunctionNames(declaration *syntax.FuncDecl) []*syntax.Lit {
+	if declaration == nil {
+		return nil
+	}
+	if declaration.Name != nil {
+		return []*syntax.Lit{declaration.Name}
+	}
+	return declaration.Names
 }

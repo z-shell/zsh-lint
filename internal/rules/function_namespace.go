@@ -9,6 +9,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
+	"github.com/z-shell/zsh-lint/internal/scope"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -75,7 +76,7 @@ func (rule FunctionNamespace) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	if !ok || declaration == nil {
 		return
 	}
-	for _, name := range functionDeclarationNames(declaration) {
+	for _, name := range scope.FunctionNames(declaration) {
 		if namespacedFunction(name.Value, ctx.Source.ProjectIdentifier) {
 			continue
 		}
@@ -127,13 +128,6 @@ func functionNamespaceEnabled(source projectconfig.SourceContext) bool {
 		return false
 	}
 	return source.ProjectKind == projectconfig.KindPlugin || source.ProjectKind == projectconfig.KindZiAnnex
-}
-
-func functionDeclarationNames(declaration *syntax.FuncDecl) []*syntax.Lit {
-	if declaration.Name != nil {
-		return []*syntax.Lit{declaration.Name}
-	}
-	return declaration.Names
 }
 
 func namespacedFunction(name, identifier string) bool {
