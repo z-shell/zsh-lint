@@ -227,3 +227,16 @@ script runs, so the analyzer's shared walk feeds neither it nor its
 the count. That skip covers only the shared walk: a rule that traverses the
 tree itself from the `File` node still sees the count as a command and
 today matches specific command names there.
+The single-command loop forms, `for name in words; sublist`, `for name (words) sublist`,
+`while list sublist` and `until list sublist` (#211), produce standard `ForClause`
+and `WhileClause` trees without metadata. The `for` forms adapt like the select short
+form: a byte-preserving probe blanks the unread headers, the sublist statement at the
+body's first byte yields the end where `done` goes, and source-mapped `do` and `done`
+are inserted around the body, with a parenthesized word list rewritten to `in`
+through the same source map. The `while` and `until` forms adapt like the short
+`if`: gating on the exact separator error at the sublist's first byte after a
+delimited condition (`[[ ... ]]`, `(( ... ))`, `{ ... }` or `( ... )`), a probe
+writes a `;` between condition and sublist with the keyword blanked, and
+source-mapped `; do` and `done` surround the sublist. Both adapters rebase all
+positions and verify the expected loop node at each site before returning the
+tree.
