@@ -266,40 +266,15 @@ func TestParseSelectShortFormKeepsComments(t *testing.T) {
 	}
 }
 
-// Shapes native Zsh accepts as other productions of the loop, or that the
-// adapter cannot place, keep the parser's own error at the `select` word.
-// The empty body before a closer or at the end of input parses since #302
-// (TestParseSelectEmptyBody), the brace body since #301
-// (TestParseSelectBraceBody) and the parenthesized list since #303
-// (TestParseSelectParenList).
-func TestParseSelectShortFormDeclines(t *testing.T) {
-	tests := []struct {
-		name    string
-		src     string
-		wantPos string
-	}{
-		{"negated loop", "! select o in a b; break\n", "1:3"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := Parse(strings.NewReader(test.src), test.name+".zsh")
-			var perr syntax.ParseError
-			if !errors.As(err, &perr) {
-				t.Fatalf("Parse() error = %v, want syntax.ParseError", err)
-			}
-			if got := perr.Pos.String(); got != test.wantPos {
-				t.Errorf("position = %s, want %s", got, test.wantPos)
-			}
-			if !strings.HasPrefix(perr.Text, "`select foo") {
-				t.Errorf("text = %q, want the parser's select error", perr.Text)
-			}
-		})
-	}
-}
-
 // Each fixture is rejected by `zsh -f -n`. A header the adapter does not
 // read keeps the parser's error at the `select` word; a body the probe
-// rejects reports that blocker at its own position.
+// rejects reports that blocker at its own position. The shapes native Zsh
+// accepts as other productions of the loop parse elsewhere: the empty body
+// before a closer or at the end of input since #302
+// (TestParseSelectEmptyBody), the brace body since #301
+// (TestParseSelectBraceBody), the parenthesized list since #303
+// (TestParseSelectParenList) and a negated loop since #321
+// (TestParseSelectNegated).
 func TestParseSelectShortFormRejectsInvalidShapes(t *testing.T) {
 	tests := []struct {
 		fixture  string
