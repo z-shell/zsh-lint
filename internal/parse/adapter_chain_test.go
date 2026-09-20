@@ -51,6 +51,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"selectParenList":   {attempt: parseSelectParenList, source: "select o (a b c) break"},
 	"whileShortForm":    {attempt: parseWhileShortForm, source: "while (( i < 3 )) (( i++ ))"},
 	"forShortForm":      {attempt: parseForShortForm, source: "for t in 1 2 3; print $t"},
+	"arithForSublist":   {attempt: parseArithForSublist, source: "for (( i = 1; i < 3; i++ )) print $i"},
 }
 
 func parseString(t *testing.T, src string) error {
