@@ -154,14 +154,35 @@ func isRepeatWordEnd(b byte) bool {
 }
 
 // scanRepeatSites finds every `repeat` reserved word in command position in
-// syntactically active source. Native Zsh recognises the word at the start
-// of a command: after a separator, an opening `(` or `{`, a case pattern's
-// `)`, a `!`, or a reserved word that itself precedes a command. Quoted
-// text, comments, heredoc bodies and arithmetic never hold a site. The
-// count word's extent comes from the parser's own word lexer, so a count
-// such as `$(cat n)` or `"$n"` is one word however it is written.
+// syntactically active source. The count word's extent comes from the
+// parser's own word lexer, so a count such as `$(cat n)` or `"$n"` is one
+// word however it is written.
 func scanRepeatSites(src []byte) []repeatSite {
 	var sites []repeatSite
+	scanCommandWords(src, func(start, end int, word string) (int, bool) {
+		if word != "repeat" || end >= len(src) || (src[end] != ' ' && src[end] != '\t') {
+			return 0, false
+		}
+		site, ok := scanRepeatSite(src, start)
+		if !ok {
+			return 0, false
+		}
+		sites = append(sites, site)
+		return site.countEnd, true
+	})
+	return sites
+}
+
+// scanCommandWords calls visit for every identifier word in command position
+// in syntactically active source. Native Zsh recognises a reserved word at
+// the start of a command: after a separator, an opening `(` or `{`, a case
+// pattern's `)`, a `!`, or a reserved word that itself precedes a command.
+// Quoted text, comments, heredoc bodies and arithmetic never hold one. A
+// visit that consumes the word's operands returns the offset to resume at
+// and true; the next word is then in command position again. Otherwise the
+// word is treated by its own meaning: a reserved word that precedes a
+// command keeps command position, any other word ends it.
+func scanCommandWords(src []byte, visit func(start, end int, word string) (int, bool)) {
 	inSingleQuote := false
 	inDoubleQuote := false
 	inANSICQuote := false
@@ -216,7 +237,7 @@ func scanRepeatSites(src []byte) []repeatSite {
 		if b == '\n' && len(heredocs) > 0 {
 			next, ok := consumeHeredocBodies(src, i+1, heredocs)
 			if !ok {
-				return sites
+				return
 			}
 			heredocs = nil
 			i = next - 1
@@ -334,7 +355,7 @@ func scanRepeatSites(src []byte) []repeatSite {
 				}
 				delimiter, end, ok := parseHeredocDelimiter(src, delimiterStart)
 				if !ok {
-					return sites
+					return
 				}
 				heredocs = append(heredocs, pendingHeredoc{
 					delimiter: delimiter,
@@ -364,21 +385,18 @@ func scanRepeatSites(src []byte) []repeatSite {
 		switch {
 		case glued || followed:
 			atCommandStart = false
-		case atCommandStart && word == "repeat" && i+1 < len(src) && (src[i+1] == ' ' || src[i+1] == '\t'):
-			site, ok := scanRepeatSite(src, start)
-			if !ok {
-				atCommandStart = false
+		case atCommandStart:
+			if resume, ok := visit(start, i+1, word); ok {
+				i = resume - 1
 				continue
 			}
-			sites = append(sites, site)
-			i = site.countEnd - 1
-			atCommandStart = true
-		case atCommandStart && repeatCommandPrefixWords[word]:
+			if !repeatCommandPrefixWords[word] {
+				atCommandStart = false
+			}
 		default:
 			atCommandStart = false
 		}
 	}
-	return sites
 }
 
 // scanRepeatSite reads the count word after the `repeat` at start with the
