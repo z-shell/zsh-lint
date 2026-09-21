@@ -58,7 +58,11 @@ var adapterSnippets = map[string]adapterSnippet{
 	// wherever it lands; a bare `;` opening the composed file would also be
 	// a site, which is true but would not exercise the adapter in place.
 	"redundantSeparator": {attempt: parseRedundantSeparator, source: "print composed; ;"},
-	"whileEmptyBody":     {attempt: parseWhileEmptyBody, source: "{ while (( i < 3 )) }"},
+	// The dangling operator must be closed by a brace inside the snippet.
+	// Snippets are concatenated, so a trailing `&&` at the end of the source
+	// would take the next snippet as its right operand and never be dangling.
+	"danglingAndOr":  {attempt: parseDanglingAndOr, source: "c() { print composed &&\n}"},
+	"whileEmptyBody": {attempt: parseWhileEmptyBody, source: "{ while (( i < 3 )) }"},
 }
 
 func parseString(t *testing.T, src string) error {
