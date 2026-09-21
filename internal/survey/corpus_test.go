@@ -49,6 +49,7 @@ var requiredFixtures = []string{
 	"ok-param-expansion-flags.zsh",
 	"ok-param-glob-toggle.zsh",
 	"ok-rc-expand-caret.zsh",
+	"ok-redundant-separator.zsh",
 	"ok-repeat.zsh",
 	"ok-repeat-synthesized-closer.zsh",
 	"ok-reverse-subscript-pattern-slash.zsh",
@@ -56,6 +57,7 @@ var requiredFixtures = []string{
 	"ok-select-short-form.zsh",
 	"ok-subscript-pattern-after-comma.zsh",
 	"ok-try-always.zsh",
+	"ok-while-condition-list.zsh",
 }
 
 // Fixture naming contract from docs/project/parser-gap-workflow.md:
