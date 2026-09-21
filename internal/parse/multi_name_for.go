@@ -192,8 +192,15 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 				if name1End > name1Start {
 					afterName1 := skipSpaces(src, i)
 					if afterName1 < len(src) {
-						if src[afterName1] == '(' && (afterName1+1 >= len(src) || src[afterName1+1] != '(') {
-							parenOpen := afterName1
+						// A parenthesized word list may follow more than one
+						// name: `for a b (1 2) { : }` is the multi-name
+						// production and the alternate-form production
+						// composed (#324). With no extra names this is the
+						// single-name short form, unchanged.
+						extraStart, extraEnd, afterNames := scanForExtraNames(src, afterName1)
+						if afterNames < len(src) && src[afterNames] == '(' &&
+							(afterNames+1 >= len(src) || src[afterNames+1] != '(') {
+							parenOpen := afterNames
 							parenClose, newlines, listOK := scanShortForList(src, parenOpen)
 							if parenClose > parenOpen {
 								braceOpen := skipSpacesAndComments(src, parenClose)
@@ -202,6 +209,9 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 									if braceClose > braceOpen && listOK {
 										if forStart <= seedOffset && seedOffset <= braceClose {
 											seedRecognized = true
+										}
+										if extraEnd > extraStart {
+											edits = append(edits, forEdit{start: extraStart, end: extraEnd, kind: editMaskExtraNames})
 										}
 										edits = append(edits, forEdit{start: parenOpen, end: parenOpen + 1, kind: editShortForOpen})
 										for _, nl := range newlines {
@@ -290,6 +300,37 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 		return nil, false
 	}
 	return edits, true
+}
+
+// scanForExtraNames reads the loop names after the first one, starting at from,
+// and reports their extent together with the offset just past them.
+//
+// A `for` header may name more than one variable before its word list, and the
+// names the upstream WordIter cannot hold are masked so the rewritten loop keeps
+// its original byte length. The scan stops at `in` or `do`, which end the name
+// list rather than continue it, so this never consumes a keyword. With no extra
+// names it returns an empty extent at from, which leaves the single-name short
+// form unchanged.
+func scanForExtraNames(src []byte, from int) (start, end, next int) {
+	start, end, next = from, from, from
+	curr := from
+	for curr < len(src) {
+		wStart := curr
+		for curr < len(src) && isIdentByte(src[curr]) {
+			curr++
+		}
+		if curr == wStart {
+			break
+		}
+		switch string(src[wStart:curr]) {
+		case "in", "do":
+			return start, end, wStart
+		}
+		end = curr
+		next = skipSpaces(src, curr)
+		curr = next
+	}
+	return start, end, next
 }
 
 func skipSpaces(src []byte, i int) int {

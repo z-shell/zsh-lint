@@ -77,6 +77,24 @@ func scanForSite(src []byte, start int) (forSite, bool) {
 	}
 	site := forSite{start: start}
 	gap, next := scanRepeatGap(src, nameEnd)
+	// A parenthesized word list may follow more than one name (#324). The extra
+	// names are recorded so the rewrite can mask them, exactly as the brace-body
+	// path does; with one name the extent is empty and nothing changes.
+	// A parenthesized word list may follow more than one name (#324). Only the
+	// scan position moves past them: the `in`-form rewrite keeps every byte
+	// length, so the extra names need no masking here and the upstream parser
+	// reads them as part of the header it already accepts.
+	//
+	// The `>` is not a guard against the zero-name case, which `afterNames`
+	// already excludes by not landing on a `(`; it only skips the pointless
+	// rescan when the header names one variable.
+	if next < len(src) && src[next] != '(' {
+		_, extraEnd, afterNames := scanForExtraNames(src, next)
+		if extraEnd > next && afterNames < len(src) && src[afterNames] == '(' &&
+			(afterNames+1 >= len(src) || src[afterNames+1] != '(') {
+			next = afterNames
+		}
+	}
 	if next < len(src) && src[next] == '(' {
 		if next+1 < len(src) && src[next+1] == '(' {
 			return forSite{}, false
