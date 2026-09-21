@@ -40,7 +40,64 @@ func parseFunctionSemicolonBodyWithParser(
 	masked := bytes.Clone(src)
 	masked[semiOffset] = ' '
 
+	// A non-brace body needs the `()` spelling. The upstream parser accepts
+	// `function a() print z` but not `function a  print z`, even though Zsh
+	// accepts both, so the keyword form is rewritten to carry `()` (#346).
+	// The two bytes come from the separator plus the blank after it, which
+	// keeps every later position unchanged.
+	//
+	// The brace test is an optimisation, not a guard: a brace body already
+	// parses, and rewriting one anyway produces `function a(){ list }`, which
+	// also parses and keeps every position.
+	if body := skipSpacesAndComments(masked, semiOffset+1); body < len(masked) && masked[body] != '{' {
+		if nameEnd := functionKeywordNameEnd(src, semiOffset); nameEnd > 0 {
+			masked[nameEnd] = '('
+			masked[nameEnd+1] = ')'
+		}
+	}
+
 	return parse(masked, name)
+}
+
+// functionKeywordNameEnd reports where to write the synthetic `()` for a
+// `function name;` head, or 0 when the head is not that shape.
+//
+// The `()` needs two bytes and must sit directly after the name, so they are
+// taken from the separator plus the blank that follows it. Zsh needs no blank
+// between `()` and the body, so `function a; print z` becomes
+// `function a()print z` with every later byte at its original offset. A head
+// that already carries `()` keeps the plain mask.
+func functionKeywordNameEnd(src []byte, semiOffset int) int {
+	if semiOffset+1 >= len(src) || !isFunctionHeadSpace(src[semiOffset+1]) {
+		return 0
+	}
+	nameEnd := semiOffset
+	for nameEnd > 0 && isFunctionHeadSpace(src[nameEnd-1]) {
+		nameEnd--
+	}
+	nameStart := nameEnd
+	for nameStart > 0 && !isFunctionHeadSpace(src[nameStart-1]) {
+		nameStart--
+	}
+	keyword := nameStart
+	for keyword > 0 && isFunctionHeadSpace(src[keyword-1]) {
+		keyword--
+	}
+	keywordStart := keyword
+	for keywordStart > 0 && !isFunctionHeadSpace(src[keywordStart-1]) {
+		keywordStart--
+	}
+	if !matchSourceWord(src, keywordStart, "function") {
+		return 0
+	}
+	// The `()` goes where the name ends. For `function a; body` that is the
+	// separator itself; a head with a blank before the separator spends the
+	// blank instead, which keeps the two bytes adjacent to the name either way.
+	return nameEnd
+}
+
+func isFunctionHeadSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n'
 }
 
 // parenHeadAt reports whether a `name ... ()` definition head starts at off.
@@ -153,11 +210,43 @@ func findFunctionSemicolonBody(src []byte, seed int) (int, bool) {
 	semiOffset := i
 	i++
 
-	// After semicolon, must be followed by '{'
+	// After the separator a body must follow. zshmisc spells the body as a
+	// `list`, and a brace group is only one way to write one: `a () ; print z`
+	// defines `a` with `print z` as its body (#346). So anything that can open
+	// a statement is accepted, and only what cannot is refused.
 	i = skipSpacesAndComments(src, i)
-	if i >= len(src) || src[i] != '{' {
+	if !opensFunctionBody(src, i) {
 		return 0, false
 	}
 
 	return semiOffset, true
+}
+
+// opensFunctionBody reports whether a function body can start at off.
+//
+// Native Zsh reads the body as one `list`, so the test is whether a statement
+// can begin here at all. End of input is not a body, and neither is a further
+// separator: `a () ;` and `a () ; ;` are both rejected by Zsh. A reserved word
+// that only ever *closes* or *continues* an enclosing construct cannot open one
+// either, so it is refused rather than masked into a shape that would parse.
+func opensFunctionBody(src []byte, off int) bool {
+	if off >= len(src) {
+		return false
+	}
+	switch src[off] {
+	case ';', '&', '|', ')', '}':
+		return false
+	}
+	for _, word := range functionBodyNeverOpens {
+		if matchSourceWord(src, off, word) {
+			return false
+		}
+	}
+	return true
+}
+
+// functionBodyNeverOpens are the reserved words that close or continue a
+// construct, so none of them can be the first word of a body.
+var functionBodyNeverOpens = []string{
+	"then", "else", "elif", "fi", "do", "done", "esac", "always",
 }
