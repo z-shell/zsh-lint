@@ -119,6 +119,9 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err := validateConditionalPatterns(src, name); err != nil {
 		return nil, err
 	}
+	if err := rejectCarriageReturns(src, name); err != nil {
+		return nil, err
+	}
 	if err := rejectUnsupportedLoopWords(tree, name); err != nil {
 		return nil, err
 	}
