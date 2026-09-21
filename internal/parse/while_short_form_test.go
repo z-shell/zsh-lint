@@ -164,20 +164,42 @@ func TestParseWhileShortFormKeepsComments(t *testing.T) {
 	}
 }
 
-// Undelimited conditions like `while true print x` are out of scope (empty-body
-// case) and must keep their original parser error unchanged.
-func TestParseWhileShortFormRejectsUndelimited(t *testing.T) {
+// Undelimited conditions like `while true print x` are the empty-body form
+// (issue #327): the whole line is the condition, `true print x` is one
+// command, and the body is the empty sublist native par_while reads at end
+// of file. The delimited short form (#211) is unchanged and is asserted
+// separately above.
+func TestParseWhileShortFormUndelimitedIsEmptyBody(t *testing.T) {
 	src := "while true print x\n"
-	_, err := Parse(strings.NewReader(src), "undelimited.zsh")
-	var perr syntax.ParseError
-	if !errors.As(err, &perr) {
-		t.Fatalf("Parse() error = %v, want syntax.ParseError", err)
+	file, err := Parse(strings.NewReader(src), "undelimited.zsh")
+	if err != nil {
+		t.Fatalf("Parse() error = %v, want nil", err)
 	}
-	if got := perr.Pos.String(); got != "1:1" {
-		t.Errorf("position = %s, want 1:1", got)
+	var clause *syntax.WhileClause
+	syntax.Walk(file.AST(), func(node syntax.Node) bool {
+		if found, ok := node.(*syntax.WhileClause); ok && clause == nil {
+			clause = found
+		}
+		return true
+	})
+	if clause == nil {
+		t.Fatal("no WhileClause in the tree")
 	}
-	if want := "`while <cond>` must be followed by `do`"; perr.Text != want {
-		t.Errorf("text = %q, want %q", perr.Text, want)
+	if clause.Until {
+		t.Error("Until = true, want false")
+	}
+	if len(clause.Do) != 0 {
+		t.Errorf("Do holds %d statements, want 0 (empty body)", len(clause.Do))
+	}
+	if len(clause.Cond) != 1 {
+		t.Fatalf("Cond holds %d statements, want 1", len(clause.Cond))
+	}
+	call, ok := clause.Cond[0].Cmd.(*syntax.CallExpr)
+	if !ok {
+		t.Fatalf("condition command = %T, want *syntax.CallExpr", clause.Cond[0].Cmd)
+	}
+	if len(call.Args) != 3 {
+		t.Errorf("condition holds %d words, want 3 (`true print x` is one command)", len(call.Args))
 	}
 }
 

@@ -229,18 +229,32 @@ func parseForShortFormWithParser(
 		return nil, firstErr
 	}
 	inner, outer, parents, comments := sublistStatements(tree, site.bodyStart)
-	if inner == nil {
-		return nil, firstErr
-	}
-	closer, ok := repeatSublistEnd(src, parents, outer, comments, nil)
-	if !ok {
-		return nil, firstErr
-	}
-	if end := skipSpaces(src, closer); end >= len(src) || src[end] == '\n' {
-		closer = end
-	}
-	if closer, ok = repeatSublistCloser(src, outer, closer); !ok {
-		return nil, firstErr
+	var closer int
+	// Nothing starts at the body's first byte although the rest of the file
+	// parsed. That is the empty sublist native par_for reads at a closer,
+	// at the end of the file, or before an operator that takes the loop as
+	// its left operand (issue #327), the same shape the select adapter maps
+	// through selectEmptyBodyAt; `do` and `done` both go on that byte.
+	// Anything else there is a body the probe could not isolate and keeps
+	// the parser error.
+	empty := inner == nil
+	if empty {
+		if !selectEmptyBodyAt(src, site.bodyStart) {
+			return nil, firstErr
+		}
+		closer = site.bodyStart
+	} else {
+		var ok bool
+		closer, ok = repeatSublistEnd(src, parents, outer, comments, nil)
+		if !ok {
+			return nil, firstErr
+		}
+		if end := skipSpaces(src, closer); end >= len(src) || src[end] == '\n' {
+			closer = end
+		}
+		if closer, ok = repeatSublistCloser(src, outer, closer); !ok {
+			return nil, firstErr
+		}
 	}
 
 	var edits []repeatEdit
@@ -265,7 +279,7 @@ func parseForShortFormWithParser(
 		}
 		edits = append(edits,
 			repeatEdit{start: site.bodyStart, end: site.bodyStart, text: "do\n"},
-			repeatEdit{start: closer, end: closer, text: "\ndone"},
+			repeatEdit{start: closer, end: closer, text: forDoneText(src, closer, empty)},
 		)
 	} else {
 		opener := "do\n"
@@ -280,7 +294,7 @@ func parseForShortFormWithParser(
 		}
 		edits = append(edits,
 			repeatEdit{start: site.bodyStart, end: site.bodyStart, text: opener},
-			repeatEdit{start: closer, end: closer, text: "\ndone"},
+			repeatEdit{start: closer, end: closer, text: forDoneText(src, closer, empty)},
 		)
 	}
 
@@ -298,16 +312,32 @@ func parseForShortFormWithParser(
 	if err := rebaseForPositions(reflect.ValueOf(tree), sm, lineStarts); err != nil {
 		return nil, fmt.Errorf("%s: rebasing for loop positions: %w", name, err)
 	}
-	if !verifyForLoop(tree, site, closer) {
+	if !verifyForLoop(tree, site, closer, empty) {
 		return nil, firstErr
 	}
 	return tree, nil
 }
 
+// forDoneText is the text inserted at the loop's closer. A non-empty body
+// ends on its own last byte, so `done` goes on the next line. An empty body
+// puts `do` and `done` on the same byte (issue #327): the closer that
+// follows, or the end of the file, must not be glued to `done`, and an
+// operator that takes the loop as its left operand must stay on its line.
+func forDoneText(src []byte, closer int, empty bool) string {
+	if !empty {
+		return "\ndone"
+	}
+	if selectOperatorAt(src, closer) {
+		return "done"
+	}
+	return "done\n"
+}
+
 // verifyForLoop reports whether tree holds a for loop at the site whose `do`
 // is at the body's first byte, whose `done` is at the closer, and whose
-// statements consist of exactly the one sublist statement.
-func verifyForLoop(tree *syntax.File, site forSite, closer int) bool {
+// statements consist of exactly the one sublist statement, or none when the
+// body is empty.
+func verifyForLoop(tree *syntax.File, site forSite, closer int, empty bool) bool {
 	verified := false
 	syntax.Walk(tree, func(node syntax.Node) bool {
 		if verified {
@@ -317,11 +347,17 @@ func verifyForLoop(tree *syntax.File, site forSite, closer int) bool {
 		if !ok || loop.Select || int(loop.ForPos.Offset()) != site.start {
 			return true
 		}
-		if int(loop.DoPos.Offset()) != site.bodyStart || int(loop.DonePos.Offset()) != closer || len(loop.Do) != 1 {
+		if int(loop.DoPos.Offset()) != site.bodyStart || int(loop.DonePos.Offset()) != closer {
 			return false
 		}
-		if int(loop.Do[0].Pos().Offset()) != site.bodyStart {
-			return false
+		if empty {
+			if len(loop.Do) != 0 {
+				return false
+			}
+		} else {
+			if len(loop.Do) != 1 || int(loop.Do[0].Pos().Offset()) != site.bodyStart {
+				return false
+			}
 		}
 		if site.paren {
 			iter, ok := loop.Loop.(*syntax.WordIter)
