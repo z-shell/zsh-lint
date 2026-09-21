@@ -28,6 +28,7 @@ type File struct {
 	assignAlways         []*syntax.ParamExp
 	secondSubscripts     []SecondSubscript
 	repeatLoops          []RepeatLoop
+	mathFunctionCalls    []MathFunctionCall
 }
 
 // AnonymousInvocation pairs an anonymous function declaration with the words
@@ -81,6 +82,14 @@ func (f *File) AssignAlwaysExpansions() []*syntax.ParamExp {
 // parse result.
 func (f *File) SecondSubscripts() []SecondSubscript {
 	return append([]SecondSubscript(nil), f.secondSubscripts...)
+}
+
+// MathFunctionCalls returns every math function call written in an arithmetic
+// expression, `$(( sqrt(4) ))`, in source order. mvdan/sh has no call node in
+// its arithmetic grammar, so the front end keeps each call's name and
+// arguments here with their original source positions.
+func (f *File) MathFunctionCalls() []MathFunctionCall {
+	return f.mathFunctionCalls
 }
 
 // RepeatLoops returns every `repeat count sublist` loop in source order.
@@ -140,6 +149,7 @@ func Parse(r io.Reader, name string) (*File, error) {
 		assignAlways:         bindAssignAlwaysExpansions(tree, src),
 		secondSubscripts:     bindSecondSubscripts(tree, src),
 		repeatLoops:          repeatLoops,
+		mathFunctionCalls:    bindMathFunctionCalls(tree, src),
 	}, nil
 }
 
