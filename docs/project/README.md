@@ -17,6 +17,7 @@ These define how work is accepted. Change them in the same PR as the behavior th
 
 Point-in-time survey runs and decisions. They are history, not policy; read the newest first and do not update older ones.
 
+- [2026-09-21 parser survey](2026-09-21-survey.md)
 - [2026-09-16 organization discovery survey](2026-09-16-survey.md)
 - [2026-08-28 organization discovery survey](2026-08-28-discovery-survey.md)
 - [2026-08-16 readiness gate](2026-08-16-readiness-gate.md)
