@@ -134,12 +134,19 @@ func parseWhileEmptyBodyWithParser(
 	}
 
 	condEnds := whileConditionEnds(tree)
+	listEnds := statementListEnds(tree)
 	var sites []whileEmptyBodySite
 	seedRecognized := false
 	for _, site := range candidates {
 		condEnd, ok := condEnds[site.condStart]
 		if !ok || condEnd > len(src) {
 			continue
+		}
+		// The condition is a list, so it runs to the end of the list that
+		// holds it rather than to the end of its first statement (#330).
+		if listEnd, inList := listEnds[site.condStart]; inList &&
+			listEnd > condEnd && listEnd <= len(src) {
+			condEnd = listEnd
 		}
 		// Native Zsh skips the separators between the condition and the
 		// body before reading the sublist, so the empty body sits after
@@ -308,6 +315,65 @@ func whileHeaderSeparators(src []byte, bodyStart int) (semicolons []int, newline
 		}
 	}
 	return semicolons, newline
+}
+
+// statementListEnds maps each statement's start offset in the probe tree to
+// the byte after the last statement of the list that holds it.
+//
+// Native Zsh reads a `while` or `until` header's condition as a *list*, so
+// the condition does not stop at its first statement: it absorbs every
+// sublist up to the end of the enclosing list, and the loop's status is the
+// status of that list's last element (issue #330). Established by executing
+// the forms, not by reading the grammar:
+//
+//	while (( 1 ))    while (( 1 ))
+//	print A          false
+//	false            print AFTER
+//
+// The first terminates, so `false` is part of the condition. The second
+// loops, so the list continues past `false` and `print AFTER` is in the
+// condition too. A body would have run zero times under a false condition in
+// both.
+func statementListEnds(tree *syntax.File) map[int]int {
+	ends := make(map[int]int)
+	record := func(stmts []*syntax.Stmt) {
+		if len(stmts) == 0 {
+			return
+		}
+		end := int(stmts[len(stmts)-1].End().Offset())
+		for _, stmt := range stmts {
+			start := int(stmt.Pos().Offset())
+			if _, seen := ends[start]; !seen {
+				ends[start] = end
+			}
+		}
+	}
+	syntax.Walk(tree, func(node syntax.Node) bool {
+		switch node := node.(type) {
+		case *syntax.File:
+			record(node.Stmts)
+		case *syntax.Block:
+			record(node.Stmts)
+		case *syntax.Subshell:
+			record(node.Stmts)
+		case *syntax.CaseItem:
+			record(node.Stmts)
+		case *syntax.IfClause:
+			record(node.Cond)
+			record(node.Then)
+		case *syntax.WhileClause:
+			record(node.Cond)
+			record(node.Do)
+		case *syntax.ForClause:
+			record(node.Do)
+		case *syntax.CmdSubst:
+			record(node.Stmts)
+		case *syntax.ProcSubst:
+			record(node.Stmts)
+		}
+		return true
+	})
+	return ends
 }
 
 // whileConditionEnds maps each statement's start offset in the probe tree to
