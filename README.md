@@ -1,18 +1,15 @@
 <!-- markdownlint-disable MD041 -->
 
-<div align="center">
-  <a href="https://github.com/z-shell/zsh-lint">
+<div align="center"> <a href="https://github.com/z-shell/zsh-lint">
     <img
       src="https://raw.githubusercontent.com/z-shell/.github/main/profile/img/logo.svg"
       alt="Zsh Lint logo"
       width="72"
       height="72"
     />
-  </a>
+</a>
 
-  <h1>Zsh Lint</h1>
-  <p>Standalone Go-based semantic analyzer and static linter for Zsh scripts.</p>
-  <p>
+<h1>Zsh Lint</h1> <p>Standalone Go-based semantic analyzer and static linter for Zsh scripts.</p> <p>
     <a href="https://github.com/z-shell/zsh-lint/actions/workflows/go-ci.yml">
       <img
         src="https://github.com/z-shell/zsh-lint/actions/workflows/go-ci.yml/badge.svg?branch=main"
@@ -43,10 +40,10 @@
         alt="Enforces Zsh Plugin Standard v2 rules"
       />
     </a>
-  </p>
-</div>
+</p> </div>
 
-`zsh-lint` is a standalone, Go-based semantic analyzer for Zsh. It parses shell source code into an abstract syntax tree using `mvdan/sh`, evaluates static analysis rules, enforces [Zsh Plugin Standard v2](https://wiki.zshell.dev/community/zsh_plugin_standard), and reports compiler-style diagnostics or structured JSON.
+`zsh-lint` is a standalone, Go-based semantic analyzer for Zsh.
+It parses shell source code into an abstract syntax tree using `mvdan/sh`, evaluates static analysis rules, enforces [Zsh Plugin Standard v2](https://wiki.zshell.dev/community/zsh_plugin_standard), and reports compiler-style diagnostics or structured JSON.
 
 > [!IMPORTANT]
 > Canonical documentation lives on the Z-Shell Wiki:
@@ -56,7 +53,8 @@
 ## Features
 
 - **Semantic static analysis:** Evaluates syntax trees for unquoted variables, backquote command substitutions, special parameter shadowing, unsafe `eval` calls, and style issues without executing scripts.
-- **Zsh Plugin Standard v2 enforcement:** Every run checks unload functions, function-scoped options, `$0` handling, and `fpath` hygiene. Projects with a validated `zsh-lint.json` additionally get the `z-shell/project@2` profile: function and parameter namespaces, the shared `Plugins` registry, load-only helpers, and repeated external commands.
+- **Zsh Plugin Standard v2 enforcement:** Every run checks unload functions, function-scoped options, `$0` handling, and `fpath` hygiene.
+  Projects with a validated `zsh-lint.json` additionally get the `z-shell/project@2` profile: function and parameter namespaces, the shared `Plugins` registry, load-only helpers, and repeated external commands.
 - **Automatic project discovery:** Discovers `zsh-lint.json` configuration files up the directory hierarchy to contextualize standalone scripts, plugin entrypoints, autoloaded functions, and completions.
 - **Inline suppression:** Silences one intentional finding at a time with `# zsh-lint disable=<rule-id> -- reason`; suppressions must name a rule and are audited through `meta/*` diagnostics.
 - **Greppable and JSON diagnostics:** Outputs standard `file:line:col: [rule] message` diagnostics for terminal and editor workflows, or structured JSON for automated CI checks.
@@ -130,14 +128,16 @@ script.zsh:2:8: [quoting/unquoted-var] Variable expansion should be double-quote
 plugin.plugin.zsh:1:1: [plugin/unload-function] Plugin registers persistent hooks or widgets but defines no '<name>_plugin_unload' function
 ```
 
-Findings at `error` or `warning` severity fail the run; `info` and `hint` findings are reported but do not change the exit code. The [rule reference](https://wiki.zshell.dev/community/zsh_lint/zsh-lint-rule-reference) lists every rule with its severity.
+Findings at `error` or `warning` severity fail the run; `info` and `hint` findings are reported but do not change the exit code.
+The [rule reference](https://wiki.zshell.dev/community/zsh_lint/zsh-lint-rule-reference) lists every rule with its severity.
 
 > [!NOTE]
 > The CLI analyzes each explicitly provided file path as Zsh source. It does not recurse into directories or filter files by shebang.
 
 ## Project configuration
 
-Add a `zsh-lint.json` file at the root of a repository to provide project context for multi-file plugins and tools. `zsh-lint` walks upward from each input file to find the nearest configuration automatically.
+Add a `zsh-lint.json` file at the root of a repository to provide project context for multi-file plugins and tools.
+`zsh-lint` walks upward from each input file to find the nearest configuration automatically.
 
 ```json
 {
@@ -160,12 +160,14 @@ Add a `zsh-lint.json` file at the root of a repository to provide project contex
 }
 ```
 
-A validated version 2 configuration selects the `z-shell/project@2` rule profile automatically; there is no profile key to set. This file is [`examples/plugin/zsh-lint.json`](examples/plugin/zsh-lint.json), and [`examples/standalone`](examples/standalone) shows the `application` kind. Schema fields and source profiles are described in the [Project Configuration Guide](https://wiki.zshell.dev/community/zsh_lint/zsh-lint-project-configuration).
+A validated version 2 configuration selects the `z-shell/project@2` rule profile automatically; there is no profile key to set.
+This file is [`examples/plugin/zsh-lint.json`](examples/plugin/zsh-lint.json), and [`examples/standalone`](examples/standalone) shows the `application` kind.
+Schema fields and source profiles are described in the [Project Configuration Guide](https://wiki.zshell.dev/community/zsh_lint/zsh-lint-project-configuration).
 
-<details>
-<summary><strong>Advanced: Parser survey utility (zsh-lint-survey)</strong></summary>
+<details> <summary><strong>Advanced: Parser survey utility (zsh-lint-survey)</strong></summary>
 
-`zsh-lint-survey` executes the parser front end across target files and reports parser gaps without evaluating static analysis rules. It is used for corpus validation and upstream syntax compatibility tracking.
+`zsh-lint-survey` executes the parser front end across target files and reports parser gaps without evaluating static analysis rules.
+It is used for corpus validation and upstream syntax compatibility tracking.
 
 ```bash
 zsh-lint-survey path/to/*.zsh
@@ -173,10 +175,10 @@ zsh-lint-survey path/to/*.zsh
 
 </details>
 
-<details>
-<summary><strong>Advanced: JSON output contract</strong></summary>
+<details> <summary><strong>Advanced: JSON output contract</strong></summary>
 
-`--format=json` writes one versioned envelope to stdout. Parser failures share it under the reserved rule `parse/error`, and an unpositioned diagnostic omits `range`:
+`--format=json` writes one versioned envelope to stdout.
+Parser failures share it under the reserved rule `parse/error`, and an unpositioned diagnostic omits `range`:
 
 ```json
 {
@@ -208,8 +210,7 @@ The full contract, including sort order and versioning rules, is [`docs/project/
 
 </details>
 
-<details>
-<summary><strong>Exit code conventions</strong></summary>
+<details> <summary><strong>Exit code conventions</strong></summary>
 
 | Exit code | Description                                                                                                                                                                    |
 | :-------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -233,7 +234,9 @@ To regenerate API and code-derived reference documentation:
 go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
 ```
 
-Contributor workflows and local testing practices are documented in [`docs/README.md`](docs/README.md). Report parser gaps and propose rules through the [issue forms](https://github.com/z-shell/zsh-lint/issues/new/choose); anything else can be a blank issue. Pull requests link their owning issue or carry the `meta:no-issue` label.
+Contributor workflows and local testing practices are documented in [`docs/README.md`](docs/README.md).
+Report parser gaps and propose rules through the [issue forms](https://github.com/z-shell/zsh-lint/issues/new/choose); anything else can be a blank issue.
+Pull requests link their owning issue or carry the `meta:no-issue` label.
 
 ## Documentation and ecosystem links
 
@@ -245,15 +248,15 @@ Contributor workflows and local testing practices are documented in [`docs/READM
 
 ## Release model
 
-Contributions integrate on `main` via squash merge after review. Annotated `vX.Y.Z` tags mark official releases and trigger automated publication workflows.
+Contributions integrate on `main` via squash merge after review.
+Annotated `vX.Y.Z` tags mark official releases and trigger automated publication workflows.
 
 ## Contributing and license
 
 Contributions follow the [Z-Shell Organization Guidelines](https://github.com/z-shell/.github).
-Distributed under the terms of the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
+Distributed under the terms of the GNU General Public License v3.0.
+See [LICENSE](LICENSE) for details.
 
 ---
 
-<div align="center">
-  <p>Developed with ❤️ by the <a href="https://github.com/z-shell">Z-Shell Community</a>.</p>
-</div>
+<div align="center"> <p>Developed with ❤️ by the <a href="https://github.com/z-shell">Z-Shell Community</a>.</p> </div>

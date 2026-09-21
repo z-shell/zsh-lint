@@ -1,13 +1,17 @@
 # Project documents
 
-Source-adjacent contracts and records for contributors. User-facing guides live on the [wiki](https://wiki.zshell.dev/community/zsh_lint).
+Source-adjacent contracts and records for contributors.
+User-facing guides live on the [wiki](https://wiki.zshell.dev/community/zsh_lint).
 
 ## Living contracts
 
-These define how work is accepted. Change them in the same PR as the behavior they describe.
+These define how work is accepted.
+Change them in the same PR as the behavior they describe.
 
-- [Rule policy](rule-policy.md): how a rule qualifies, its ID and severity, the documentation schema, and the shipping checklist. The `Rule proposal` issue form mirrors it.
-- [Parser-gap workflow](parser-gap-workflow.md): how a parse failure becomes a tracked, minimized fixture; the adapter and composition contract; the front-end strategy (ADR-0023). The `Parser gap` issue form mirrors its capture and classify steps.
+- [Rule policy](rule-policy.md): how a rule qualifies, its ID and severity, the documentation schema, and the shipping checklist.
+  The `Rule proposal` issue form mirrors it.
+- [Parser-gap workflow](parser-gap-workflow.md): how a parse failure becomes a tracked, minimized fixture; the adapter and composition contract; the front-end strategy (ADR-0023).
+  The `Parser gap` issue form mirrors its capture and classify steps.
 - [Inline suppression contract](suppression.md): the shared `# zsh-lint disable=<rule-id>` directive.
 - [Machine-readable output contract](output-contract.md): the greppable diagnostic line and exit codes.
 - [Project configuration](project-configuration.md): `zsh-lint.json` discovery, explicit overrides, and metadata for project-aware rules.
@@ -15,7 +19,8 @@ These define how work is accepted. Change them in the same PR as the behavior th
 
 ## Dated records
 
-Point-in-time survey runs and decisions. They are history, not policy; read the newest first and do not update older ones.
+Point-in-time survey runs and decisions.
+They are history, not policy; read the newest first and do not update older ones.
 
 - [2026-09-21 parser survey](2026-09-21-survey.md)
 - [2026-09-16 organization discovery survey](2026-09-16-survey.md)
