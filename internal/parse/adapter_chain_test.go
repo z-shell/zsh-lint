@@ -54,6 +54,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"whileShortForm":    {attempt: parseWhileShortForm, source: "while (( i < 3 )) (( i++ ))"},
 	"forShortForm":      {attempt: parseForShortForm, source: "for t in 1 2 3; print $t"},
 	"arithForSublist":   {attempt: parseArithForSublist, source: "for (( i = 1; i < 3; i++ )) print $i"},
+	"mathFunctionCall":  {attempt: parseMathFunctionCall, source: "print $(( sqrt(4) ))"},
 	// A redundant `;` needs a statement before it so the snippet composes
 	// wherever it lands; a bare `;` opening the composed file would also be
 	// a site, which is true but would not exercise the adapter in place.
