@@ -108,49 +108,68 @@ func workflowJobStep(t *testing.T, workflow, jobName, stepName string) string {
 	return matches[0]
 }
 
-func zshMatrixScript(t *testing.T, workflow string) string {
+func zshSyntaxScript(t *testing.T, workflow string) string {
 	t.Helper()
 
-	step := workflowJobStep(t, workflow, "zsh-matrix", `"Set matrix output"`)
+	step := workflowJobStep(t, workflow, "zsh-n", `⚡ zsh -n`)
 	return workflowRunScript(t, step)
 }
 
 func zshCompileScript(t *testing.T, workflow string) string {
 	t.Helper()
 
-	step := workflowJobStep(t, workflow, "zsh-n", `"⚡ zcompile ${{ matrix.file }}"`)
+	step := workflowJobStep(t, workflow, "zsh-n", `⚡ zcompile`)
 	return workflowRunScript(t, step)
 }
 
-func TestZshMatrixUsesNULDelimitedFilenames(t *testing.T) {
-	script := zshMatrixScript(t, zshSyntaxWorkflow(t))
-	for _, required := range []string{
-		"-print0",
-		"jq -Rsc",
-		`split("\u0000")`,
+// Filenames reach the check as NUL-delimited records rather than as words a
+// shell splits. The job iterates the files itself instead of fanning out a
+// matrix leg per file, so the NUL-safe boundary is `find -print0` feeding a
+// `read -d ”` loop rather than a jq transport into a matrix; a filename
+// holding a space, a newline or a glob character must still arrive as one
+// record. TestZshSyntaxPreservesNewlineFilename proves the behavior.
+func TestZshSyntaxUsesNULDelimitedFilenames(t *testing.T) {
+	workflow := zshSyntaxWorkflow(t)
+	for _, script := range []struct {
+		name string
+		text string
+	}{
+		{name: "zsh -n", text: zshSyntaxScript(t, workflow)},
+		{name: "zcompile", text: zshCompileScript(t, workflow)},
 	} {
-		if !strings.Contains(script, required) {
-			t.Errorf("matrix generation is missing NUL-safe transport fragment %q", required)
+		for _, required := range []string{
+			"-print0",
+			`read -r -d ''`,
+			`IFS=`,
+		} {
+			if !strings.Contains(script.text, required) {
+				t.Errorf("%s step is missing NUL-safe iteration fragment %q", script.name, required)
+			}
 		}
 	}
 }
 
-func TestZshMatrixPreservesNewlineFilename(t *testing.T) {
+// A filename holding a newline must be checked as one file. The former matrix
+// carried filenames through JSON, so the risk was a transport splitting them;
+// a single job iterates them directly, so the risk is word splitting in the
+// loop. Either way the guarantee is the same and is asserted by running the
+// real script: every `.zsh` file is visited exactly once, selected by
+// extension, and a newline in a name does not become two files.
+func TestZshSyntaxPreservesNewlineFilename(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash is required for the workflow behavior test")
 	}
-	if _, err := exec.LookPath("jq"); err != nil {
-		t.Skip("jq is required for the workflow behavior test")
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("zsh is required for the workflow behavior test")
 	}
 
 	// Extensionless function files and the JSON fixture are on disk to prove
-	// the matrix selects by the .zsh extension only; the legacy/ subtree it
-	// once enumerated by path is no longer in the repository.
+	// the check selects by the .zsh extension only.
 	dir := t.TempDir()
 	for _, subdir := range []string{"legacy/functions", "examples/plugin"} {
 		if err := os.MkdirAll(filepath.Join(dir, subdir), 0o700); err != nil {
-			t.Fatalf("create matrix fixture directory %q: %v", subdir, err)
+			t.Fatalf("create fixture directory %q: %v", subdir, err)
 		}
 	}
 	for _, name := range []string{
@@ -162,65 +181,122 @@ func TestZshMatrixPreservesNewlineFilename(t *testing.T) {
 		"examples/plugin/zsh-lint.json",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("true\n"), 0o600); err != nil {
-			t.Fatalf("write matrix fixture %q: %v", name, err)
+			t.Fatalf("write fixture %q: %v", name, err)
 		}
 	}
-	outputPath := filepath.Join(dir, "github-output")
+
 	command := exec.Command(
 		bash,
 		"--noprofile",
 		"--norc",
-		"-e",
-		"-o",
-		"pipefail",
 		"-c",
-		zshMatrixScript(t, zshSyntaxWorkflow(t)),
+		zshSyntaxScript(t, zshSyntaxWorkflow(t)),
 	)
 	command.Dir = dir
-	command.Env = append(os.Environ(), "GITHUB_OUTPUT="+outputPath)
 	output, runErr := command.CombinedOutput()
 	if runErr != nil {
-		t.Fatalf("matrix workflow command failed: %v\n%s", runErr, output)
+		t.Fatalf("zsh -n workflow command failed: %v\n%s", runErr, output)
 	}
 
-	githubOutput, err := os.ReadFile(outputPath)
-	if err != nil {
-		t.Fatalf("read matrix workflow output: %v", err)
-	}
-	matrixJSON, found := strings.CutPrefix(strings.TrimSpace(string(githubOutput)), "matrix=")
-	if !found {
-		t.Fatalf("matrix workflow output is missing matrix= prefix: %q", githubOutput)
-	}
-	var matrix struct {
-		Include []struct {
-			File string `json:"file"`
-		} `json:"include"`
-	}
-	if err := json.Unmarshal([]byte(matrixJSON), &matrix); err != nil {
-		t.Fatalf("parse matrix workflow output %q: %v", matrixJSON, err)
-	}
-	var got []string
-	for _, item := range matrix.Include {
-		got = append(got, item.File)
-	}
-	sort.Strings(got)
-	want := []string{
-		"./line\nbreak.zsh",
-		"./ordinary.zsh",
-	}
-	sort.Strings(want)
-	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
-		t.Fatalf("matrix must preserve each filename as one JSON entry:\nwant: %q\ngot:  %q", want, got)
+	// Exactly the two .zsh files, so a newline did not split one into two and
+	// the extensionless function files were not picked up.
+	if want := "Checked 2 file(s) with zsh -n, 0 failed."; !strings.Contains(string(output), want) {
+		t.Fatalf("zsh -n step must visit each .zsh file exactly once; want %q in:\n%s", want, output)
 	}
 }
 
-func TestZshCompileStepUsesOpaqueFilename(t *testing.T) {
-	const want = `zsh -fc 'zcompile -- "$1"' zsh "$ZSH_FILE"; rc=$?
-ls -al -- "${ZSH_FILE}.zwc"; exit "$rc"
-`
+// A collapsed job that reports success having checked nothing is worse than a
+// slow matrix: a `find` expression mistake would silently retire the gate. Both
+// steps must fail when no file is discovered.
+func TestZshSyntaxFailsWhenNoFilesDiscovered(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is required for the workflow behavior test")
+	}
 
-	if got := zshCompileScript(t, zshSyntaxWorkflow(t)); got != want {
-		t.Fatalf("zcompile script must treat the filename as one positional argument:\nwant:\n%s\ngot:\n%s", want, got)
+	workflow := zshSyntaxWorkflow(t)
+	for _, script := range []struct {
+		name string
+		text string
+	}{
+		{name: "zsh -n", text: zshSyntaxScript(t, workflow)},
+		{name: "zcompile", text: zshCompileScript(t, workflow)},
+	} {
+		t.Run(script.name, func(t *testing.T) {
+			command := exec.Command(bash, "--noprofile", "--norc", "-c", script.text)
+			command.Dir = t.TempDir()
+			output, runErr := command.CombinedOutput()
+			if runErr == nil {
+				t.Fatalf("%s step must fail when no Zsh file is discovered; it succeeded:\n%s", script.name, output)
+			}
+			if !strings.Contains(string(output), "No Zsh files were discovered") {
+				t.Errorf("%s step must say why it failed; got:\n%s", script.name, output)
+			}
+		})
+	}
+}
+
+// Every file is checked and every failure reported, rather than stopping at the
+// first one. This is what the matrix's `fail-fast: false` provided, and it is
+// the behavior worth keeping: a contributor fixing syntax wants the whole list.
+func TestZshSyntaxReportsEveryFailure(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is required for the workflow behavior test")
+	}
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("zsh is required for the workflow behavior test")
+	}
+
+	dir := t.TempDir()
+	for name, contents := range map[string]string{
+		"good.zsh":     "true\n",
+		"broken-a.zsh": "if true; then\n",
+		"broken-b.zsh": "while (( 1 )\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(contents), 0o600); err != nil {
+			t.Fatalf("write fixture %q: %v", name, err)
+		}
+	}
+
+	command := exec.Command(bash, "--noprofile", "--norc", "-c", zshSyntaxScript(t, zshSyntaxWorkflow(t)))
+	command.Dir = dir
+	output, runErr := command.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("zsh -n step must fail when a file has a syntax error:\n%s", output)
+	}
+
+	// Both broken files are named, not just the first one reached.
+	for _, name := range []string{"broken-a.zsh", "broken-b.zsh"} {
+		if !strings.Contains(string(output), "::error file="+name) {
+			t.Errorf("zsh -n step must annotate %s; got:\n%s", name, output)
+		}
+	}
+	if want := "Checked 3 file(s) with zsh -n, 2 failed."; !strings.Contains(string(output), want) {
+		t.Errorf("zsh -n step must report the full tally; want %q in:\n%s", want, output)
+	}
+}
+
+// The filename reaches zcompile as one positional argument, never as shell
+// syntax. `zsh -fc 'zcompile -- "$1"' zsh "$file"` is the shape that holds
+// regardless of what the name contains, and `--` stops a leading dash being
+// read as an option. TestZshCompileStepTreatsMetacharacterFilenameAsData
+// proves the behavior; this asserts the shape so it cannot drift into an
+// interpolated command string.
+func TestZshCompileStepUsesOpaqueFilename(t *testing.T) {
+	script := zshCompileScript(t, zshSyntaxWorkflow(t))
+	for _, required := range []string{
+		`zsh -fc 'zcompile -- "$1"' zsh "$file"`,
+		`"${file}.zwc"`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("zcompile script must treat the filename as data; missing %q in:\n%s", required, script)
+		}
+	}
+	// An interpolated filename inside the compiled expression would make the
+	// name executable as code.
+	if strings.Contains(script, `zcompile -- "$file"`) {
+		t.Errorf("zcompile must pass the filename positionally, not interpolate it:\n%s", script)
 	}
 }
 
@@ -235,8 +311,7 @@ func TestZshCompileStepTreatsMetacharacterFilenameAsData(t *testing.T) {
 
 	dir := t.TempDir()
 	filename := "safe; : > injected; #.zsh"
-	sourcePath := filepath.Join(dir, filename)
-	if err := os.WriteFile(sourcePath, []byte("typeset -g PHASE1_OK=1\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte("typeset -g PHASE1_OK=1\n"), 0o600); err != nil {
 		t.Fatalf("write metacharacter fixture: %v", err)
 	}
 
@@ -244,20 +319,16 @@ func TestZshCompileStepTreatsMetacharacterFilenameAsData(t *testing.T) {
 		bash,
 		"--noprofile",
 		"--norc",
-		"-e",
-		"-o",
-		"pipefail",
 		"-c",
 		zshCompileScript(t, zshSyntaxWorkflow(t)),
 	)
 	command.Dir = dir
-	command.Env = append(os.Environ(), "ZSH_FILE="+sourcePath)
 	output, runErr := command.CombinedOutput()
 
 	if _, err := os.Stat(filepath.Join(dir, "injected")); !os.IsNotExist(err) {
 		t.Errorf("filename content executed as shell syntax; marker stat error: %v", err)
 	}
-	if _, err := os.Stat(sourcePath + ".zwc"); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, filename+".zwc")); err != nil {
 		t.Errorf("zcompile did not compile the intended filename: %v", err)
 	}
 	if runErr != nil {
@@ -267,7 +338,7 @@ func TestZshCompileStepTreatsMetacharacterFilenameAsData(t *testing.T) {
 
 func TestZshSyntaxCheckoutsDoNotPersistCredentials(t *testing.T) {
 	workflow := zshSyntaxWorkflow(t)
-	for _, jobName := range []string{"zsh-matrix", "zsh-n"} {
+	for _, jobName := range []string{"zsh-n"} {
 		var checkoutSteps []string
 		for _, step := range workflowJobSteps(t, workflow, jobName) {
 			uses := directWorkflowMapping(step, 8)["uses"]
@@ -422,17 +493,18 @@ func TestGoCIBuildTestReportsOnEveryPullRequest(t *testing.T) {
 
 // A matrix job reports one check run per leg, so zsh-n's contexts are named
 // after the discovered file paths ("zsh-n (./path/to/file.zsh)") and change
-// whenever a Zsh file is added, renamed, or removed. A ruleset's
-// required_status_checks list cannot reference a moving name, so the workflow
-// must keep one aggregating job whose context name is stable. The `if:
-// always()` guard matters as much as the job itself: without it the aggregate
-// is skipped when a leg fails, and a skipped required check never reports.
+// A ruleset's required_status_checks list cannot reference a moving name. The
+// workflow once fanned out a matrix leg per file, whose contexts
+// `zsh-n (<path>)` changed whenever a Zsh file was added, renamed or removed,
+// so a separate aggregating job existed purely to publish one stable name.
+//
+// A single job publishes that name directly, so the aggregate job is gone and
+// there is no leg whose failure could be swallowed; `needs` and `if: always()`
+// existed to stop a skipped aggregate from silently never reporting, and with
+// one job there is nothing to skip. What still must hold is that the stable
+// context name is present exactly once and reports on every pull request.
 func TestZshSyntaxExposesStableAggregateContext(t *testing.T) {
 	workflow := zshSyntaxWorkflow(t)
-
-	if got := len(exactWorkflowLineSpans(workflow, "  zsh-n-complete:")); got != 1 {
-		t.Fatalf("zsh-n.yml must retain the stable zsh-n-complete job ID exactly once; got %d", got)
-	}
 
 	// The aggregate is only safe to require if it reports on every pull
 	// request. A pull_request.paths filter would silence it on a pull request
@@ -443,19 +515,32 @@ func TestZshSyntaxExposesStableAggregateContext(t *testing.T) {
 		t.Fatalf("zsh-n pull_request trigger must be unfiltered so the aggregate always reports; got %q", values)
 	}
 
-	fields := directWorkflowMapping(workflowBlock(t, workflow, "zsh-n-complete:", 2), 4)
-	for _, expected := range []workflowMappingField{
-		{name: "name", value: "Zsh Syntax Check Complete"},
-		{name: "needs", value: "[zsh-matrix, zsh-n]"},
-		{name: "if", value: "always()"},
-	} {
-		values := fields[expected.name]
-		if len(values) != 1 || values[0] != expected.value {
-			t.Errorf(
-				"zsh-n-complete %s must be %q so the aggregate context always reports; got %q",
-				expected.name, expected.value, values,
-			)
+	// Exactly one job, so no leg's result can be lost on the way to the
+	// required context.
+	jobsBlock := workflowBlock(t, workflow, "jobs:", 0)
+	jobNames := make([]string, 0, 1)
+	for _, line := range workflowLines(jobsBlock) {
+		text := line.text
+		if strings.HasPrefix(text, "  ") && !strings.HasPrefix(text, "   ") &&
+			strings.HasSuffix(strings.TrimSpace(text), ":") && !strings.HasPrefix(strings.TrimSpace(text), "#") {
+			jobNames = append(jobNames, strings.TrimSuffix(strings.TrimSpace(text), ":"))
 		}
+	}
+	if len(jobNames) != 1 || jobNames[0] != "zsh-n" {
+		t.Fatalf("zsh-n.yml must define exactly one job named zsh-n so the required context cannot be skipped; got %q", jobNames)
+	}
+
+	// The name the ruleset requires, unchanged from the matrix era.
+	fields := directWorkflowMapping(workflowBlock(t, workflow, "zsh-n:", 2), 4)
+	if values := fields["name"]; len(values) != 1 || values[0] != "Zsh Syntax Check Complete" {
+		t.Errorf(
+			"zsh-n name must be %q because that is the context the ruleset requires; got %q",
+			"Zsh Syntax Check Complete", values,
+		)
+	}
+	// A matrix would reintroduce per-leg contexts and the moving-name problem.
+	if values := fields["strategy"]; len(values) != 0 {
+		t.Errorf("zsh-n must not use a matrix strategy; per-leg context names cannot be required: got %q", values)
 	}
 }
 

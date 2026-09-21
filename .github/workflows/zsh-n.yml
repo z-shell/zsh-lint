@@ -23,67 +23,85 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  zsh-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: ⤵️ Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: "Set matrix output"
-        id: set-matrix
-        run: |
-          MATRIX="$(find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0 | jq -Rsc 'split("\u0000") | map(select(length > 0) | {"file": .}) | {"include": .}')"
-          echo "MATRIX=${MATRIX}" >&2
-          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
+  # One job checks every discovered file, rather than a matrix leg per file.
+  #
+  # The work itself is negligible: `zsh -n` over all 58 files of this
+  # repository takes about 127ms in one process per file. A matrix leg spent
+  # roughly 16s on job setup, checkout and `apt-get install zsh` to perform
+  # that fraction of a second of work, so 58 legs cost about 949s of runner
+  # time and made this the slowest workflow in the repository. Runner setup
+  # per leg, not syntax checking, was the entire cost, and it grew with every
+  # Zsh file added.
+  #
+  # The job keeps the name `Zsh Syntax Check Complete` because that is the
+  # context the repository ruleset requires. The former per-leg contexts,
+  # `zsh-n (<path>)`, were never required: they change whenever a file is
+  # added, renamed or removed, which is why the collapsing job existed in the
+  # first place. With a single job that job is the check, so no separate
+  # collapsing job is needed.
   zsh-n:
-    runs-on: ubuntu-latest
-    needs: zsh-matrix
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.zsh-matrix.outputs.matrix) }}
-    steps:
-      - name: ⤵️ Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: "⚡ Install dependencies"
-        run: sudo apt update && sudo apt-get install -y zsh && touch ~/.zshrc
-      - name: "⚡ zsh -n: ${{ matrix.file }}"
-        env:
-          ZSH_FILE: ${{ matrix.file }}
-        run: |
-          zsh -n "${ZSH_FILE}"
-      - name: "⚡ zcompile ${{ matrix.file }}"
-        env:
-          ZSH_FILE: ${{ matrix.file }}
-        run: |
-          zsh -fc 'zcompile -- "$1"' zsh "$ZSH_FILE"; rc=$?
-          ls -al -- "${ZSH_FILE}.zwc"; exit "$rc"
-  # The zsh-n job is a matrix over discovered files, so each leg reports as
-  # "zsh-n (<path>)". Those context names change whenever a Zsh file is added,
-  # renamed, or removed, which makes them unusable in a ruleset's
-  # required_status_checks list. This job collapses the matrix into one stable
-  # context name that a ruleset can require.
-  zsh-n-complete:
     name: Zsh Syntax Check Complete
     runs-on: ubuntu-latest
-    needs: [zsh-matrix, zsh-n]
-    if: always()
     steps:
-      - name: Verify every syntax check succeeded
-        env:
-          MATRIX_RESULT: ${{ needs.zsh-matrix.result }}
-          SYNTAX_RESULT: ${{ needs.zsh-n.result }}
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: ⚡ Set up Zsh
+        uses: z-shell/.github/actions/setup-zsh@4403e5a200c63596f641966dfb64e08a7a655ffa # main
+
+      - name: ⚡ Prepare Zsh environment
+        run: touch ~/.zshrc
+
+      # Every file is checked and every failure is reported, rather than
+      # stopping at the first one. This is what the matrix's `fail-fast: false`
+      # provided and it is the behaviour worth keeping: a contributor fixing
+      # syntax wants the whole list, not one error per push.
+      - name: ⚡ zsh -n
         run: |
-          if [[ "${MATRIX_RESULT}" != "success" ]]; then
-            echo "::error::Matrix construction did not succeed (${MATRIX_RESULT})."
+          set -uo pipefail
+          checked=0
+          failed=0
+          while IFS= read -r -d '' file; do
+            checked=$((checked + 1))
+            if ! output="$(zsh -n -- "$file" 2>&1)"; then
+              failed=$((failed + 1))
+              echo "::error file=${file#./}::zsh -n failed: ${output}"
+            fi
+          done < <(find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0)
+          echo "Checked ${checked} file(s) with zsh -n, ${failed} failed."
+          if [[ "${checked}" -eq 0 ]]; then
+            echo "::error::No Zsh files were discovered; the check would pass vacuously."
             exit 1
           fi
-          if [[ "${SYNTAX_RESULT}" != "success" ]]; then
-            echo "::error::At least one zsh -n or zcompile leg did not succeed (${SYNTAX_RESULT})."
+          [[ "${failed}" -eq 0 ]]
+        shell: bash
+
+      # zcompile is a second, stricter gate: a file can pass `zsh -n` and still
+      # fail to compile. Each compile is verified to have produced its .zwc,
+      # as the per-leg `ls -al` did, so a silent no-op cannot pass.
+      - name: ⚡ zcompile
+        run: |
+          set -uo pipefail
+          compiled=0
+          failed=0
+          while IFS= read -r -d '' file; do
+            compiled=$((compiled + 1))
+            if ! output="$(zsh -fc 'zcompile -- "$1"' zsh "$file" 2>&1)"; then
+              failed=$((failed + 1))
+              echo "::error file=${file#./}::zcompile failed: ${output}"
+              continue
+            fi
+            if [[ ! -s "${file}.zwc" ]]; then
+              failed=$((failed + 1))
+              echo "::error file=${file#./}::zcompile produced no .zwc output"
+            fi
+          done < <(find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0)
+          echo "Compiled ${compiled} file(s), ${failed} failed."
+          if [[ "${compiled}" -eq 0 ]]; then
+            echo "::error::No Zsh files were discovered; the check would pass vacuously."
             exit 1
           fi
-          echo "Every zsh -n and zcompile leg succeeded."
+          [[ "${failed}" -eq 0 ]]
+        shell: bash
