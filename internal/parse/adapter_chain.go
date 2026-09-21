@@ -61,6 +61,7 @@ func adapterChain() []adapterAttempt {
 		parseSelectShortForm,
 		parseSelectParenList,
 		parseArithForSublist,
+		parseRedundantSeparator,
 	}
 }
 
