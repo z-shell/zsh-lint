@@ -9,20 +9,16 @@ These instructions dictate how to build the semantic analyzer engine and lint ru
 
 ## 1. The Rule Interface
 
-Rules implement `analyzer.Rule` in `internal/analyzer/rule.go`: `ID()` returns
-the stable `category/rule-name` slug, `Name()` the human-readable name, and
-`Analyze(ctx *Context, node syntax.Node)` reports diagnostics through the
-context. Optional interfaces in the same file extend a rule: `FileRule` for
-file-level findings, `ScopeAwareRule` to opt into the declaration index, and
-`ProjectRule` for invariants across configured sources. Read that file rather
-than a copy here; it is the contract the engine drives.
+Rules implement `analyzer.Rule` in `internal/analyzer/rule.go`: `ID()` returns the stable `category/rule-name` slug, `Name()` the human-readable name, and `Analyze(ctx *Context, node syntax.Node)` reports diagnostics through the context.
+Optional interfaces in the same file extend a rule: `FileRule` for file-level findings, `ScopeAwareRule` to opt into the declaration index, and `ProjectRule` for invariants across configured sources.
+Read that file rather than a copy here; it is the contract the engine drives.
 
-Register new rules in `internal/rules/rules.go` (`Default()` or a versioned
-profile) and document them per `docs/project/rule-policy.md`.
+Register new rules in `internal/rules/rules.go` (`Default()` or a versioned profile) and document them per `docs/project/rule-policy.md`.
 
 ## 2. AST Traversal (The Visitor Pattern)
 
-Do not write custom recursive descent walkers unless absolutely necessary. Rely on `syntax.Walk` from `mvdan/sh/syntax`.
+Do not write custom recursive descent walkers unless absolutely necessary.
+Rely on `syntax.Walk` from `mvdan/sh/syntax`.
 
 ```go
 // Good: Using the standard walker
@@ -39,7 +35,9 @@ syntax.Walk(file, func(node syntax.Node) bool {
 
 ## 3. Extracting Text from Nodes
 
-Shell grammar wraps text in multiple layers (e.g., `Word` -> `Lit`). Never cast blindly. Use the parser's printer or explicit type checks to extract text cleanly.
+Shell grammar wraps text in multiple layers (e.g., `Word` -> `Lit`).
+Never cast blindly.
+Use the parser's printer or explicit type checks to extract text cleanly.
 
 ```go
 // Extracting literal text safely
