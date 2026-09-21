@@ -41,6 +41,7 @@ func adapterChain() []adapterAttempt {
 		parseAlternateIfBrace,
 		parseIfShortForm,
 		parseWhileShortForm,
+		parseWhileEmptyBody,
 		parseAssociativeSubscript,
 		parseSecondSubscript,
 		parseSubscriptFlagBracketPattern,
