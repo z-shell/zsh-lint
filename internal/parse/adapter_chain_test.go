@@ -52,6 +52,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"whileShortForm":    {attempt: parseWhileShortForm, source: "while (( i < 3 )) (( i++ ))"},
 	"forShortForm":      {attempt: parseForShortForm, source: "for t in 1 2 3; print $t"},
 	"arithForSublist":   {attempt: parseArithForSublist, source: "for (( i = 1; i < 3; i++ )) print $i"},
+	"whileEmptyBody":    {attempt: parseWhileEmptyBody, source: "{ while (( i < 3 )) }"},
 }
 
 func parseString(t *testing.T, src string) error {
