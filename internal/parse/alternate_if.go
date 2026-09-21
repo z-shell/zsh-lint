@@ -317,6 +317,15 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 						atCommandStart = true
 						continue
 					}
+					// The condition is not followed by a brace body, so this is
+					// not the alternate form. Disarm before moving on: a `while`
+					// searches past newlines for its `{`, so leaving the state
+					// armed lets a brace on a later line be claimed as this
+					// loop's body. `while (( i < 3 )) (( i++ ))` followed by a
+					// line starting `{ ... } always { ... }` did exactly that,
+					// masking the try block into a loop body and rejecting
+					// valid Zsh (#337).
+					currentIf = ifNone
 				}
 			}
 			if b == '{' {

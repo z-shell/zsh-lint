@@ -451,3 +451,37 @@ func TestParseAlternateIfRejectsBraceGluedToDoubleBracket(t *testing.T) {
 	// the adapter leaves the parser's own error in place.
 	assertParseErrorAt(t, []byte("if [[ $a == [)]] ]] { b=1 }\n"), "reached `)` without matching `[[` with `]]`", 1, 4)
 }
+
+// A `while` whose condition is not followed by a brace has an ordinary body,
+// so the alternate-form scan must disarm at that point. It searches past
+// newlines for the `{`, so staying armed let a brace on a later line be taken
+// as the loop body: the `{ ... }` of a following `try`/`always` block was
+// masked into a `do ... done`, and valid Zsh was rejected at the `always`
+// (#337). Each statement here parses alone and in pairs; only all three
+// together reproduced it.
+func TestParseAlternateIfDisarmsWhileWithoutBraceBody(t *testing.T) {
+	sources := []string{
+		"#!/usr/bin/env zsh\nif (( 1 )) { x=1 }\nwhile (( i < 3 )) (( i++ ))\n{ true } always { true }\n",
+		"#!/usr/bin/env zsh\nif (( 1 )) { x=1 }\nuntil (( d )) (( d=1 ))\n{ : } always { : }\n",
+		"#!/usr/bin/env zsh\nif [[ -n $HOME ]] { y=2 }\nwhile (( a )) print loop\n{ print body } always { print cleanup }\n",
+	}
+	for _, src := range sources {
+		if err := parseString(t, src); err != nil {
+			t.Errorf("valid Zsh must parse:\n%s\nerror: %v", src, err)
+		}
+	}
+
+	// The alternate form itself must keep working: a brace directly after the
+	// condition is still a loop body, and disarming must not reach it.
+	file, err := Parse(strings.NewReader("while (( i < 3 )) { print $i }\n"), "t.zsh")
+	if err != nil {
+		t.Fatalf("alternate while form must still parse: %v", err)
+	}
+	loops := whileLoops(file.AST())
+	if len(loops) != 1 {
+		t.Fatalf("want 1 while loop, got %d", len(loops))
+	}
+	if got := len(loops[0].Do); got != 1 {
+		t.Errorf("want 1 statement in the loop body, got %d", got)
+	}
+}

@@ -1,7 +1,9 @@
 package parse
 
 import (
+	"math/rand"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -134,17 +136,69 @@ func TestAdapterCompositionAllOrderedPairs(t *testing.T) {
 
 // TestAdapterCompositionAllFeaturesTogether puts every adapter feature in a
 // single file, which is closer to a real loader than any pair.
+//
+// The order is sorted rather than map order. Iterating the map directly made
+// this test fail on roughly one run in seven, because an ordering did matter:
+// an alternate-form `if`, a `while` with a non-brace body, and a `try`/`always`
+// block in that relative order were rejected (#337). A defect that appears in
+// 15% of runs and prints a different file each time reads as flakiness, and the
+// failing order was recoverable only from the printed source. Sorting fixes the
+// order so a failure here always reproduces; TestAdapterCompositionRandomOrders
+// keeps the randomized coverage and reports a seed that replays it.
 func TestAdapterCompositionAllFeaturesTogether(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("#!/usr/bin/env zsh\n")
-	// Map order is randomized by Go; that is deliberate extra coverage here,
-	// since no ordering may matter.
-	for _, snippet := range adapterSnippets {
-		b.WriteString(snippet.source)
+	for _, name := range sortedAdapterSnippetNames() {
+		b.WriteString(adapterSnippets[name].source)
 		b.WriteString("\n")
 	}
 	if err := parseString(t, b.String()); err != nil {
 		t.Fatalf("all features together must parse:\n%s\nerror: %v", b.String(), err)
+	}
+}
+
+// sortedAdapterSnippetNames gives the snippet names in a fixed order, so a
+// composition failure is reproducible from the test name alone.
+func sortedAdapterSnippetNames() []string {
+	names := make([]string, 0, len(adapterSnippets))
+	for name := range adapterSnippets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TestAdapterCompositionRandomOrders keeps the coverage that map iteration used
+// to provide by accident, without the unreproducibility. Each iteration derives
+// its order from an explicit seed, and a failure reports the seed and the
+// order, so the exact case can be replayed.
+//
+// n! orderings cannot be enumerated at this size, so this samples. The
+// iteration count is kept low deliberately: each parse of a 24-construct file
+// walks the adapter chain, so this dominates the package's test time. Forty
+// seeds cost about three seconds and would have caught #337, whose failing
+// orderings were roughly 1 in 300.
+func TestAdapterCompositionRandomOrders(t *testing.T) {
+	names := sortedAdapterSnippetNames()
+
+	const iterations = 40
+	for seed := int64(0); seed < iterations; seed++ {
+		order := append([]string(nil), names...)
+		rng := rand.New(rand.NewSource(seed))
+		rng.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
+
+		var b strings.Builder
+		b.WriteString("#!/usr/bin/env zsh\n")
+		for _, name := range order {
+			b.WriteString(adapterSnippets[name].source)
+			b.WriteString("\n")
+		}
+		if err := parseString(t, b.String()); err != nil {
+			t.Fatalf(
+				"composition must parse in any order; replay with seed %d\norder: %v\nsource:\n%s\nerror: %v",
+				seed, order, b.String(), err,
+			)
+		}
 	}
 }
 
