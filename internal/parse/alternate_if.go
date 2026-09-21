@@ -497,14 +497,50 @@ func skipSpacesAndComments(src []byte, i int) int {
 	return i
 }
 
+// scanAlternateConditionBrace returns the offset of the `{` that opens an
+// alternate-form body, or an offset holding no `{` when the condition has no
+// body brace.
+//
+// The caller has already scanned past the condition's first delimited test, so
+// a `{` found before any connective is the body. After a `&&` or a `||`, only
+// a further delimited test keeps the body in reach: Alternate Forms For
+// Complex Commands requires the test to be "suitably delimited, such as by
+// `[[ ... ]]` or `(( ... ))`, else the end of the test will not be
+// recognized", so a `{ ... }` written directly after a connective is another
+// element of the condition list rather than the body.
+//
+//	if [[ -n $b ]] { body }                    # body
+//	if [[ -n $b ]] && [[ -n $c ]] { body }     # body, after a delimited test
+//	if [[ -n $b ]] && { print cond; }          # no body: a parse error in Zsh
+//	if [[ -n $b ]] && { print cond; } { body } # the SECOND brace is the body
+//
+// Treating the brace after a connective as the body made an ordinary
+// `if ... ; then` whose condition holds a brace group fail to parse whenever
+// the same file also held an alternate-form construct, since the adapter
+// rewrote that condition brace into a body opener.
 func scanAlternateConditionBrace(src []byte, i int, allowNewline bool) int {
 	skipSpaces := skipInlineSpaces
 	if allowNewline {
 		skipSpaces = skipAlternateConditionSpaces
 	}
+	// The caller scanned the condition's first delimited test, so the first
+	// brace found is the body. A connective clears that until a further
+	// delimited test, or a condition-list brace group, is scanned past.
+	afterDelimitedTest := true
 	for {
 		i = skipSpaces(src, i)
 		if i < len(src) && src[i] == '{' {
+			if !afterDelimitedTest {
+				// A brace group in the condition list. The body, if the source
+				// has one, is the brace after this group's `}`.
+				end := scanClosingBrace(src, i)
+				if end < 0 {
+					return len(src)
+				}
+				afterDelimitedTest = true
+				i = end
+				continue
+			}
 			return i
 		}
 		if i+1 >= len(src) || (src[i] != '&' || src[i+1] != '&') && (src[i] != '|' || src[i+1] != '|') {
@@ -519,7 +555,15 @@ func scanAlternateConditionBrace(src []byte, i int, allowNewline bool) int {
 			i = scanClosingDoubleBracket(src, i)
 		case i+1 < len(src) && src[i] == '(' && src[i+1] == '(':
 			i = scanClosingDoubleParen(src, i)
+		case i < len(src) && src[i] == '{':
+			// A brace group after the connective is part of the condition
+			// list, never the body.
+			afterDelimitedTest = false
+			continue
 		default:
+			// Nothing after this connective can open a body. The offset
+			// itself is inert: the caller only acts on a returned `{`, and
+			// this branch is reached precisely when the byte here is not one.
 			return i
 		}
 		if i < 0 {
