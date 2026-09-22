@@ -44,8 +44,20 @@ func TestParseFlaggedSubscriptBracketPositions(t *testing.T) {
 			pattern: "[x]",
 		},
 		{
+			name:    "range endpoint in a subscript on a nested expansion",
+			src:     "print -r -- ${${a[b]}[1,(i)[x]]}\n",
+			flags:   "i",
+			pattern: "[x]",
+		},
+		{
 			name:    "third subscript",
 			src:     "print -r -- ${a[b][c][(i)[x]]}\n",
+			flags:   "i",
+			pattern: "[x]",
+		},
+		{
+			name:    "second subscript on a nested expansion",
+			src:     "print -r -- ${${a[b]}[c][(i)[x]]}\n",
 			flags:   "i",
 			pattern: "[x]",
 		},
@@ -179,6 +191,11 @@ func TestFlagGroupOpener(t *testing.T) {
 		{"range comma", "${a[1,(i)x]}", true},
 		{"second-subscript mask, space after comma", "${a[b, (i)x]}", true},
 		{"subscript on a nested expansion", "${${a[b]}[(i)x]}", true},
+		{"range comma in a subscript on a nested expansion", "${${a[b]}[1,(i)x]}", true},
+		// A closed bracket pair before the comma is skipped by the depth
+		// count, so the walk reaches the subscript's own `[` rather than
+		// stopping at the inner one.
+		{"bracket pair before the comma", "${a[ [b] ,(i)x]}", true},
 		// A comma that is not inside a subscript.
 		{"arithmetic comma", "$(( a, (b) ))", false},
 		{"comma in a command", "print a, (b)", false},

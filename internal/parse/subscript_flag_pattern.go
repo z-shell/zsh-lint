@@ -140,9 +140,12 @@ func isFlagGroupOpener(src []byte, paren int) bool {
 }
 
 // commaInsideSubscript reports whether the `,` at comma stands inside a
-// subscript, by walking back to the `name[` that opens it on the same line.
+// subscript, by walking back to the `[` that opens it on the same line. The
+// byte before that `[` is a name character, or the `}` of a nested expansion
+// the subscript applies to, matching the opener test above.
+//
 // Without this an arithmetic comma followed by a parenthesized operand,
-// `$(( a, (b) ))`, could be read as a flags group.
+// `$(( a, (b) ))`, would answer the opener test on position alone.
 func commaInsideSubscript(src []byte, comma int) bool {
 	depth := 0
 	for i := comma - 1; i > 0; i-- {
@@ -156,7 +159,7 @@ func commaInsideSubscript(src []byte, comma int) bool {
 				depth--
 				continue
 			}
-			return isIdentByte(src[i-1])
+			return isIdentByte(src[i-1]) || src[i-1] == '}'
 		}
 	}
 	return false
