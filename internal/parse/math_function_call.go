@@ -7,11 +7,17 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// invalidMathFunctionCall is the exact error mvdan/sh (LangZsh, v3.14.1)
-// reports for a math function call in an arithmetic expression,
-// `$(( sqrt(4) ))`: it reads the identifier as a complete operand and then
-// finds `(` where an operator would be.
+// invalidMathFunctionCall is the error mvdan/sh (LangZsh, v3.14.1) reports for
+// a math function call in an arithmetic expression, `$(( sqrt(4) ))`: it reads
+// the identifier as a complete operand and then finds `(` where an operator
+// would be.
 const invalidMathFunctionCall = "not a valid arithmetic operator: `(`"
+
+// incompleteTernaryMathCall is the error reported instead when the call stands
+// in a ternary's true branch, `$(( 1 ? sqrt(4) : 3 ))`. The parser takes the
+// name as the true-branch operand and then requires the `:` that separates the
+// branches, so it reports the unfinished ternary rather than the operator.
+const incompleteTernaryMathCall = "ternary operator missing `:` after `?`"
 
 // MathFunctionCall pairs a math function call's name with the arguments
 // written inside its parentheses (zshmisc, Arithmetic Evaluation: "It is also
@@ -52,7 +58,7 @@ type MathFunctionCall struct {
 // succeeded (see bindMathFunctionCalls).
 func parseMathFunctionCall(src []byte, name string, firstErr error) (*syntax.File, error) {
 	var parseErr syntax.ParseError
-	if !errors.As(firstErr, &parseErr) || parseErr.Text != invalidMathFunctionCall {
+	if !errors.As(firstErr, &parseErr) {
 		return nil, firstErr
 	}
 
@@ -61,12 +67,78 @@ func parseMathFunctionCall(src []byte, name string, firstErr error) (*syntax.Fil
 		return nil, firstErr
 	}
 
+	switch parseErr.Text {
+	case invalidMathFunctionCall:
+		// The error points at the call's own `(`, so the site is the error.
+	case incompleteTernaryMathCall:
+		// The error points at the `?`, not at a call, and an unfinished
+		// ternary has many causes that have nothing to do with one. Retry
+		// only when a call stands after that `?` inside the same arithmetic
+		// expression, so a malformed ternary elsewhere keeps its own error.
+		if !ternaryBranchHoldsCall(src, sites, int(parseErr.Pos.Offset())) {
+			return nil, firstErr
+		}
+	default:
+		return nil, firstErr
+	}
+
 	masked := bytes.Clone(src)
 	for _, site := range sites {
 		maskMathCall(masked, site)
 	}
 
+	// Every call site in the file is masked in one pass, for both errors.
+	// Masking one site per pass and re-entering would be quadratic in the
+	// number of calls, and the anonymous-invocation retry reparses through
+	// this chain per candidate, so on `z-shell/zi` `zi.zsh` (164KB, 2 call
+	// sites reached through many candidate reparses) the per-site form did
+	// not finish in 180s while this one parses in ~0.4s.
+	//
+	// Masking every site is no less precise than masking one: a mask keeps
+	// the call's parentheses and blanks only its name, which is
+	// meaning-preserving wherever a call really stands, and a site is only
+	// ever found inside an arithmetic span. The gate above, not the number of
+	// sites masked, is what keeps an unrelated failure from being retried.
 	return parseWithAdapters(masked, name)
+}
+
+// ternaryBranchHoldsCall reports whether a math function call stands after the
+// `?` at offset, inside the same arithmetic expression.
+//
+// This is the adapter's gate for the ternary error, and it is deliberately the
+// whole branch rather than only the operand position. A call is an operand, so
+// it may stand anywhere an operand may: `1 ? -f(2) : 3`, `1 ? 2*f(3) : 4` and
+// `1 ? (f(2)) : 3` are all valid Zsh and all report this same error.
+//
+// The search is bounded to the `?`'s own arithmetic expression, so a call in
+// an unrelated expression elsewhere in the file cannot make a malformed
+// ternary retry. Within that bound, a mask blanks only a call's name and keeps
+// its parentheses, so it changes nothing unless a call really is there: a
+// ternary with a genuine defect fails the retry and reports its own error.
+func ternaryBranchHoldsCall(src []byte, sites []mathCallSite, offset int) bool {
+	if offset < 0 || offset >= len(src) || src[offset] != '?' {
+		return false
+	}
+	span, ok := arithmeticSpanAt(src, offset)
+	if !ok {
+		return false
+	}
+	for _, site := range sites {
+		if site.nameStart > offset && site.close < span.end {
+			return true
+		}
+	}
+	return false
+}
+
+// arithmeticSpanAt reports the arithmetic expression containing offset.
+func arithmeticSpanAt(src []byte, offset int) (arithmeticSpan, bool) {
+	for _, span := range arithmeticSpans(src) {
+		if offset >= span.start && offset < span.end {
+			return span, true
+		}
+	}
+	return arithmeticSpan{}, false
 }
 
 // maskMathCall blanks one call in place, keeping every byte offset.
