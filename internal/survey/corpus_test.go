@@ -39,6 +39,7 @@ var requiredFixtures = []string{
 	"ok-dangling-and-or.zsh",
 	"ok-do-leading-separator.zsh",
 	"ok-fd-var-redirect.zsh",
+	"ok-flagged-second-subscript-bracket.zsh",
 	"ok-function-non-brace-body.zsh",
 	"ok-function-semicolon-body.zsh",
 	"ok-glob-patterns.zsh",

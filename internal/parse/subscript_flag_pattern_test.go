@@ -154,6 +154,38 @@ func TestSubscriptFlagBracketPatternLeavesUncertainPatternsAlone(t *testing.T) {
 	}
 }
 
+// nestedExpansionEnd decides where a nested expansion inside a flagged pattern
+// ends. Tested directly: an unbalanced expansion cannot reach it through
+// Parse, because the parser fails at the `$` before the retry is seeded.
+func TestNestedExpansionEnd(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want int // offset past the closing `}`, or -1 for refused
+	}{
+		{"simple", "${s}x", 4},
+		{"nested braces", "${a${b}c}x", 9},
+		{"unbalanced", "${s", -1},
+		{"newline before close", "${s\n}", -1},
+		{"escaped brace", "${a\\}b}x", 7},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// The `{` is at offset 1 in each source.
+			end, ok := nestedExpansionEnd([]byte(test.src), 1)
+			if test.want < 0 {
+				if ok {
+					t.Errorf("nestedExpansionEnd(%q) = %d, want refused", test.src, end)
+				}
+				return
+			}
+			if !ok || end != test.want {
+				t.Errorf("nestedExpansionEnd(%q) = %d, %v, want %d, true", test.src, end, ok, test.want)
+			}
+		})
+	}
+}
+
 func assertParseErrorAt(t *testing.T, src []byte, text string, line, col uint) {
 	t.Helper()
 	_, err := Parse(bytes.NewReader(src), "flag-pattern.zsh")
