@@ -14,8 +14,8 @@ import (
 const invalidMathFunctionCall = "not a valid arithmetic operator: `(`"
 
 // incompleteTernaryMathCall is the error reported instead when the call stands
-// in a ternary's true branch, `$(( 1 ? sqrt(4) : 3 ))`. The parser takes the
-// name as the true-branch operand and then requires the `:` that separates the
+// in a ternary's branch, `$(( 1 ? sqrt(4) : 3 ))`. The parser takes the name
+// as the true-branch operand and then requires the `:` that separates the
 // branches, so it reports the unfinished ternary rather than the operator.
 const incompleteTernaryMathCall = "ternary operator missing `:` after `?`"
 
@@ -90,9 +90,7 @@ func parseMathFunctionCall(src []byte, name string, firstErr error) (*syntax.Fil
 	// Every call site in the file is masked in one pass, for both errors.
 	// Masking one site per pass and re-entering would be quadratic in the
 	// number of calls, and the anonymous-invocation retry reparses through
-	// this chain per candidate, so on `z-shell/zi` `zi.zsh` (164KB, 2 call
-	// sites reached through many candidate reparses) the per-site form did
-	// not finish in 180s while this one parses in ~0.4s.
+	// this chain per candidate, so the per-site form compounds that.
 	//
 	// Masking every site is no less precise than masking one: a mask keeps
 	// the call's parentheses and blanks only its name, which is
@@ -107,8 +105,13 @@ func parseMathFunctionCall(src []byte, name string, firstErr error) (*syntax.Fil
 //
 // This is the adapter's gate for the ternary error, and it is deliberately the
 // whole branch rather than only the operand position. A call is an operand, so
-// it may stand anywhere an operand may: `1 ? -f(2) : 3`, `1 ? 2*f(3) : 4` and
-// `1 ? (f(2)) : 3` are all valid Zsh and all report this same error.
+// it may stand anywhere an operand may: `1 ? -f(2) : 3` and `1 ? 2*f(3) : 4`
+// are valid Zsh and report this same error, which a gate looking only at the
+// position right after the `?` would miss.
+//
+// A call inside a parenthesized group, `1 ? (f(2)) : 3`, is not one of these:
+// it reports a different error this adapter does not own, and it fails without
+// a ternary too. That is a separate gap.
 //
 // The search is bounded to the `?`'s own arithmetic expression, so a call in
 // an unrelated expression elsewhere in the file cannot make a malformed
