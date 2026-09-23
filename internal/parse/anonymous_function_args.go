@@ -6,9 +6,15 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"mvdan.cc/sh/v3/syntax"
 )
+
+// closerRetries counts prefixEndsWithAnonymousFunction's parses, so a test
+// can pin the number of retries a candidate costs. Parse is a library entry
+// point, so the counter is atomic rather than assume a single caller.
+var closerRetries atomic.Int64
 
 type anonymousInvocationCandidate struct {
 	close int
@@ -158,20 +164,35 @@ func closingToken(err error) (string, bool) {
 // bound alone no longer caps genuine brace depth. Exhausting the combined
 // bound only ever means a false rejection, reported as the candidate's own
 // seedErr by the caller, never a false acceptance.
+//
+// The loop also stops as soon as a retry fails with exactly the error the
+// previous retry gave (#357). A closer that leaves the error unchanged, text
+// and position both, was not taken by the construct the error names, so the
+// next retry would append the same closer to the same unfinished construct.
+// Without this stop the loop ran the whole bound on every such candidate,
+// and because braceOpenerCount counts every `{` before close, including
+// braces long since closed, the bound grows with the file: a brace-form `if`
+// around the candidate asks for a `fi` it never accepts, and zi.zsh spent
+// 463 identical retries, each a full adapter-chain parse of the prefix, on a
+// single candidate. The stop has the bound's direction: it can only turn an
+// acceptance into a rejection, never the reverse.
 func prefixEndsWithAnonymousFunction(src []byte, name string, close int) bool {
 	if close < 0 || close >= len(src) || src[close] != '}' {
 		return false
 	}
 	prefix := append([]byte(nil), src[:close+1]...)
 	maxClosers := 32 + braceOpenerCount(prefix)
+	previousErr := ""
 	for appended := 0; ; appended++ {
+		closerRetries.Add(1)
 		tree, err := parseWithAdapters(prefix, name)
 		if err == nil {
 			return funcDeclEndsAt(tree, close)
 		}
-		if appended >= maxClosers {
+		if appended >= maxClosers || err.Error() == previousErr {
 			return false
 		}
+		previousErr = err.Error()
 		token, ok := closingToken(err)
 		if !ok {
 			return false

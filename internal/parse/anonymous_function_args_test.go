@@ -2,6 +2,7 @@ package parse
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -325,5 +326,54 @@ BODY
 	}
 	if got := len(file.AnonymousInvocations()); got != 0 {
 		t.Fatalf("invocation count = %d, want 0", got)
+	}
+}
+
+// noProgressSource is the #357 reproduction: n closed one-line functions,
+// then an anonymous function with an argument inside a brace-form `if`
+// inside a `{` group the file never closes. The file is invalid (native Zsh
+// rejects the unclosed group), so the anonymous-function retry takes its
+// error path and validates the candidate with prefixEndsWithAnonymousFunction.
+func noProgressSource(n int) string {
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "f%d() { print %d; }\n", i, i)
+	}
+	b.WriteString("{\n  if [[ x ]] {\n    () {\n    } a\n  }\n")
+	return b.String()
+}
+
+// TestAnonymousFunctionClosersStopWithoutProgress regression-tests #357.
+// Validating the candidate appends the `fi` the prefix's error asks for, but
+// a brace-form `if` never takes one, so every later retry failed with the
+// same error. The loop still ran its whole bound, 32 plus every `{` before
+// the candidate, including those of the n functions already closed, and each
+// retry is a full parse of the prefix: the cost was quadratic in file size
+// (22.7 s at n = 2000). The retry count is asserted rather than wall clock,
+// so the test is exact and does not depend on machine load: it must not grow
+// with n, and the error reported must be the same one as before.
+func TestAnonymousFunctionClosersStopWithoutProgress(t *testing.T) {
+	retries := func(n int) (int64, error) {
+		before := closerRetries.Load()
+		_, err := Parse(strings.NewReader(noProgressSource(n)), "no-progress.zsh")
+		return closerRetries.Load() - before, err
+	}
+	small, smallErr := retries(0)
+	large, largeErr := retries(200)
+	if smallErr == nil || largeErr == nil {
+		t.Fatalf("invalid source accepted: n=0 err=%v, n=200 err=%v", smallErr, largeErr)
+	}
+	if large != small {
+		t.Errorf("closer retries grow with preceding functions: n=0 took %d, n=200 took %d", small, large)
+	}
+	if small > 4 {
+		t.Errorf("closer retries = %d, want the loop to stop once the error repeats (at most 4)", small)
+	}
+	var parseErr syntax.ParseError
+	if !errors.As(largeErr, &parseErr) {
+		t.Fatalf("error type = %T, want syntax.ParseError", largeErr)
+	}
+	if parseErr.Pos.Line() != 204 || parseErr.Pos.Col() != 7 || parseErr.Text != "statements must be separated by &, ; or a newline" {
+		t.Errorf("error = %d:%d %q, want 204:7 %q", parseErr.Pos.Line(), parseErr.Pos.Col(), parseErr.Text, "statements must be separated by &, ; or a newline")
 	}
 }
