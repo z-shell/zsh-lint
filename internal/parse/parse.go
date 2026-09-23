@@ -162,7 +162,11 @@ func Parse(r io.Reader, name string) (*File, error) {
 func parseFull(src []byte, name string) (*syntax.File, []AnonymousInvocation, error) {
 	tree, err := parseWithAdapters(src, name)
 	if err == nil {
-		return tree, nil, nil
+		return resolveFlagPatternCuts(src, name, tree), nil, nil
 	}
-	return parseAnonymousFunctionArgs(src, name, err)
+	tree, invocations, err := parseAnonymousFunctionArgs(src, name, err)
+	if err != nil {
+		return nil, nil, err
+	}
+	return resolveFlagPatternCuts(src, name, tree), invocations, nil
 }

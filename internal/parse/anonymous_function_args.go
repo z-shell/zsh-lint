@@ -379,6 +379,12 @@ func parseAnonymousInvocationWords(src []byte, name string, close, end int) ([]*
 	if err != nil {
 		return nil, false
 	}
+	// The words are typed metadata, not part of the returned File, so the
+	// shared walk in Parse never reaches them. Repair a flagged subscript
+	// pattern cut here instead, against the island: its bytes in
+	// [close+1,end) are the original ones at their original offsets, which
+	// is all the scanner reads.
+	tree = resolveFlagPatternCuts(island, name, tree)
 	for _, stmt := range tree.Stmts {
 		call, ok := stmt.Cmd.(*syntax.CallExpr)
 		if !ok || len(call.Args) < 2 || getParseWordLiteral(call.Args[0]) != ":" {

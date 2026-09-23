@@ -17,6 +17,13 @@ const (
 	invalidFlagPatternOperator = "not a valid parameter expansion operator:"
 	invalidFlagPatternWord     = " cannot be followed by a word"
 	invalidFlagPatternAssign   = "`a[b]` must be followed by `=`"
+	// A `,` after the cut is bash's case-modification operator, which the
+	// Zsh dialect reports as a language error rather than a parse error
+	// (issue #283). The feature text is shared with other operators, so the
+	// gate is the structural one below: the byte before the error is the
+	// premature `]`, a flagged subscript opens before it, and the retry
+	// must come back holding that pattern whole.
+	bashOnlyExpansionOperator = "this expansion operator"
 )
 
 // parseSubscriptFlagBracketPattern retries only a flagged subscript
@@ -28,24 +35,52 @@ const (
 // the literal byte for byte.
 func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (*syntax.File, error) {
 	var parseErr syntax.ParseError
-	if !errors.As(firstErr, &parseErr) {
-		return nil, firstErr
-	}
-	seed := int(parseErr.Pos.Offset())
-	if seed < 0 || seed >= len(src) {
+	var langErr syntax.LangError
+	isParseErr := errors.As(firstErr, &parseErr)
+	isLangErr := errors.As(firstErr, &langErr)
+	if !isParseErr && !isLangErr {
 		return nil, firstErr
 	}
 
+	var seed int
 	var patternStart int
 	var ok bool
-	assign := false
 	switch {
+	case isLangErr:
+		// `,` after the cut is bash's case-modification operator. The
+		// feature text names no construct of its own, so the whole gate
+		// is structural: the premature `]` before it, a flagged
+		// subscript opening before that, and the verified retry below.
+		//
+		// This text check is defence in depth, not the gate: the only
+		// other language error mvdan/sh raises here is `${!foo}`, whose
+		// position never sits past a premature `]`, so the structural
+		// check below rejects it anyway. Keep it as the cheap early-out
+		// that states the intent.
+		if langErr.Feature != bashOnlyExpansionOperator {
+			return nil, firstErr
+		}
+		seed = int(langErr.Pos.Offset())
+		if seed < 0 || seed >= len(src) {
+			return nil, firstErr
+		}
+		patternStart, ok = flagPatternBeforePrematureClose(src, seed)
 	case strings.HasPrefix(parseErr.Text, invalidFlagPatternOperator),
 		strings.HasSuffix(parseErr.Text, invalidFlagPatternWord):
+		seed = int(parseErr.Pos.Offset())
+		if seed < 0 || seed >= len(src) {
+			return nil, firstErr
+		}
 		patternStart, ok = flagPatternBeforePrematureClose(src, seed)
 	case parseErr.Text == invalidFlagPatternAssign:
+		seed = int(parseErr.Pos.Offset())
+		if seed < 0 || seed >= len(src) {
+			return nil, firstErr
+		}
 		patternStart, ok = flagPatternAfterAssignName(src, seed)
-		assign = true
+		// The assignment error is reported at the name, not at the
+		// premature `]`, so there is no cut byte to match below.
+		seed = -1
 	default:
 		return nil, firstErr
 	}
@@ -57,11 +92,11 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 	if !ok {
 		return nil, firstErr
 	}
-	if assign {
-		if close+1 >= len(src) || (src[close+1] != '=' && !bytes.HasPrefix(src[close+1:], []byte("+="))) {
-			return nil, firstErr
-		}
-	} else if !editsContain(edits, seed-1) {
+	// The error must point just past a `]` this scan masked, which ties the
+	// repair to the cut the parser actually reported. Defence in depth: every
+	// shape that reaches here does satisfy it, because the same premature `]`
+	// is what flagPatternBeforePrematureClose found the pattern from.
+	if seed >= 0 && !editsContain(edits, seed-1) {
 		return nil, firstErr
 	}
 
@@ -73,10 +108,42 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 	if err != nil {
 		return nil, err
 	}
+	if !holdsFlagPattern(tree, patternStart, close) {
+		return nil, firstErr
+	}
 	if err := restorePatternEdits(tree, src, edits); err != nil {
 		return nil, err
 	}
 	return tree, nil
+}
+
+// holdsFlagPattern reports whether tree has a flagged subscript whose pattern
+// is one literal spanning exactly [start,end), the node the masked retry must
+// produce. It replaces the assignment's earlier `=`-after-the-subscript check
+// with the shape that check stood in for, and covers the range form, where the
+// pattern ends at a `,` the check could not see.
+func holdsFlagPattern(tree *syntax.File, start, end int) bool {
+	found := false
+	syntax.Walk(tree, func(node syntax.Node) bool {
+		if found {
+			return false
+		}
+		flagged, ok := node.(*syntax.FlagsArithm)
+		if !ok {
+			return true
+		}
+		word, ok := flagged.X.(*syntax.Word)
+		if !ok || len(word.Parts) != 1 {
+			return true
+		}
+		lit, ok := word.Parts[0].(*syntax.Lit)
+		if !ok {
+			return true
+		}
+		found = int(lit.ValuePos.Offset()) == start && int(lit.ValueEnd.Offset()) == end
+		return !found
+	})
+	return found
 }
 
 // flagPatternBeforePrematureClose locates the flagged subscript whose pattern
@@ -208,12 +275,16 @@ func isFlagLetter(b byte) bool {
 }
 
 // scanFlagPatternBrackets walks a flagged subscript pattern from start to its
-// real closing `]`, collecting the mask for every `[` and `]` that does not
-// delimit the subscript and every `,` inside a bracket expression. Zsh
-// delimits a subscript by bracket nesting with backslash escapes, so the
-// scanner counts `[` and `]` and skips escaped bytes. It reports false when
-// the pattern holds anything whose extent it cannot decide, such as a nested
-// expansion or a command substitution in either form.
+// real end, collecting the mask for every `[` and `]` that does not delimit
+// the subscript and every `,` inside a bracket expression. Zsh delimits a
+// subscript by bracket nesting with backslash escapes, so the scanner counts
+// `[` and `]` and skips escaped bytes. The pattern ends at the `]` that closes
+// the subscript, or at the `,` that separates it from a range's second
+// endpoint (`${a[(r)[^:],3]}`, zshparam Array Subscripts); the returned offset
+// is that byte, and the bytes after a `,` belong to the expression the
+// after-comma adapter (#277) reads. It reports false when the pattern holds
+// anything whose extent it cannot decide, such as a nested expansion or a
+// command substitution in either form.
 func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 	var edits []patternEdit
 	depth := 0
@@ -262,7 +333,14 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 			i++
 		case b == ',' || b == '}':
 			if depth == 0 {
-				return nil, 0, false
+				if b == '}' || len(edits) == 0 {
+					return nil, 0, false
+				}
+				// A range's `,` ends the pattern the same way its `]`
+				// does. The expression after it is not this adapter's;
+				// masking the pattern is enough for the parser to read
+				// the `,` as the range separator it is.
+				return edits, i, true
 			}
 			if b == ',' {
 				mask(i)
@@ -306,4 +384,92 @@ func editsContain(edits []patternEdit, offset int) bool {
 		}
 	}
 	return false
+}
+
+// resolveFlagPatternCuts repairs a flagged subscript pattern the parser cut at
+// a bracket expression's `]` without raising an error at all (issue #283).
+//
+// When the byte after that premature `]` is `#` or `##`, it is a valid Zsh
+// expansion operator, so `${m[(r)a[^:]##]}` parses with the pattern `a[^:` and
+// an `Expansion` operator whose word is the rest of the subscript. No error
+// exists for an adapter to gate on, and every rule then reads a pattern and an
+// operator the source does not have.
+//
+// The recognizer is the cut itself, found on the tree the parse produced: a
+// flagged subscript whose pattern literal ends before the `]` or `,` that
+// scanFlagPatternBrackets, applying Zsh's own bracket nesting, says ends it.
+// Each cut site is masked and the file reparsed through the chain, exactly as
+// the error-gated adapter does; the retry must come back with each pattern
+// whole, or the parser's original tree stands.
+func resolveFlagPatternCuts(src []byte, name string, tree *syntax.File) *syntax.File {
+	// A flagged pattern opens at `[(` (a subscript's own flags) or at `,(`
+	// (a range endpoint's). Neither is common, so this keeps the walk off
+	// files that cannot hold one.
+	if !bytes.Contains(src, []byte("[(")) && !bytes.Contains(src, []byte(",(")) {
+		return tree
+	}
+	// Each pass repairs every cut the current tree shows. A repaired
+	// pattern can reveal a further cut that the misread tree hid, so the
+	// passes run to a fixpoint, bounded by the number of `]` in the source
+	// since every pass consumes at least one premature close.
+	limit := bytes.Count(src, []byte("]")) + 1
+	for pass := 0; pass < limit; pass++ {
+		edits := flagPatternCutEdits(src, tree)
+		if len(edits) == 0 {
+			return tree
+		}
+		masked := bytes.Clone(src)
+		for _, edit := range edits {
+			masked[edit.offset] = edit.replacement
+		}
+		retried, err := parseWithAdapters(masked, name)
+		if err != nil {
+			return tree
+		}
+		if err := restorePatternEdits(retried, src, edits); err != nil {
+			return tree
+		}
+		tree = retried
+	}
+	return tree
+}
+
+// flagPatternCutEdits returns the mask for every flagged subscript in tree
+// whose pattern literal stops before the byte that really ends it. The edits
+// are ordered by offset and hold no duplicate, since the sites are disjoint
+// spans walked in source order.
+func flagPatternCutEdits(src []byte, tree *syntax.File) []patternEdit {
+	var edits []patternEdit
+	covered := 0
+	syntax.Walk(tree, func(node syntax.Node) bool {
+		flagged, ok := node.(*syntax.FlagsArithm)
+		if !ok {
+			return true
+		}
+		word, ok := flagged.X.(*syntax.Word)
+		if !ok || len(word.Parts) != 1 {
+			return true
+		}
+		lit, ok := word.Parts[0].(*syntax.Lit)
+		if !ok {
+			return true
+		}
+		start := int(lit.ValuePos.Offset())
+		if start < covered {
+			return true
+		}
+		siteEdits, close, ok := scanFlagPatternBrackets(src, start)
+		// A pattern the scanner can bound past this literal's end is one
+		// the parser cut; anything else is already whole and must be left
+		// alone. `!ok` is redundant with the bound test, since a refusal
+		// reports close 0, but stating both keeps the two conditions
+		// independent of that.
+		if !ok || close <= int(lit.ValueEnd.Offset()) {
+			return true
+		}
+		edits = append(edits, siteEdits...)
+		covered = close
+		return true
+	})
+	return edits
 }
