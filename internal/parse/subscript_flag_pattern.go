@@ -365,18 +365,10 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 	return nil, 0, false
 }
 
-// nestedExpansionEnd returns the offset just past the `}` that closes the
-// expansion whose `{` stands at brace, counting nested braces. A newline or an
-// unbalanced brace is refused, matching the rest of the scanner's refusal to
-// guess at an extent it cannot see the end of.
-func nestedExpansionEnd(src []byte, brace int) (int, bool) {
-	return maskNestedExpansion(src, brace, func(int) {})
-}
-
-// maskNestedExpansion is nestedExpansionEnd with the mask the enclosing
-// flagged pattern needs: it reports every `[`, `]` and `,` inside the
-// expansion to mask, so the raw pattern literal the parser reads runs past
-// them to the `]` that really ends the subscript (issue #371).
+// maskNestedExpansion reports where a nested expansion inside a flagged
+// pattern ends, and masks the `[`, `]` and `,` inside it so the raw pattern
+// literal the parser reads runs past them to the `]` that really ends the
+// subscript (issue #371).
 //
 // A nested expansion is not a node of its own inside a flagged pattern.
 // mvdan/sh reads the whole pattern as one `*syntax.Lit`, so `${m[(r)${Z[a]}]}`

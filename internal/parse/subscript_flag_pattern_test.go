@@ -154,10 +154,12 @@ func TestSubscriptFlagBracketPatternLeavesUncertainPatternsAlone(t *testing.T) {
 	}
 }
 
-// nestedExpansionEnd decides where a nested expansion inside a flagged pattern
-// ends. Tested directly: an unbalanced expansion cannot reach it through
-// Parse, because the parser fails at the `$` before the retry is seeded.
-func TestNestedExpansionEnd(t *testing.T) {
+// maskNestedExpansion decides where a nested expansion inside a flagged
+// pattern ends. Tested directly: an unbalanced expansion cannot reach it
+// through Parse, because the parser fails at the `$` before the retry is
+// seeded. The mask callback is exercised by TestMaskNestedExpansion; this
+// covers the extent alone.
+func TestMaskNestedExpansionExtent(t *testing.T) {
 	tests := []struct {
 		name string
 		src  string
@@ -172,15 +174,15 @@ func TestNestedExpansionEnd(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// The `{` is at offset 1 in each source.
-			end, ok := nestedExpansionEnd([]byte(test.src), 1)
+			end, ok := maskNestedExpansion([]byte(test.src), 1, func(int) {})
 			if test.want < 0 {
 				if ok {
-					t.Errorf("nestedExpansionEnd(%q) = %d, want refused", test.src, end)
+					t.Errorf("maskNestedExpansion(%q) = %d, want refused", test.src, end)
 				}
 				return
 			}
 			if !ok || end != test.want {
-				t.Errorf("nestedExpansionEnd(%q) = %d, %v, want %d, true", test.src, end, ok, test.want)
+				t.Errorf("maskNestedExpansion(%q) = %d, %v, want %d, true", test.src, end, ok, test.want)
 			}
 		})
 	}
