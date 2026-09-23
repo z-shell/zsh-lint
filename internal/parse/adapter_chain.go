@@ -62,6 +62,7 @@ func adapterChain() []adapterAttempt {
 		parseSelectParenList,
 		parseArithForSublist,
 		parseMathFunctionCall,
+		parseNestedArithmetic,
 		parseRedundantSeparator,
 		parseDanglingAndOr,
 	}
