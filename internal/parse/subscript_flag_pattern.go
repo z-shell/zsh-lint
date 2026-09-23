@@ -91,12 +91,12 @@ func flagPatternBeforePrematureClose(src []byte, seed int) (int, bool) {
 		if src[i] == '\n' || src[i] == ']' {
 			return 0, false
 		}
-		if src[i] == '(' && src[i-1] == '[' {
+		if src[i] == '(' && isFlagGroupOpener(src, i) {
 			open = i - 1
 			break
 		}
 	}
-	if open < 1 || !isIdentByte(src[open-1]) {
+	if open < 1 {
 		return 0, false
 	}
 	patternStart, ok := flagPatternStart(src, open)
@@ -104,6 +104,65 @@ func flagPatternBeforePrematureClose(src []byte, seed int) (int, bool) {
 		return 0, false
 	}
 	return patternStart, true
+}
+
+// isFlagGroupOpener reports whether the `(` at paren opens a subscript's
+// `(flags)` group. A flagged pattern stands in two places: at the start of a
+// subscript, `name[(i)pat]`, and after a range's `,`, `${a[1,(i)pat]}`
+// (zshparam, Subscript Flags, where a range endpoint is itself a subscript
+// expression and may carry flags).
+//
+// The range form is also the shape the second-subscript adapter's mask
+// produces, since it rewrites the `][` boundary as `, `. Accepting it here is
+// what lets the two adapters compose on `${a[b][(i)[x]]}` (issue #250), and it
+// is not a concession to that mask: the form fails identically without any
+// second subscript, so this is the grammar position, not the mask, being
+// handled.
+//
+// flagPatternStart reads the flags from paren+1 either way, so both openers
+// are reported through the byte before the `(`.
+func isFlagGroupOpener(src []byte, paren int) bool {
+	if paren < 1 {
+		return false
+	}
+	// `name[(flags)`: the subscript's own opener. The byte before the `[` is
+	// a name character, or the `}` of a nested expansion the subscript
+	// applies to, `${${a[b]}[(i)pat]}`.
+	if src[paren-1] == '[' {
+		return paren >= 2 && (isIdentByte(src[paren-2]) || src[paren-2] == '}')
+	}
+	// `,(flags)` or, after the second-subscript mask, `, (flags)`.
+	i := paren - 1
+	for i > 0 && (src[i] == ' ' || src[i] == '	') {
+		i--
+	}
+	return src[i] == ',' && commaInsideSubscript(src, i)
+}
+
+// commaInsideSubscript reports whether the `,` at comma stands inside a
+// subscript, by walking back to the `[` that opens it on the same line. The
+// byte before that `[` is a name character, or the `}` of a nested expansion
+// the subscript applies to, matching the opener test above.
+//
+// Without this an arithmetic comma followed by a parenthesized operand,
+// `$(( a, (b) ))`, would answer the opener test on position alone.
+func commaInsideSubscript(src []byte, comma int) bool {
+	depth := 0
+	for i := comma - 1; i > 0; i-- {
+		switch src[i] {
+		case '\n':
+			return false
+		case ']':
+			depth++
+		case '[':
+			if depth > 0 {
+				depth--
+				continue
+			}
+			return isIdentByte(src[i-1]) || src[i-1] == '}'
+		}
+	}
+	return false
 }
 
 // flagPatternAfterAssignName locates the flagged subscript of the assignment
@@ -174,8 +233,19 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 			i += 2
 		case b == '\n':
 			return nil, 0, false
-		case b == '`', b == '$' && i+1 < len(src) && (src[i+1] == '{' || src[i+1] == '('):
+		case b == '`', b == '$' && i+1 < len(src) && src[i+1] == '(':
 			return nil, 0, false
+		case b == '$' && i+1 < len(src) && src[i+1] == '{':
+			// A nested expansion is skipped whole, unmasked: the parser
+			// reads it as its own node inside the pattern word, and its
+			// brackets belong to it rather than to this subscript. Its
+			// extent is decided by brace nesting, so an unbalanced one is
+			// refused like any other shape this scanner cannot bound.
+			end, ok := nestedExpansionEnd(src, i+1)
+			if !ok {
+				return nil, 0, false
+			}
+			i = end
 		case b == '[':
 			depth++
 			mask(i)
@@ -203,6 +273,30 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 		}
 	}
 	return nil, 0, false
+}
+
+// nestedExpansionEnd returns the offset just past the `}` that closes the
+// expansion whose `{` stands at brace, counting nested braces. A newline or an
+// unbalanced brace is refused, matching the rest of the scanner's refusal to
+// guess at an extent it cannot see the end of.
+func nestedExpansionEnd(src []byte, brace int) (int, bool) {
+	depth := 0
+	for i := brace; i < len(src); i++ {
+		switch src[i] {
+		case '\\':
+			i++
+		case '\n':
+			return 0, false
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i + 1, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func editsContain(edits []patternEdit, offset int) bool {
