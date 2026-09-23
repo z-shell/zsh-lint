@@ -18,6 +18,14 @@ const (
 	// operand as "`-` must be followed by an expression".
 	invalidSubscriptLeftOperand  = " must follow an expression"
 	invalidSubscriptRightOperand = " must be followed by an expression"
+	// A doubled sign in a key, `g[${o}--$s]`, is read as a decrement or
+	// increment. mvdan/sh reports the postfix form applied to something
+	// that is not a name as "`--` must follow a name" and the prefix form
+	// applied to an expansion as "`--` must be followed by a literal"
+	// (issue #362). Both name the operator, so the gate can check that the
+	// reported bytes are that operator inside the key.
+	invalidSubscriptPostfixOperand = " must follow a name"
+	invalidSubscriptPrefixOperand  = " must be followed by a literal"
 )
 
 // associativeKeyMask replaces every masked key byte. mvdan/sh keeps `#`
@@ -76,8 +84,34 @@ func isSubscriptParseError(text string) bool {
 		strings.HasPrefix(text, invalidSubscriptArithmetic) {
 		return true
 	}
-	_, ok := subscriptOperatorError(text)
+	if _, ok := subscriptOperatorError(text); ok {
+		return true
+	}
+	_, ok := subscriptDoubledSignError(text)
 	return ok
+}
+
+// subscriptDoubledSignError returns the sign byte of the `--` or `++` that
+// mvdan/sh reported as a decrement or increment with no name to apply to.
+func subscriptDoubledSignError(text string) (byte, bool) {
+	for _, op := range []string{"`--`", "`++`"} {
+		suffix, ok := strings.CutPrefix(text, op)
+		if ok && (suffix == invalidSubscriptPostfixOperand || suffix == invalidSubscriptPrefixOperand) {
+			return op[1], true
+		}
+	}
+	return 0, false
+}
+
+// isDoubledSignAt reports whether the two bytes at offset are one doubled
+// sign, `--` or `++`, both masked as key punctuation.
+func isDoubledSignAt(src []byte, key associativeKey, offset int) bool {
+	if offset < 0 || offset+1 >= len(src) {
+		return false
+	}
+	sign := src[offset]
+	return (sign == '-' || sign == '+') && src[offset+1] == sign &&
+		slices.Contains(key.punctuation, offset) && slices.Contains(key.punctuation, offset+1)
 }
 
 // subscriptOperatorError returns the single punctuation byte that mvdan/sh
@@ -99,10 +133,11 @@ func subscriptOperatorError(text string) (byte, bool) {
 
 // isBareKeyPunctuation reports the punctuation the retry masks inside a bare
 // associative key. The set stays narrow so arithmetic subscripts on ordinary
-// arrays keep their operators.
+// arrays keep their operators; masking only ever happens after an error the
+// gate ties to this key, so a subscript that parses keeps every operator.
 func isBareKeyPunctuation(b byte) bool {
 	switch b {
-	case '.', '-', ':', '@', '<', '>', '/':
+	case '.', '-', '+', ':', '@', '<', '>', '/':
 		return true
 	}
 	return false
@@ -182,10 +217,25 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (associative
 			return associativeKey{}, false
 		}
 	case strings.HasPrefix(errorText, invalidSubscriptArithmetic):
-		if first != '@' || key.close-key.open <= 2 {
+		// `g[@x]`, or an operand straight after a postfix doubled sign,
+		// `g[a--b]`: the decrement took `a`, and `b` has no operator.
+		atKey := first == '@' && key.close-key.open > 2
+		if !atKey && !isDoubledSignAt(src, key, seed-2) {
 			return associativeKey{}, false
 		}
 	default:
+		if sign, ok := subscriptDoubledSignError(errorText); ok {
+			// The lexer read a doubled-sign token at seed, and the walk
+			// back and the scan leave seed at depth 0 inside the key, so
+			// src[seed] == sign and isDoubledSignAt both hold whenever the
+			// key is recognized: dropping either check changed no verdict
+			// over every key of up to four bytes from the key alphabet.
+			// They stay as the statement of what the retry relies on.
+			if src[seed] != sign || !isDoubledSignAt(src, key, seed) {
+				return associativeKey{}, false
+			}
+			break
+		}
 		op, ok := subscriptOperatorError(errorText)
 		if !ok || src[seed] != op || !slices.Contains(key.punctuation, seed) {
 			return associativeKey{}, false
