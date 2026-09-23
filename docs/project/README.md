@@ -22,6 +22,7 @@ Change them in the same PR as the behavior they describe.
 Point-in-time survey runs and decisions.
 They are history, not policy; read the newest first and do not update older ones.
 
+- [2026-09-23 anonymous-function closer retry cost](2026-09-23-anonymous-closer-retry-cost.md)
 - [2026-09-21 parser survey](2026-09-21-survey.md)
 - [2026-09-16 organization discovery survey](2026-09-16-survey.md)
 - [2026-08-28 organization discovery survey](2026-08-28-discovery-survey.md)
