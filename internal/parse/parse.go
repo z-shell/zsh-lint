@@ -125,6 +125,9 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := resolveNestedArithmetic(src, name, tree); err != nil {
+		return nil, err
+	}
 	if err := validateConditionalPatterns(src, name); err != nil {
 		return nil, err
 	}
