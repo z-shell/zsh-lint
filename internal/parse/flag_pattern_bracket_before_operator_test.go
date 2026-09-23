@@ -480,3 +480,43 @@ func TestFlagPatternLanguageErrorGateStaysNarrow(t *testing.T) {
 		})
 	}
 }
+
+// A range whose two endpoints each hold a cut pattern: `${m[(i)[a]#,(i)[b]#]}`.
+// Repairing one endpoint changes how the parser reads the other, so the
+// resolver needs several passes, and each pass must keep the bytes earlier
+// passes masked. Masking only the sites a pass sees unmasked the earlier
+// repair, which brought its cut back, and the loop alternated between two
+// trees until a bound that grew with every `]` in the file: one such line
+// ahead of 400 unrelated subscripts took 0.2s, against 0.004s on main, and
+// the cost was quadratic in the file.
+func TestFlagPatternCutRangeOfTwoPatterns(t *testing.T) {
+	const line = "print ${m[(i)[a]#,(i)[b]#]}\n"
+	file, err := Parse(strings.NewReader(line), "range.zsh")
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	var patterns []string
+	syntax.Walk(file.AST(), func(node syntax.Node) bool {
+		if flagged, ok := node.(*syntax.FlagsArithm); ok {
+			patterns = append(patterns, wordSource(line, flagged.X))
+		}
+		return true
+	})
+	if want := []string{"[a]#", "[b]#"}; strings.Join(patterns, " ") != strings.Join(want, " ") {
+		t.Fatalf("patterns = %q, want %q", patterns, want)
+	}
+
+	// The pass count is a property of the cut sites, not of the file.
+	passes := func(src string) int64 {
+		before := flagPatternCutPasses.Load()
+		if _, err := Parse(strings.NewReader(src), "range.zsh"); err != nil {
+			t.Fatalf("Parse() error: %v", err)
+		}
+		return flagPatternCutPasses.Load() - before
+	}
+	small := passes(line)
+	large := passes(line + strings.Repeat("x[1]=y\n", 2000))
+	if small != large {
+		t.Errorf("passes = %d alone, %d with 2000 unrelated subscripts after it; want equal", small, large)
+	}
+}

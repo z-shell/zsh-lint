@@ -3,10 +3,17 @@ package parse
 import (
 	"bytes"
 	"errors"
+	"sort"
 	"strings"
+	"sync/atomic"
 
 	"mvdan.cc/sh/v3/syntax"
 )
+
+// flagPatternCutPasses counts resolveFlagPatternCuts's passes, so a test can
+// pin that the pass count depends on the cut sites, not on the file's size.
+// Parse is a library entry point, so the counter is atomic.
+var flagPatternCutPasses atomic.Int64
 
 const (
 	// mvdan/sh ends a flagged subscript pattern at the first `]`, so the
@@ -410,28 +417,50 @@ func resolveFlagPatternCuts(src []byte, name string, tree *syntax.File) *syntax.
 	}
 	// Each pass repairs every cut the current tree shows. A repaired
 	// pattern can reveal a further cut that the misread tree hid, so the
-	// passes run to a fixpoint, bounded by the number of `]` in the source
-	// since every pass consumes at least one premature close.
-	limit := bytes.Count(src, []byte("]")) + 1
-	for pass := 0; pass < limit; pass++ {
-		edits := flagPatternCutEdits(src, tree)
-		if len(edits) == 0 {
+	// passes run to a fixpoint.
+	//
+	// The mask is cumulative: a pass keeps every byte earlier passes
+	// masked and adds the new sites. Masking each pass's sites against the
+	// original bytes alone would unmask the earlier repairs, bring their
+	// cuts back, and oscillate. The loop stops as soon as a pass adds no
+	// new byte, so it runs at most once per distinct masked byte, never
+	// per `]` in the file; a shape that never converges costs a few
+	// reparses, not a count that grows with the file.
+	var mask []patternEdit
+	for {
+		flagPatternCutPasses.Add(1)
+		grown := mergePatternEdits(mask, flagPatternCutEdits(src, tree))
+		if len(grown) == len(mask) {
 			return tree
 		}
+		mask = grown
 		masked := bytes.Clone(src)
-		for _, edit := range edits {
+		for _, edit := range mask {
 			masked[edit.offset] = edit.replacement
 		}
 		retried, err := parseWithAdapters(masked, name)
 		if err != nil {
 			return tree
 		}
-		if err := restorePatternEdits(retried, src, edits); err != nil {
+		if err := restorePatternEdits(retried, src, mask); err != nil {
 			return tree
 		}
 		tree = retried
 	}
-	return tree
+}
+
+// mergePatternEdits returns the edits in base plus every edit in add whose
+// offset base does not already hold, sorted by offset. The result never holds
+// two edits at one offset, which restorePatternEdits refuses.
+func mergePatternEdits(base, add []patternEdit) []patternEdit {
+	merged := append([]patternEdit(nil), base...)
+	for _, edit := range add {
+		if !editsContain(merged, edit.offset) {
+			merged = append(merged, edit)
+		}
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].offset < merged[j].offset })
+	return merged
 }
 
 // flagPatternCutEdits returns the mask for every flagged subscript in tree
