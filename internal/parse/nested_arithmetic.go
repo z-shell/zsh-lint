@@ -10,21 +10,27 @@ import (
 )
 
 // An arithmetic expansion used as a nested parameter, `${$(( expr ))}` or
-// `${(l:5:)$(( expr ))}` (zshexpn, Parameter Expansion: "the name may be
-// replaced by a nested parameter expansion or a command substitution"), is
-// misread by mvdan/sh (LangZsh, v3.14.1). Its nestedParameterStart peeks
-// one byte past the `$` and takes `$(` as a command substitution without
-// checking for `$((`, so the body is parsed as a subshell command:
+// `${(l:5:)$(( expr ))}`, is misread by mvdan/sh (LangZsh, v3.14.1).
+// zshexpn (Parameter Expansion) allows "a ${...} type parameter expression
+// or a $(...) type command substitution" in place of the name; it does not
+// name `$((`, but Zsh's lexer reads `$((` as arithmetic before that rule
+// applies, and the result is used as the name's value (`${$(( 2*3 ))}`
+// prints 6). mvdan/sh's nestedParameterStart peeks one byte past the `$`
+// and takes `$(` as a command substitution without checking for `$((`, so
+// the body is parsed as a subshell command:
 //
 //   - `${$(( a[1] ))}` fails, because `a[1]` at the start of a command is an
 //     assignment target (`` `a[b]` must be followed by `=` ``);
 //   - `${$(( x > 3 ))}` parses, silently, as a subshell redirecting `x` to a
 //     file named `3`, and every rule then sees the wrong tree.
 //
-// Native Zsh decides lexically (lex.c, cmd_or_math): after `$((` it reads to
-// the first unbalanced `)`, and the construct is arithmetic exactly when the
-// next byte is `)` too. `${$((echo a) )}` and `${$((echo a); (echo b))}` are
-// therefore command substitutions and keep that reading.
+// Native Zsh decides lexically (Src/lex.c, cmd_or_math): after `$((` it
+// reads to the first unbalanced `)`, and the construct is arithmetic exactly
+// when the next byte is `)` too. `${$((echo a) )}` and
+// `${$((echo a); (echo b))}` are therefore command substitutions and keep
+// that reading. cmd_or_math reads with double-quote rules, so it sees
+// through a quote this file's scanner declines on; declining keeps the
+// parser's reading, the conservative direction.
 //
 // Two pieces cover the two outcomes. resolveNestedArithmetic runs in Parse
 // after the chain has produced a tree: every nested command substitution
