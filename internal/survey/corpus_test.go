@@ -50,6 +50,7 @@ var requiredFixtures = []string{
 	"ok-multi-name-function.zsh",
 	"ok-multi-name-loop.zsh",
 	"ok-multi-name-paren-for.zsh",
+	"ok-nested-arithmetic-expansion.zsh",
 	"ok-nested-conditional-alternation.zsh",
 	"ok-nested-param-expansion.zsh",
 	"ok-param-expansion-flags.zsh",
