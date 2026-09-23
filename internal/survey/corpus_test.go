@@ -27,6 +27,7 @@ var requiredFixtures = []string{
 	"ok-arith-for-sublist.zsh",
 	"ok-assign-always.zsh",
 	"ok-assoc-key-dot-assignment.zsh",
+	"ok-assoc-key-doubled-sign.zsh",
 	"ok-assoc-key-expansion-colon.zsh",
 	"ok-assoc-key-hyphen-punctuation.zsh",
 	"ok-assoc-key-leading-angle.zsh",
