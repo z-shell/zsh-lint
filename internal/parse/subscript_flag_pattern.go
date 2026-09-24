@@ -386,19 +386,22 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 // extent the scanner cannot decide returns the parser error rather than a
 // guess.
 //
-// Quoting is deliberately not tracked, and the count is over raw bytes.
-// Native Zsh's own rule for a quote inside a subscript is narrow, and not a
-// nesting rule: it accepts `x=${Z["a]b"]}` but rejects the same expansion in
-// command position, and accepts `${Z[${Y['a b']}]}` while rejecting
-// `${Z[${Y["a b"]}]}`. A byte count cannot reproduce that, and the front end
-// does not reproduce it anywhere else either — `${m[${Z["a b"]}]}`, which has
-// no flagged pattern and never reaches this scanner, is accepted on main
-// although Zsh rejects it (tracked separately).
+// Quoting is deliberately not tracked, so a quote inside the nested expansion
+// refuses it. That is not fastidiousness: a byte count and a quote are not
+// composable. A quoted bracket still moves the count, so a quoted `[` can
+// rebalance an unquoted stray `]` and hand the parser
+// `${m[(r)${Z[a]]"["}]}` — `bad substitution` natively — as a balanced
+// expansion. Tracking quotes properly would mean reproducing native Zsh's own
+// rule for a quote inside a subscript, which is position-dependent and
+// asymmetric between quote kinds: `x=${Z["a]b"]}` is valid while the same
+// expansion in command position is not, and `${Z[${Y['a b']}]}` is valid while
+// `${Z[${Y["a b"]}]}` is not. Refusing is the honest answer until something
+// implements that rule; every refused row keeps the verdict it has on main
+// rather than gaining one.
 //
-// So the count takes the conservative side within this scanner's reach: a
-// quoted bracket that does not balance refuses. `${m[(r)${Z["a]b"]}]}` is
-// valid Zsh and is refused by that rule, which keeps the verdict it has on
-// main rather than gaining one; it is pinned as a known limit in the tests.
+// The front end's wider divergence on that quoted family is separate and
+// pre-existing: `${m[${Z["a b"]}]}` has no flagged pattern, never reaches this
+// scanner, and is accepted on main although Zsh rejects it (tracked in #374).
 func maskNestedExpansion(src []byte, brace int, mask func(int)) (int, bool) {
 	var masked []int
 	depth := 0
@@ -406,8 +409,26 @@ func maskNestedExpansion(src []byte, brace int, mask func(int)) (int, bool) {
 	for i := brace; i < len(src); i++ {
 		switch src[i] {
 		case '\\':
+			// The same masking the outer scan does at its own `\[` and
+			// `\]`: mvdan/sh cuts a raw pattern at the bracket even when
+			// it is escaped. The escape means the byte is not a subscript
+			// delimiter, so it must not move the balance count either.
+			//
+			// The end-of-source arm mirrors the outer scan's refusal and
+			// is defensive: a trailing backslash also runs the loop off
+			// the end, which refuses anyway, so no input distinguishes
+			// the two paths. Kept so the two scanners read alike.
+			if i+1 >= len(src) || src[i+1] == '\n' {
+				return 0, false
+			}
+			if src[i+1] == '[' || src[i+1] == ']' {
+				masked = append(masked, i+1)
+			}
 			i++
 		case '\n':
+			return 0, false
+		case '"', '\'':
+			// See the quoting note above: the count cannot survive one.
 			return 0, false
 		case '{':
 			depth++
@@ -422,13 +443,14 @@ func maskNestedExpansion(src []byte, brace int, mask func(int)) (int, bool) {
 			brackets++
 			masked = append(masked, i)
 		case ']':
-			// No stray-close guard here: a `]` before any `[` is caught
-			// by the balance check at the closing `}`, and refusing early
-			// measurably cost a verdict. `${m[(r)${Z]a[}]}` is valid Zsh
-			// (`zsh -f -n` accepts it) and an early refusal rejected it,
-			// while every invalid row it was meant to catch — `${Z]}`,
-			// `${Z[a]]}`, `${Z][a]}` — ends with a non-zero count and is
-			// refused by that check anyway.
+			// A `]` with nothing open cannot be masked away: masking hides
+			// it from the parser, so the outer subscript would close over
+			// source native Zsh rejects as `bad substitution`. Refuse on
+			// sight rather than at the closing `}`, so no later `[` can
+			// bring the count back to zero and make it look balanced.
+			if brackets == 0 {
+				return 0, false
+			}
 			brackets--
 			masked = append(masked, i)
 		case ',':

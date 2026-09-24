@@ -229,6 +229,9 @@ func TestFlagPatternSubscriptedExpansionRejectsUnbalancedBrackets(t *testing.T) 
 		{"testdata/invalid-371-extra-close-bracket.txt", "not a valid parameter expansion operator: `]`", 20},
 		{"testdata/invalid-371-extra-open-bracket.txt", "`}` can only be used to close a block", 23},
 		{"testdata/invalid-371-close-before-open.txt", "`}` can only be used to close a block", 23},
+		// A quoted `[` rebalancing an unquoted stray `]`: the reason the
+		// stray-close refusal is on sight and a quote refuses outright.
+		{"testdata/invalid-371-quoted-bracket-rebalance.txt", "not a valid parameter expansion operator: `]`", 20},
 	}
 	for _, test := range tests {
 		t.Run(test.fixture, func(t *testing.T) {
@@ -254,24 +257,31 @@ func TestFlagPatternSubscriptedExpansionRejectsUnbalancedBrackets(t *testing.T) 
 	}
 }
 
-// Counting raw bytes cannot reproduce native Zsh's rule for a quote inside a
-// subscript, which is narrow and not a nesting rule: `zsh -f -n` accepts
-// `x=${Z["a]b"]}` but rejects the same expansion in command position, and
-// accepts `${Z[${Y['a b']}]}` while rejecting `${Z[${Y["a b"]}]}`.
+// A quote inside the nested expansion refuses it, because a byte count and a
+// quote are not composable: a quoted bracket still moves the count, so a
+// quoted `[` can rebalance an unquoted stray `]` and make invalid source look
+// balanced. That was a real false accept in an earlier revision of this
+// change, found by adversarial review — `${m[(r)${Z[a]]"["}]}` is
+// `bad substitution` natively and parsed clean.
 //
-// The byte count takes the conservative side: a quoted bracket that does not
-// balance refuses. `${m[(r)${Z["a]b"]}]}` is valid Zsh and is refused by that
-// rule, so it keeps the verdict it has on main rather than gaining one, and
-// nothing regresses. This pins the limit so a later fix has a test to flip.
+// Tracking quotes properly means reproducing native Zsh's own rule for a quote
+// inside a subscript, which is position-dependent and asymmetric between quote
+// kinds: `x=${Z["a]b"]}` is valid while the same expansion in command position
+// is not, and `${Z[${Y['a b']}]}` is valid while `${Z[${Y["a b"]}]}` is not.
+// Refusing is the honest answer until something implements that rule.
 //
-// The front end's reading of that quoted family is a separate, pre-existing
-// divergence outside this scanner's reach: `${m[${Z["a b"]}]}` carries no
-// flagged pattern, never reaches this code, and is accepted on main although
-// native Zsh rejects it.
+// Every row here keeps the verdict it has on main rather than gaining one, so
+// nothing regresses; this pins the limit so a later fix has a test to flip.
+//
+// The front end's wider divergence on that quoted family is separate and
+// pre-existing: `${m[${Z["a b"]}]}` has no flagged pattern, never reaches this
+// scanner, and is accepted on main although native Zsh rejects it (#374).
 func TestFlagPatternSubscriptedExpansionQuotedBracketLimit(t *testing.T) {
 	for _, src := range []string{
 		"print ${m[(r)${Z[\"a]b\"]}]}\n",
 		"print ${m[(r)${Z['a]b']}]}\n",
+		"print ${m[(r)${Z[\"a\"]}]}\n",
+		"print ${m[(r)${Z['a']}]}\n",
 	} {
 		t.Run(strings.TrimSpace(src), func(t *testing.T) {
 			if _, err := Parse(strings.NewReader(src), "quoted-limit.zsh"); err == nil {
@@ -307,17 +317,27 @@ func TestMaskNestedExpansion(t *testing.T) {
 		{"newline inside", "${Z[a]\n}", 1, false, 0, nil},
 		// Unbalanced brackets: masking one would hide it from the parser,
 		// so the whole expansion is refused and the parser error stands.
-		// The count is checked at the closing `}`, so a `]` before any
-		// `[` is refused there rather than on sight — which keeps the
-		// valid `${Z]a[}` balanced and accepted.
+		// A `]` with nothing open refuses on sight, so no later `[` can
+		// bring the count back to zero and make it look balanced.
 		{"stray close bracket", "${Z]}", 1, false, 0, nil},
 		{"extra close bracket", "${Z[a]]}", 1, false, 0, nil},
 		{"extra open bracket", "${Z[[a]}", 1, false, 0, nil},
 		{"close before open", "${Z][a]}", 1, false, 0, nil},
-		{"close then open, balanced", "${Z]a[}", 1, true, 7, []int{3, 5}},
-		// Quoting is not tracked, so a quoted bracket counts: this is the
-		// documented conservative limit, not an accident.
-		{"unbalanced bracket in quotes", "${Z[\"a[b\"]}", 1, false, 0, nil},
+		// `zsh -n` accepts this one, but it is `bad substitution` at
+		// runtime, so refusing costs nothing real and it keeps the
+		// verdict it has on main.
+		{"close then open, count balanced", "${Z]a[}", 1, false, 0, nil},
+		// Quoting is not tracked, so a quote refuses the expansion: a
+		// quoted bracket still moves a byte count, which is how a quoted
+		// `[` could rebalance an unquoted stray `]`.
+		{"double quote", "${Z[\"a\"]}", 1, false, 0, nil},
+		{"single quote", "${Z['a']}", 1, false, 0, nil},
+		{"quoted bracket rebalancing a stray one", "${Z[a]]\"[\"}", 1, false, 0, nil},
+		// An escaped bracket is masked like the outer scan masks its own,
+		// and does not move the count: the escape means it is not a
+		// subscript delimiter.
+		{"escaped close bracket", "${Z[a\\]b]}", 1, true, 10, []int{3, 6, 8}},
+		{"escaped open bracket", "${Z[a\\[b]}", 1, true, 10, []int{3, 6, 8}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -29,3 +29,8 @@ print -r -- ${m[(r)${Z[a]}[^:]##]}
 # A range endpoint's flagged pattern, and a second subscript's.
 print -r -- ${m[1,(i)${Z[a]}]}
 print -r -- ${Z[a][(i)${Z[k]}]}
+# An escaped bracket inside the nested subscript: the escape means it is
+# not a subscript delimiter, so it is masked like the outer scan masks its
+# own and does not move the balance count.
+print -r -- ${m[(r)${Z[a\]b]}]}
+print -r -- ${m[(r)${Z[a\[b]}]}
