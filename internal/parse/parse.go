@@ -140,6 +140,9 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err := rejectCloseBraceWords(tree, name); err != nil {
 		return nil, err
 	}
+	if err := rejectFlagPatternCuts(src, tree, name); err != nil {
+		return nil, err
+	}
 	repeatLoops, err := bindRepeatLoops(tree, src, name)
 	if err != nil {
 		return nil, err
@@ -162,11 +165,27 @@ func Parse(r io.Reader, name string) (*File, error) {
 func parseFull(src []byte, name string) (*syntax.File, []AnonymousInvocation, error) {
 	tree, err := parseWithAdapters(src, name)
 	if err == nil {
-		return resolveFlagPatternCuts(src, name, tree), nil, nil
+		return resolveFlagPatternCuts(src, name, tree, parseWithAdapters), nil, nil
 	}
 	tree, invocations, err := parseAnonymousFunctionArgs(src, name, err)
 	if err != nil {
 		return nil, nil, err
 	}
-	return resolveFlagPatternCuts(src, name, tree), invocations, nil
+	// The cut repair reparses the masked file, so it needs the reading path
+	// that produced this tree. The anonymous-invocation words are what let
+	// this file parse at all, and the bare chain cannot read them, so a
+	// chain-only retry would fail on them and leave every cut unrepaired.
+	return resolveFlagPatternCuts(src, name, tree, parseIncludingAnonymousArgs), invocations, nil
+}
+
+// parseIncludingAnonymousArgs is parseFull's reading path without the cut
+// repair: the chain, then the anonymous-invocation fallback. It is what a
+// repair retry must use on a file that needed that fallback to parse.
+func parseIncludingAnonymousArgs(src []byte, name string) (*syntax.File, error) {
+	tree, err := parseWithAdapters(src, name)
+	if err == nil {
+		return tree, nil
+	}
+	tree, _, err = parseAnonymousFunctionArgs(src, name, err)
+	return tree, err
 }

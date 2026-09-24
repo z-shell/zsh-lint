@@ -797,7 +797,20 @@ func maskBackquotedSubstitution(src []byte, start int, mask func(int)) (int, boo
 // Each cut site is masked and the file reparsed through the chain, exactly as
 // the error-gated adapter does; the retry must come back with each pattern
 // whole, or the parser's original tree stands.
-func resolveFlagPatternCuts(src []byte, name string, tree *syntax.File) *syntax.File {
+//
+// reparse is the reading path the retry uses. It must be the same path that
+// produced tree, or the retry fails on a construct the original parse had
+// already read and the repair silently does not happen: a file holding an
+// anonymous function invocation parses only through parseAnonymousFunctionArgs,
+// so with the bare chain as the retry every cut in such a file went unrepaired
+// (found while fixing #382). The island path inside that fallback passes the
+// bare chain deliberately, which is what bounds the recursion.
+func resolveFlagPatternCuts(
+	src []byte,
+	name string,
+	tree *syntax.File,
+	reparse func([]byte, string) (*syntax.File, error),
+) *syntax.File {
 	// A flagged pattern opens at `[(` (a subscript's own flags) or at `,(`
 	// (a range endpoint's). Neither is common, so this keeps the walk off
 	// files that cannot hold one.
@@ -827,7 +840,7 @@ func resolveFlagPatternCuts(src []byte, name string, tree *syntax.File) *syntax.
 		for _, edit := range mask {
 			masked[edit.offset] = edit.replacement
 		}
-		retried, err := parseWithAdapters(masked, name)
+		retried, err := reparse(masked, name)
 		if err != nil {
 			return tree
 		}

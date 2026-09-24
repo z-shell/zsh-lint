@@ -384,7 +384,18 @@ func parseAnonymousInvocationWords(src []byte, name string, close, end int) ([]*
 	// pattern cut here instead, against the island: its bytes in
 	// [close+1,end) are the original ones at their original offsets, which
 	// is all the scanner reads.
-	tree = resolveFlagPatternCuts(island, name, tree)
+	//
+	// The retry is the bare chain, not parseFull's path: the island parsed
+	// through the chain alone, so that is the path that produced this tree,
+	// and it is also what stops this fallback from re-entering itself.
+	//
+	// Passing the full path instead survives mutation, measured: the island
+	// holds one anonymous invocation's own word list, and an invocation
+	// nested inside another is not parseable by either path (`() { ... } $(()
+	// { ... } y)` fails the chain and the fallback alike), so no input makes
+	// the island need the fallback. The bare chain is kept as the bound: it
+	// makes the non-recursion structural rather than incidental.
+	tree = resolveFlagPatternCuts(island, name, tree, parseWithAdapters)
 	for _, stmt := range tree.Stmts {
 		call, ok := stmt.Cmd.(*syntax.CallExpr)
 		if !ok || len(call.Args) < 2 || getParseWordLiteral(call.Args[0]) != ":" {
