@@ -389,6 +389,7 @@ func isFlagLetter(b byte) bool {
 func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 	var edits []patternEdit
 	depth := 0
+	parens := 0
 	mask := func(offset int) {
 		edits = append(edits, patternEdit{offset: offset, original: src[offset], replacement: '_'})
 	}
@@ -406,7 +407,31 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 		case b == '\n':
 			return nil, 0, false
 		case b == '`', b == '$' && i+1 < len(src) && src[i+1] == '(':
-			return nil, 0, false
+			// A command substitution, in either form, and an arithmetic
+			// expansion, which is `$(` with a nested `(` (issue #379).
+			// Its `,` is masked like any other byte inside the pattern;
+			// its extent is decided by the delimiter, and a shape the
+			// helper cannot decide keeps the parser error.
+			end, ok := maskPatternSubstitution(src, i, mask)
+			if !ok {
+				return nil, 0, false
+			}
+			i = end
+			// The parenthesis count is deliberately NOT reset here. A
+			// group may open before a substitution and close after it,
+			// as in `${m[(i)(a|b$(echo x))]}`, which Zsh accepts, so
+			// discarding the count would lose a legitimately open group.
+			// The substitution's own parentheses are already balanced by
+			// maskPatternSubstitution, so they cannot affect this count.
+		case b == '(':
+			parens++
+			i++
+		case b == ')':
+			if parens == 0 {
+				return nil, 0, false
+			}
+			parens--
+			i++
 		case b == '$' && i+1 < len(src) && src[i+1] == '{':
 			// A nested expansion's extent is decided by brace nesting, so
 			// an unbalanced one is refused like any other shape this
@@ -572,6 +597,189 @@ func editsContain(edits []patternEdit, offset int) bool {
 		}
 	}
 	return false
+}
+
+// maskPatternSubstitution reports where a command substitution, in either the
+// `$(...)` or the backquoted form, or an arithmetic expansion `$((...))` inside
+// a flagged subscript pattern ends, and masks the `,` inside it so the raw
+// pattern literal the parser reads runs past it to the byte that really ends
+// the subscript (issue #379).
+//
+// mvdan/sh reads the whole flagged pattern as one `*syntax.Lit` and already
+// keeps a substitution's own bytes inside that literal: `${m[(i)ab$(echo x)]}`
+// parses on main. What it does not do is reach past the `]` of a bracket
+// expression, so `${m[(i)a[bc]$(echo x)]}` was cut at that `]` and the `$` after
+// it read as a parameter-expansion operator. Stepping over the substitution is
+// the whole repair: the masked bytes are restored from that same literal by
+// restorePatternEdits, and holdsFlagPattern verifies the retry produced the
+// pattern as one literal spanning the pattern exactly.
+//
+// Only the `,` is masked. Zsh reads a `,` inside the substitution as the
+// substitution's own byte, while mvdan/sh splits a subscript index at any `,`
+// it sees in the literal, so `${m[(i)a[bc]$(echo a,b)]}` would otherwise become
+// a range the source does not have.
+//
+// Every other punctuation byte refuses the pattern, because native Zsh's
+// reading of it inside a substitution inside a subscript is not what the
+// containing constructs suggest, and reproducing it here is not decidable.
+// Measured with `zsh -f -n` on `${m[(i)a[bc]$(echo X)]}` and its backquoted
+// twin:
+//
+//   - A bracket is counted as a subscript delimiter regardless of the
+//     substitution and regardless of quoting: `$(echo [)` and `$(echo "]")`
+//     are both `bad substitution`, while `$(echo "[]")` is valid because the
+//     pair balances and `$(echo a]b[c)` is valid although its first `]` closes
+//     a bracket opened after it. Masking a bracket would hide it from our own
+//     count as well as the parser's, so a row Zsh rejects would be accepted.
+//   - A parenthesis is counted the same way and is likewise not quote-exempt:
+//     `$(echo ")")` and `$(echo "(")` are `bad substitution`, so the quoted
+//     `)` really does close the substitution. A byte count and a quote are not
+//     composable (the #371 lesson), so any quote refuses rather than being
+//     counted through; that in turn is why an unquoted parenthesis may be
+//     counted for the extent below.
+//   - A brace is quote-sensitive, unlike the two above: `$(echo })` is a parse
+//     error where `$(echo "}")` is valid, since the unquoted `}` closes the
+//     enclosing `${`. Deciding that needs the quote tracking this helper
+//     declines to do, so either brace refuses.
+//   - A `#` would comment out the rest of the line including the delimiter
+//     (`$(echo x # )` is a native parse error), and the adapter contract
+//     forbids masking a byte a `*syntax.Comment` would hold.
+//   - A newline refuses, matching the outer scan, which bounds a pattern to one
+//     line.
+//
+// Every refused row keeps the verdict it has on main rather than gaining one,
+// which is the bar: valid Zsh that stays rejected is a documented remaining
+// gap, an acceptance Zsh does not give is a defect.
+func maskPatternSubstitution(src []byte, start int, mask func(int)) (int, bool) {
+	if src[start] == '`' {
+		return maskBackquotedSubstitution(src, start, mask)
+	}
+	// `$(`, which is also the arithmetic expansion `$((`. Both end at the
+	// `)` that balances the nesting opened here, so one counter serves.
+	depth := 0
+	var masked []int
+	for i := start + 1; i < len(src); i++ {
+		switch src[i] {
+		case '[', ']', '{', '}', '"', '\'', '#', '\n', '\\', '`':
+			// See the refusals above. A backslash refuses with them:
+			// an escaped delimiter is not a delimiter, so counting it
+			// would be wrong and skipping it would hide a `]` the
+			// outer scan needs. A nested backquoted substitution
+			// refuses because its body is read by backquote rules,
+			// under which the `)` that ends this one cannot be found.
+			return 0, false
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				// The bytes between the opener and here stay inside
+				// the raw pattern literal, so nothing downstream
+				// ever reads them as the commands they are. Parse
+				// the body on its own or the repair accepts a
+				// substitution Zsh rejects: `$(done)`, `$(| echo a)`
+				// and `$(echo ())` are each a native error, and
+				// stepping over them silently turned all three into
+				// accepted source.
+				if !substitutionBodyParses(src[start+2 : i]) {
+					return 0, false
+				}
+				for _, offset := range masked {
+					mask(offset)
+				}
+				return i + 1, true
+			}
+		case ',':
+			masked = append(masked, i)
+		}
+	}
+	return 0, false
+}
+
+// substitutionBodyParses reports whether a command substitution's body is a
+// command list the front end can read on its own.
+//
+// scanFlagPatternBrackets keeps a substitution's bytes inside the flagged
+// pattern's raw literal, which is what lets the pattern parse at all, so the
+// body is never offered to the parser as the code it is. Without this check the
+// repair accepts any bytes that merely balance their parentheses, including a
+// bare `done`, a leading `|`, and an empty `( )` group that Zsh reports as
+// `closing brace expected`.
+//
+// A body that fails here refuses the whole repair rather than reporting the
+// body's own error, because the pattern is the construct under repair and the
+// user's source is invalid either way: refusing keeps main's error, which names
+// the pattern, instead of inventing a position inside a substitution the
+// upstream parser never entered.
+func substitutionBodyParses(body []byte) bool {
+	if isZshIncompleteWord(bytes.TrimSpace(body)) {
+		return false
+	}
+	// An empty body needs no special case: `$()` is valid Zsh, and the parser
+	// reads empty input as an empty command list without error.
+	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh))
+	_, err := parser.Parse(bytes.NewReader(body), "substitution")
+	return err == nil
+}
+
+// zshIncompleteWords are words upstream parses as an ordinary command where Zsh
+// reports a parse error, so a body consisting of one of them alone must be
+// refused by name rather than by asking the parser.
+//
+// Measured with `zsh -f -n` on a file holding only the word, against
+// `syntax.LangZsh` on the same bytes. `else` is a reserved word that cannot open
+// a list; `nocorrect` and `repeat` are prefixes that require a following
+// command; `foreach` and `end` belong to the `foreach` loop the front end does
+// not support yet (issue #214). Words that merely look reserved are NOT here
+// because Zsh accepts them alone as ordinary commands: `in`, `fo`, `time` and
+// `coproc` all exit 0, so refusing them would reject valid source.
+var zshIncompleteWords = map[string]struct{}{
+	"else":      {},
+	"nocorrect": {},
+	"repeat":    {},
+	"foreach":   {},
+	"end":       {},
+}
+
+// isZshIncompleteWord reports whether the body is exactly one of the words Zsh
+// rejects standalone but upstream accepts.
+func isZshIncompleteWord(body []byte) bool {
+	_, ok := zshIncompleteWords[string(body)]
+	return ok
+}
+
+// maskBackquotedSubstitution is maskPatternSubstitution's arm for the
+// backquoted form, whose extent is the next unescaped backquote rather than a
+// balance count.
+//
+// Its refusals are the `$(` arm's plus the parenthesis, which the backquoted
+// form does not get to treat as ordinary text either: a body of `echo )` or
+// `echo (` is `bad substitution` natively, so Zsh counts a parenthesis here as
+// well, and a body of `echo a]b[c` is rejected where the `$(` spelling of the
+// same body is valid. Rather than model that asymmetry, this arm accepts a
+// body of ordinary bytes and refuses every delimiter, which is enough for the
+// reported shape (a backquoted `echo x` after a bracket expression) and keeps
+// everything else at main's verdict.
+func maskBackquotedSubstitution(src []byte, start int, mask func(int)) (int, bool) {
+	var masked []int
+	for i := start + 1; i < len(src); i++ {
+		switch src[i] {
+		case '[', ']', '{', '}', '(', ')', '"', '\'', '#', '\n', '\\', '$':
+			// `$` refuses with them: a nested `$(` or `${` inside the
+			// backquotes reintroduces a delimiter this arm does not
+			// count, and a bare `$name` is refused with it rather
+			// than distinguishing the spellings.
+			return 0, false
+		case ',':
+			masked = append(masked, i)
+		case '`':
+			for _, offset := range masked {
+				mask(offset)
+			}
+			return i + 1, true
+		}
+	}
+	return 0, false
 }
 
 // resolveFlagPatternCuts repairs a flagged subscript pattern the parser cut at

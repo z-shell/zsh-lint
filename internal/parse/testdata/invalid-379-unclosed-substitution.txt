@@ -1,0 +1,1 @@
+print ${m[(i)a[bc]$(echo x]}

@@ -1,0 +1,2 @@
+local -a m=( a1 abx abc )
+print ${m[(i)a[bc]$(case x in y) ;; esac)]}
