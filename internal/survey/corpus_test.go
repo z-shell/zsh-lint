@@ -48,6 +48,7 @@ var requiredFixtures = []string{
 	"ok-glob-patterns.zsh",
 	"ok-grouped-case-pattern.zsh",
 	"ok-if-short-form.zsh",
+	"ok-length-operator.zsh",
 	"ok-loop-short-form.zsh",
 	"ok-math-function-call-ternary.zsh",
 	"ok-math-function-call.zsh",
