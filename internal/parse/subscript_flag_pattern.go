@@ -389,6 +389,7 @@ func isFlagLetter(b byte) bool {
 func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 	var edits []patternEdit
 	depth := 0
+	parens := 0
 	mask := func(offset int) {
 		edits = append(edits, patternEdit{offset: offset, original: src[offset], replacement: '_'})
 	}
@@ -416,6 +417,21 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 				return nil, 0, false
 			}
 			i = end
+			// The parenthesis count is deliberately NOT reset here. A
+			// group may open before a substitution and close after it,
+			// as in `${m[(i)(a|b$(echo x))]}`, which Zsh accepts, so
+			// discarding the count would lose a legitimately open group.
+			// The substitution's own parentheses are already balanced by
+			// maskPatternSubstitution, so they cannot affect this count.
+		case b == '(':
+			parens++
+			i++
+		case b == ')':
+			if parens == 0 {
+				return nil, 0, false
+			}
+			parens--
+			i++
 		case b == '$' && i+1 < len(src) && src[i+1] == '{':
 			// A nested expansion's extent is decided by brace nesting, so
 			// an unbalanced one is refused like any other shape this
@@ -657,6 +673,17 @@ func maskPatternSubstitution(src []byte, start int, mask func(int)) (int, bool) 
 		case ')':
 			depth--
 			if depth == 0 {
+				// The bytes between the opener and here stay inside
+				// the raw pattern literal, so nothing downstream
+				// ever reads them as the commands they are. Parse
+				// the body on its own or the repair accepts a
+				// substitution Zsh rejects: `$(done)`, `$(| echo a)`
+				// and `$(echo ())` are each a native error, and
+				// stepping over them silently turned all three into
+				// accepted source.
+				if !substitutionBodyParses(src[start+2 : i]) {
+					return 0, false
+				}
 				for _, offset := range masked {
 					mask(offset)
 				}
@@ -667,6 +694,58 @@ func maskPatternSubstitution(src []byte, start int, mask func(int)) (int, bool) 
 		}
 	}
 	return 0, false
+}
+
+// substitutionBodyParses reports whether a command substitution's body is a
+// command list the front end can read on its own.
+//
+// scanFlagPatternBrackets keeps a substitution's bytes inside the flagged
+// pattern's raw literal, which is what lets the pattern parse at all, so the
+// body is never offered to the parser as the code it is. Without this check the
+// repair accepts any bytes that merely balance their parentheses, including a
+// bare `done`, a leading `|`, and an empty `( )` group that Zsh reports as
+// `closing brace expected`.
+//
+// A body that fails here refuses the whole repair rather than reporting the
+// body's own error, because the pattern is the construct under repair and the
+// user's source is invalid either way: refusing keeps main's error, which names
+// the pattern, instead of inventing a position inside a substitution the
+// upstream parser never entered.
+func substitutionBodyParses(body []byte) bool {
+	if isZshIncompleteWord(bytes.TrimSpace(body)) {
+		return false
+	}
+	// An empty body needs no special case: `$()` is valid Zsh, and the parser
+	// reads empty input as an empty command list without error.
+	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh))
+	_, err := parser.Parse(bytes.NewReader(body), "substitution")
+	return err == nil
+}
+
+// zshIncompleteWords are words upstream parses as an ordinary command where Zsh
+// reports a parse error, so a body consisting of one of them alone must be
+// refused by name rather than by asking the parser.
+//
+// Measured with `zsh -f -n` on a file holding only the word, against
+// `syntax.LangZsh` on the same bytes. `else` is a reserved word that cannot open
+// a list; `nocorrect` and `repeat` are prefixes that require a following
+// command; `foreach` and `end` belong to the `foreach` loop the front end does
+// not support yet (issue #214). Words that merely look reserved are NOT here
+// because Zsh accepts them alone as ordinary commands: `in`, `fo`, `time` and
+// `coproc` all exit 0, so refusing them would reject valid source.
+var zshIncompleteWords = map[string]struct{}{
+	"else":      {},
+	"nocorrect": {},
+	"repeat":    {},
+	"foreach":   {},
+	"end":       {},
+}
+
+// isZshIncompleteWord reports whether the body is exactly one of the words Zsh
+// rejects standalone but upstream accepts.
+func isZshIncompleteWord(body []byte) bool {
+	_, ok := zshIncompleteWords[string(body)]
+	return ok
 }
 
 // maskBackquotedSubstitution is maskPatternSubstitution's arm for the
