@@ -52,6 +52,7 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 	var seed int
 	var patternStart int
 	var ok bool
+	positional := false
 	switch {
 	case isLangErr:
 		// `,` after the cut is bash's case-modification operator. The
@@ -89,7 +90,25 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 		// premature `]`, so there is no cut byte to match below.
 		seed = -1
 	default:
-		return nil, firstErr
+		// Outside the texts above the cut surfaces as whatever error the
+		// bytes after it produce. In arithmetic (issue #368) they are read
+		// as arithmetic: `#` is an invalid operator, `*` a missing operand,
+		// `.` runs on to a stray `)`. The same cut after a length prefix,
+		// `${#m[(i)a[bc]]}`, or before a `:`, `${m[(i)a[bc]:]}`, reports
+		// a combined-operator or ternary error. The text depends on the
+		// pattern's own bytes, so the gate is positional: the error sits
+		// after a `]` the scan masks, in a flagged pattern on the same
+		// line, and holdsFlagPattern below verifies the retry.
+		seed = int(parseErr.Pos.Offset())
+		if seed < 0 || seed > len(src) {
+			return nil, firstErr
+		}
+		patternStart, ok = flagPatternCutBeforeError(src, seed)
+		positional = true
+		// The error need not sit just past the premature `]`, so there is
+		// no single cut byte to match below; the helper already required
+		// a masked `]` before the error.
+		seed = -1
 	}
 	if !ok {
 		return nil, firstErr
@@ -97,6 +116,9 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 
 	edits, close, ok := scanFlagPatternBrackets(src, patternStart)
 	if !ok {
+		return nil, firstErr
+	}
+	if positional && !positionalPatternDecidable(src[patternStart:close]) {
 		return nil, firstErr
 	}
 	// The error must point just past a `]` this scan masked, which ties the
@@ -178,6 +200,78 @@ func flagPatternBeforePrematureClose(src []byte, seed int) (int, bool) {
 		return 0, false
 	}
 	return patternStart, true
+}
+
+// flagPatternCutBeforeError locates a flagged subscript on seed's line whose
+// pattern mvdan/sh cut at a bracket expression's `]` before seed, and returns
+// the pattern start (issue #368). It walks the flag-group openers back from
+// seed and takes the nearest whose scanned pattern masks a `]` before seed,
+// so a later whole pattern between the cut and the error does not hide it.
+func flagPatternCutBeforeError(src []byte, seed int) (int, bool) {
+	for i := min(seed, len(src)) - 1; i > 0; i-- {
+		if src[i] == '\n' {
+			return 0, false
+		}
+		if src[i] != '(' || !isFlagGroupOpener(src, i) {
+			continue
+		}
+		start, ok := flagPatternStart(src, i-1)
+		if !ok || start > seed {
+			continue
+		}
+		edits, _, ok := scanFlagPatternBrackets(src, start)
+		if !ok {
+			continue
+		}
+		for _, edit := range edits {
+			if edit.original == ']' && edit.offset < seed {
+				return start, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// positionalPatternDecidable reports whether a flagged pattern found by the
+// positional arm is one the repair can hand to the parser without changing how
+// native Zsh reads the enclosing expression (issue #368). The rules below are
+// arithmetic's, the strictest reader the arm serves; under `${#` or before a
+// `:` they refuse only rows main already rejects.
+//
+// Parentheses must balance. Zsh finds the end of `$(( ))` and `(( ))` by
+// counting parentheses, so `$(( m[(i)a[b)c]] ))` and `$(( m[(i)a[b)(c]] ))`
+// are parse errors natively, while `a[b()c]` and `(a|b)[bc]` are valid.
+// mvdan/sh reads the flagged pattern as one raw literal and never counts them,
+// so once the mask lets that literal reach the real `]` every such row would
+// be accepted. A `)` with nothing open refuses on sight, so a later `(` cannot
+// rebalance it.
+//
+// A quote or a backslash refuses outright. Native Zsh does not count a quoted
+// parenthesis, so a byte count would read `a[b(c")"]` as balanced when Zsh
+// reads an unclosed `(`; a byte count and a quote are not composable (the #371
+// lesson). A backslash changes more than the count: with `\]` inside,
+// `$(( m[(i)a\]b[x]] ))` is not arithmetic natively at all. Zsh falls back to
+// a command substitution holding a subshell and reports
+// `no matches found: m[(i)a]b[x]]` when run, and the same pattern in a
+// `for (( ))` header is a runtime parse error. Accepting it as arithmetic would
+// be a false accept with a wrong tree. Every refused row keeps the verdict it
+// has on main.
+func positionalPatternDecidable(pattern []byte) bool {
+	depth := 0
+	for _, b := range pattern {
+		switch b {
+		case '"', '\'', '\\':
+			return false
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				return false
+			}
+			depth--
+		}
+	}
+	return depth == 0
 }
 
 // isFlagGroupOpener reports whether the `(` at paren opens a subscript's
