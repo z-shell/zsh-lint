@@ -93,6 +93,13 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 	type blockFrame struct {
 		kind       blockKind
 		openOffset int
+		// listCond marks a body whose chain has a condition that
+		// continued past a connective (#376); see listConditionTailOK.
+		listCond bool
+		// chain holds the indices in edits of this body's opener and of
+		// every opener and chain edit before it in the same if chain, so
+		// the whole construct can be withdrawn.
+		chain []int
 	}
 	var blockStack []blockFrame
 
@@ -105,6 +112,28 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		ifSawWhile
 	)
 	currentIf := ifNone
+	// condAfterConnective records that the armed condition has continued
+	// past a `&&`, `||` or pipe (#376). A brace group is then an element of
+	// the condition list, and only a later delimited test can lead to the
+	// body brace.
+	condAfterConnective := false
+	// chainListCond and chainEdits carry a closed if or elif body's state
+	// to the elif or else body chained after it, since one synthetic `fi`
+	// closes the whole chain.
+	chainListCond := false
+	var chainEdits []int
+	// withdrawn marks edits of a construct the scan gave up on.
+	withdrawn := map[int]bool{}
+	pushBody := func(bk blockKind, offset int) {
+		listCond := condAfterConnective
+		var chain []int
+		if bk == kindElifThen || bk == kindElse {
+			listCond = listCond || chainListCond
+			chain = append(chain, chainEdits...)
+		}
+		chain = append(chain, len(edits)-1)
+		blockStack = append(blockStack, blockFrame{kind: bk, openOffset: offset, listCond: listCond, chain: chain})
+	}
 
 	i := 0
 	seedRecognized := false
@@ -226,6 +255,8 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		if atWordStart && atCommandStart {
 			if matchSourceWord(src, i, "if") {
 				currentIf = ifSawIf
+				condAfterConnective = false
+				chainListCond = false
 				i += 2
 				atWordStart = false
 				atCommandStart = false
@@ -233,6 +264,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			}
 			if matchSourceWord(src, i, "elif") {
 				currentIf = ifSawElif
+				condAfterConnective = false
 				i += 4
 				atWordStart = false
 				atCommandStart = false
@@ -247,6 +279,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			}
 			if matchSourceWord(src, i, "while") {
 				currentIf = ifSawWhile
+				condAfterConnective = false
 				i += 5
 				atWordStart = false
 				atCommandStart = false
@@ -255,11 +288,16 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		}
 
 		if currentIf == ifSawIf || currentIf == ifSawElif || currentIf == ifSawWhile {
+			// A `while` searches past newlines for its body brace, but not
+			// once the condition has continued past a connective: Zsh reads
+			// a brace on the next line as one more condition element there
+			// (`while false && [[ a ]]`, newline, `{ print X; break }`
+			// prints X), so a #376 shape must not claim it as the body.
 			if b == '[' && i+1 < len(src) && src[i+1] == '[' {
 				end := scanClosingDoubleBracket(src, i)
 				if end > i {
 					i = end
-					braceOffset := scanAlternateConditionBrace(src, i, currentIf == ifSawWhile)
+					braceOffset := scanAlternateConditionBrace(src, i, currentIf == ifSawWhile && !condAfterConnective)
 					if braceOffset < len(src) && src[braceOffset] == '{' {
 						if braceOffset == seedOffset {
 							seedRecognized = true
@@ -278,7 +316,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 							bk = kindIfThen
 						}
 						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
-						blockStack = append(blockStack, blockFrame{kind: bk, openOffset: braceOffset})
+						pushBody(bk, braceOffset)
 						currentIf = ifNone
 						i = braceOffset + 1
 						atWordStart = true
@@ -291,7 +329,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 				end := scanClosingDoubleParen(src, i)
 				if end > i {
 					i = end
-					braceOffset := scanAlternateConditionBrace(src, i, currentIf == ifSawWhile)
+					braceOffset := scanAlternateConditionBrace(src, i, currentIf == ifSawWhile && !condAfterConnective)
 					if braceOffset < len(src) && src[braceOffset] == '{' {
 						if braceOffset == seedOffset {
 							seedRecognized = true
@@ -310,7 +348,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 							bk = kindIfThen
 						}
 						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
-						blockStack = append(blockStack, blockFrame{kind: bk, openOffset: braceOffset})
+						pushBody(bk, braceOffset)
 						currentIf = ifNone
 						i = braceOffset + 1
 						atWordStart = true
@@ -325,10 +363,54 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 					// line starting `{ ... } always { ... }` did exactly that,
 					// masking the try block into a loop body and rejecting
 					// valid Zsh (#337).
-					currentIf = ifNone
+					//
+					// A connective after the test continues the condition
+					// list instead, so the body may still follow a later
+					// element: `if (( 1 )) && f && (( 2 )) { ... }` (#376).
+					if conditionConnectiveLen(src, skipInlineSpaces(src, i)) == 0 {
+						currentIf = ifNone
+					}
 				}
 			}
-			if b == '{' {
+			if b == '{' && condAfterConnective {
+				// A brace group after a connective is a condition element
+				// (scanAlternateConditionBrace documents the rule), so step
+				// over it with the condition still armed. The body is a
+				// brace after it on the same line, separated by a blank:
+				// `if f && { g } { body }` runs body, while Zsh rejects
+				// `if f && { g }{ body }`. Anything else, a further
+				// connective included, is scanned as more of the condition.
+				end := scanClosingBrace(src, i)
+				if end < 0 {
+					currentIf = ifNone
+				} else {
+					braceOffset := skipInlineSpaces(src, end)
+					if braceOffset > end && braceOffset < len(src) && src[braceOffset] == '{' {
+						if braceOffset == seedOffset {
+							seedRecognized = true
+						}
+						kind, bk := editIfThen, kindIfThen
+						switch currentIf {
+						case ifSawElif:
+							kind, bk = editElifThen, kindElifThen
+						case ifSawWhile:
+							kind, bk = editWhileDo, kindWhileDo
+						}
+						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
+						pushBody(bk, braceOffset)
+						currentIf = ifNone
+						i = braceOffset + 1
+						atWordStart = true
+						atCommandStart = true
+						continue
+					}
+					i = end
+					atWordStart = false
+					atCommandStart = false
+					continue
+				}
+			}
+			if b == '{' && currentIf != ifNone {
 				end := scanClosingBrace(src, i)
 				if end > i {
 					var braceOffset int
@@ -351,7 +433,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 							bk = kindIfThen
 						}
 						edits = append(edits, alternateIfEdit{offset: braceOffset, kind: kind})
-						blockStack = append(blockStack, blockFrame{kind: bk, openOffset: braceOffset})
+						pushBody(bk, braceOffset)
 						currentIf = ifNone
 						i = braceOffset + 1
 						atWordStart = true
@@ -369,7 +451,7 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 					seedRecognized = true
 				}
 				edits = append(edits, alternateIfEdit{offset: braceOffset, kind: editElse})
-				blockStack = append(blockStack, blockFrame{kind: kindElse, openOffset: braceOffset})
+				pushBody(kindElse, braceOffset)
 				currentIf = ifNone
 				i = braceOffset + 1
 				atWordStart = true
@@ -407,6 +489,23 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 				// newline, `;`, or comment the if is complete and a following
 				// else or elif belongs to an enclosing classic if.
 				nextWordOffset := skipInlineSpaces(src, i+1)
+				chains := nextWordOffset < len(src) && (matchSourceWord(src, nextWordOffset, "elif") || matchSourceWord(src, nextWordOffset, "else"))
+				// Only an if or elif body chains; `else { } else { }` is a
+				// Zsh parse error. main accepts that for the plain form, so
+				// the refusal is scoped to the new shapes.
+				chainable := chains && (top.kind == kindIfThen || top.kind == kindElifThen)
+				if top.listCond && !chainable && !listConditionTailOK(src, i+1) {
+					// Withdraw the construct rather than the whole scan, so
+					// every other alternate form in the file is still
+					// rewritten and the retry reports this one's error.
+					for _, e := range top.chain {
+						withdrawn[e] = true
+					}
+					i++
+					atWordStart = true
+					atCommandStart = true
+					continue
+				}
 				if top.kind == kindWhileDo {
 					edits = append(edits, alternateIfEdit{offset: i, kind: editDone})
 					i++
@@ -417,6 +516,8 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 				if top.kind == kindIfThen || top.kind == kindElifThen || top.kind == kindElse {
 					if nextWordOffset < len(src) && (matchSourceWord(src, nextWordOffset, "elif") || matchSourceWord(src, nextWordOffset, "else")) {
 						edits = append(edits, alternateIfEdit{offset: i, kind: editChain})
+						chainListCond = top.listCond
+						chainEdits = append(append([]int(nil), top.chain...), len(edits)-1)
 					} else {
 						edits = append(edits, alternateIfEdit{offset: i, kind: editFi})
 					}
@@ -439,12 +540,32 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 			continue
 		}
 
+		// An alternate-form condition is a list, so a pipeline or `&&`/`||`
+		// connective continues it: `if f arg && [[ -z $x ]] { ... }` has
+		// the plain command `f arg` as its head and the brace after the
+		// delimited test as its body (#376). Stay armed across the operator
+		// and treat what follows as a new command. `;`, `&` and a bare
+		// newline still end the scan's interest in the condition.
+		if currentIf == ifSawIf || currentIf == ifSawElif || currentIf == ifSawWhile {
+			if n := conditionConnectiveLen(src, i); n > 0 {
+				condAfterConnective = true
+				i += n
+				atWordStart = true
+				atCommandStart = true
+				continue
+			}
+		}
+
 		switch b {
 		case ' ', '\t', '\n':
 			atWordStart = true
 			if b == '\n' {
 				atCommandStart = true
-				currentIf = ifNone
+				// A newline directly after a connective is a continuation
+				// of the same condition list, not a separator.
+				if !endsWithConditionConnective(src, i) {
+					currentIf = ifNone
+				}
 			}
 		case ';', '&', '|':
 			atWordStart = true
@@ -457,10 +578,88 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool) 
 		i++
 	}
 
+	if len(withdrawn) > 0 {
+		kept := edits[:0:0]
+		seedRecognized = false
+		for k, e := range edits {
+			if withdrawn[k] {
+				continue
+			}
+			kept = append(kept, e)
+			if e.offset == seedOffset && e.kind != editChain && e.kind != editFi && e.kind != editDone {
+				seedRecognized = true
+			}
+		}
+		edits = kept
+	}
 	if !seedRecognized || len(edits) == 0 {
 		return nil, false
 	}
 	return edits, true
+}
+
+// conditionConnectiveLen returns the length of the pipeline or list connective
+// at i that joins two elements of one condition list (`&&`, `||`, `|&`, `|`),
+// or 0. A lone `&` is a list terminator, not a connective, so it is not one.
+func conditionConnectiveLen(src []byte, i int) int {
+	if i >= len(src) {
+		return 0
+	}
+	if i+1 < len(src) {
+		switch string(src[i : i+2]) {
+		case "&&", "||", "|&":
+			return 2
+		}
+	}
+	if src[i] == '|' {
+		return 1
+	}
+	return 0
+}
+
+// endsWithConditionConnective reports whether the bytes before the newline at
+// i, ignoring blanks, end with a connective that carries the condition list
+// onto the next line.
+func endsWithConditionConnective(src []byte, i int) bool {
+	j := i - 1
+	for j >= 0 && (src[j] == ' ' || src[j] == '\t') {
+		j--
+	}
+	if j < 0 {
+		return false
+	}
+	if src[j] == '|' {
+		return true
+	}
+	return j >= 1 && (src[j] == '&' && (src[j-1] == '&' || src[j-1] == '|'))
+}
+
+// listConditionTailOK reports whether the bytes after the `}` at i-1 that
+// closes a list-condition body (#376) may end the construct: the end of the
+// source, a newline, a `;` that is not `;;`, or a comment after a blank.
+//
+// The retry closes the body with a synthetic `fi` or `done` framed by
+// newlines, which detaches whatever follows on the same line, so main already
+// accepts tails native Zsh rejects after a brace-form closer (a word, a
+// subshell, a glued comment, and a redirect after an if; #275). The new
+// shapes refuse every other tail instead, so they never gain an acceptance.
+// Native Zsh does allow a connective, pipe, `&` or redirect after
+// `while ... { }` and after an if chain's else body; main rejects those for
+// the plain forms as well, and they stay rejected here until #275 lands.
+func listConditionTailOK(src []byte, i int) bool {
+	j := skipInlineSpaces(src, i)
+	if j >= len(src) {
+		return true
+	}
+	switch src[j] {
+	case '\n':
+		return true
+	case ';':
+		return j+1 >= len(src) || src[j+1] != ';'
+	case '#':
+		return j > i
+	}
+	return false
 }
 
 func matchSourceWord(src []byte, i int, word string) bool {
