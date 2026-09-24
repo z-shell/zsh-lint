@@ -81,6 +81,20 @@ The seven files that fail do so identically on both binaries, at the same positi
 
 Because no first error moved, this change unmasks nothing.
 
+## Cost
+
+Both arms walk the tree, so the guard is gated on the same source precheck `resolveFlagPatternCuts` uses: a flagged pattern opens at `[(` or `,(`, and a file holding neither cannot have one.
+
+Without that gate a file with no flagged pattern anywhere still paid for two fruitless walks. Measured over a generated 300-function file with no flagged pattern, 200 iterations, median of 5 runs:
+
+| Build                  | ns/op     |
+| ---------------------- | --------- |
+| guard, no precheck     | 6,320,663 |
+| precheck               | 5,218,334 |
+| guard removed entirely | 5,484,351 |
+
+The precheck returns the common case to the unguarded cost. It is behavior-neutral across all 18,192 probe rows of both sets: zero verdict changes.
+
 ## The mechanism
 
 mvdan/sh reads a flagged subscript's pattern as one raw literal and ends it at the first `]`, wherever that byte sits.
@@ -140,7 +154,7 @@ The retry path is now a parameter. `parseFull` passes the full path; the anonymo
 
 ## Mutation testing
 
-Fourteen mutations, each written to compile and to change behavior. Twelve caught:
+Seventeen mutations, each written to compile and to change behavior. Fifteen caught:
 
 | Mutation                                                 | Caught by                                                    |
 | -------------------------------------------------------- | ------------------------------------------------------------ |
@@ -154,6 +168,9 @@ Fourteen mutations, each written to compile and to change behavior. Twelve caugh
 | arm 2 never closes its depth                             | 16 tests, including `TestMinimizedCorpus`                    |
 | arm 2 ignores a backslash escape                         | `TestLitEndsInsideExpansion`                                 |
 | the guard not wired into `Parse`                         | `RejectsFlagPatternCuts`                                     |
+| `precheck` drops the `,(` range-endpoint marker          | `RejectsFlagPatternCuts/range-endpoint-stray-close`          |
+| `precheck` drops the `[(` marker                         | 10 tests                                                     |
+| `precheck` uses `\|\|` instead of `&&`                   | 11 tests                                                     |
 | the repair retry uses the bare chain (the #283 bug back) | `TestMinimizedCorpus`, `RepairRunsBesideAnonymousInvocation` |
 | the repair disabled entirely                             | 14 tests                                                     |
 
@@ -166,3 +183,5 @@ The first run of this set scored 11 of 14, with `arm 1 disabled` surviving.
 The first attempt to kill it added second-level-subscript fixtures — which arm 2 catches too, so the mutant kept surviving and the fixtures proved nothing about arm 1.
 Isolating each arm against the oracle found the rows arm 1 alone rejects: patterns holding a single quote, the family arm 2 declines by design.
 A survivor is a question about which input distinguishes the code, and only measurement answers it.
+
+The source precheck was added after that, during review, and repeated the lesson. Two of its three mutants survived at first, and one of those two was a weak mutation rather than a real hole: requiring _both_ markers to be present cannot fire, because no fixture holds both. The genuine hole was the `,(` arm, which no test covered at all — a range endpoint's flags open at `,(`, so dropping it silently skipped 1,284 probe rows whose files hold no `[(` anywhere. An optimization that narrows what a guard inspects needs its own coverage, exactly like the guard.

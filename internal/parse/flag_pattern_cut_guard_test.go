@@ -39,6 +39,13 @@ func TestParseRejectsFlagPatternCuts(t *testing.T) {
 		// is load-bearing for this issue.
 		{"invalid-382-assignment-context.txt", flagPatternCutError, 15},
 
+		// A range endpoint's flags open at `,(`, not `[(`, so this row is
+		// the only thing standing between the guard's source precheck and
+		// silently skipping 1,284 probe rows whose files hold no `[(` at
+		// all. Dropping the `,(` arm of that precheck passes every other
+		// test in this package.
+		{"invalid-382-range-endpoint-stray-close.txt", flagPatternCutError, 22},
+
 		// Only the bracket-scan arm sees these: the pattern holds a
 		// single quote, which the ends-open arm declines because Zsh's
 		// quote rule inside a nested subscript is asymmetric and the

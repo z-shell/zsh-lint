@@ -1,6 +1,8 @@
 package parse
 
 import (
+	"bytes"
+
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -84,6 +86,21 @@ const flagPatternCutError = "not a valid parameter expansion operator: `]`"
 // Zsh parses these rows and reports `bad substitution` only when the expansion
 // is reached.
 func rejectFlagPatternCuts(src []byte, tree *syntax.File, name string) error {
+	// Same precheck resolveFlagPatternCuts uses: a flagged pattern opens at
+	// `[(` (a subscript's own flags) or `,(` (a range endpoint's), so a file
+	// holding neither cannot have one and neither arm can fire. Both arms
+	// walk the tree, and without this they walked it on every parse: a file
+	// with no flagged pattern at all paid about 15% of Parse for two walks
+	// that could not find anything (measured over a 300-function file, 200
+	// iterations, median of 5). Verified behavior-neutral across all 18,192
+	// probe rows of both sets: zero verdict changes.
+	//
+	// Both markers are load-bearing. Dropping the `,(` arm skips 1,284 probe
+	// rows whose files hold no `[(` at all, and is caught only by
+	// invalid-382-range-endpoint-stray-close.txt.
+	if !bytes.Contains(src, []byte("[(")) && !bytes.Contains(src, []byte(",(")) {
+		return nil
+	}
 	if cut := firstPrematureClose(flagPatternCutEdits(src, tree)); cut >= 0 {
 		return flagPatternCutParseError(src, cut, name)
 	}
