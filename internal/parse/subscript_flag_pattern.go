@@ -314,12 +314,17 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 		case b == '`', b == '$' && i+1 < len(src) && src[i+1] == '(':
 			return nil, 0, false
 		case b == '$' && i+1 < len(src) && src[i+1] == '{':
-			// A nested expansion is skipped whole, unmasked: the parser
-			// reads it as its own node inside the pattern word, and its
-			// brackets belong to it rather than to this subscript. Its
-			// extent is decided by brace nesting, so an unbalanced one is
-			// refused like any other shape this scanner cannot bound.
-			end, ok := nestedExpansionEnd(src, i+1)
+			// A nested expansion's extent is decided by brace nesting, so
+			// an unbalanced one is refused like any other shape this
+			// scanner cannot bound. Its `[`, `]` and `,` are masked like
+			// any other byte inside the pattern (issue #371): mvdan/sh
+			// reads the whole flagged pattern as one raw literal and stops
+			// it at the first `]` whatever encloses that byte, so leaving
+			// the nested brackets alone cut `${m[(r)${Z[a]}]}` at the
+			// inner `]`. The bytes are restored from the literal either
+			// way, and holdsFlagPattern verifies the retry produced the
+			// whole pattern as that one literal.
+			end, ok := maskNestedExpansion(src, i+1, mask)
 			if !ok {
 				return nil, 0, false
 			}
@@ -360,23 +365,105 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 	return nil, 0, false
 }
 
-// nestedExpansionEnd returns the offset just past the `}` that closes the
-// expansion whose `{` stands at brace, counting nested braces. A newline or an
-// unbalanced brace is refused, matching the rest of the scanner's refusal to
-// guess at an extent it cannot see the end of.
-func nestedExpansionEnd(src []byte, brace int) (int, bool) {
+// maskNestedExpansion reports where a nested expansion inside a flagged
+// pattern ends, and masks the `[`, `]` and `,` inside it so the raw pattern
+// literal the parser reads runs past them to the `]` that really ends the
+// subscript (issue #371).
+//
+// A nested expansion is not a node of its own inside a flagged pattern.
+// mvdan/sh reads the whole pattern as one `*syntax.Lit`, so `${m[(r)${Z[a]}]}`
+// ended at the inner `]` and left `}]}` as a stray word, and `${m[(r)${a[1,2]}]}`
+// split the index at the inner `,` into a range the source does not have. The
+// masked bytes are restored from that same literal by restorePatternEdits, so
+// masking them is byte-for-byte invisible to callers.
+//
+// The brackets must balance, or the expansion is refused and the parser error
+// stands. Masking a byte hides it from the parser until the tree is built, so
+// an unbalanced `]` would be masked into invisibility and the outer subscript
+// would close over invalid source: `${m[(r)${Z]}]}` and `${m[(r)${Z[a]]}]}`
+// are `bad substitution` natively and were rejected before this mask existed.
+// Refusing keeps them rejected, which is the adapter contract's rule that an
+// extent the scanner cannot decide returns the parser error rather than a
+// guess.
+//
+// Quoting is deliberately not tracked, so a quote inside the nested expansion
+// refuses it. That is not fastidiousness: a byte count and a quote are not
+// composable. A quoted bracket still moves the count, so a quoted `[` can
+// rebalance an unquoted stray `]` and hand the parser
+// `${m[(r)${Z[a]]"["}]}` — `bad substitution` natively — as a balanced
+// expansion. Tracking quotes properly would mean reproducing native Zsh's own
+// rule for a quote inside a subscript, which is position-dependent and
+// asymmetric between quote kinds: `x=${Z["a]b"]}` is valid while the same
+// expansion in command position is not, and `${Z[${Y['a b']}]}` is valid while
+// `${Z[${Y["a b"]}]}` is not. Refusing is the honest answer until something
+// implements that rule; every refused row keeps the verdict it has on main
+// rather than gaining one.
+//
+// The front end's wider divergence on that quoted family is separate and
+// pre-existing: `${m[${Z["a b"]}]}` has no flagged pattern, never reaches this
+// scanner, and is accepted on main although Zsh rejects it (tracked in #374).
+func maskNestedExpansion(src []byte, brace int, mask func(int)) (int, bool) {
+	var masked []int
 	depth := 0
+	brackets := 0
 	for i := brace; i < len(src); i++ {
 		switch src[i] {
 		case '\\':
+			// The same masking the outer scan does at its own `\[` and
+			// `\]`: mvdan/sh cuts a raw pattern at the bracket even when
+			// it is escaped. The escape means the byte is not a subscript
+			// delimiter, so it must not move the balance count either.
+			//
+			// The end-of-source arm mirrors the outer scan's refusal and
+			// is defensive: a trailing backslash also runs the loop off
+			// the end, which refuses anyway, so no input distinguishes
+			// the two paths. Kept so the two scanners read alike.
+			if i+1 >= len(src) || src[i+1] == '\n' {
+				return 0, false
+			}
+			if src[i+1] == '[' || src[i+1] == ']' {
+				masked = append(masked, i+1)
+			}
 			i++
 		case '\n':
 			return 0, false
+		case '"', '\'':
+			// See the quoting note above: the count cannot survive one.
+			return 0, false
 		case '{':
 			depth++
+		case '[':
+			// Masking the opener is verdict-redundant, measured: with it
+			// disabled, no verdict changed across 315 generated
+			// flag-pattern shapes (flag x nested shape x context) and all
+			// 187 tree fixtures. mvdan/sh cuts a raw pattern at `]` and
+			// `,`, never at `[`. It is kept so the masked source stays
+			// bracket-balanced for the other adapters the retry runs
+			// through, and the helper's own unit test pins the offsets.
+			brackets++
+			masked = append(masked, i)
+		case ']':
+			// A `]` with nothing open cannot be masked away: masking hides
+			// it from the parser, so the outer subscript would close over
+			// source native Zsh rejects as `bad substitution`. Refuse on
+			// sight rather than at the closing `}`, so no later `[` can
+			// bring the count back to zero and make it look balanced.
+			if brackets == 0 {
+				return 0, false
+			}
+			brackets--
+			masked = append(masked, i)
+		case ',':
+			masked = append(masked, i)
 		case '}':
 			depth--
 			if depth == 0 {
+				if brackets != 0 {
+					return 0, false
+				}
+				for _, offset := range masked {
+					mask(offset)
+				}
 				return i + 1, true
 			}
 		}
