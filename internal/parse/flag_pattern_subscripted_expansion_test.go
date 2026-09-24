@@ -257,21 +257,25 @@ func TestFlagPatternSubscriptedExpansionRejectsUnbalancedBrackets(t *testing.T) 
 	}
 }
 
-// A quote inside the nested expansion refuses it, because a byte count and a
-// quote are not composable: a quoted bracket still moves the count, so a
+// A double quote inside the nested expansion refuses it, because a byte count
+// and a quote are not composable: a quoted bracket still moves the count, so a
 // quoted `[` can rebalance an unquoted stray `]` and make invalid source look
 // balanced. That was a real false accept in an earlier revision of this
 // change, found by adversarial review — `${m[(r)${Z[a]]"["}]}` is
 // `bad substitution` natively and parsed clean.
 //
-// Tracking quotes properly means reproducing native Zsh's own rule for a quote
-// inside a subscript, which is position-dependent and asymmetric between quote
-// kinds: `x=${Z["a]b"]}` is valid while the same expansion in command position
-// is not, and `${Z[${Y['a b']}]}` is valid while `${Z[${Y["a b"]}]}` is not.
-// Refusing is the honest answer until something implements that rule.
+// Native Zsh's rule for a quote inside a subscript is position-dependent and
+// asymmetric between quote kinds: `x=${Z["a]b"]}` is valid while the same
+// expansion in command position is not, and `${Z[${Y['a b']}]}` is valid while
+// `${Z[${Y["a b"]}]}` is not.
 //
-// Every row here keeps the verdict it has on main rather than gaining one, so
-// nothing regresses; this pins the limit so a later fix has a test to flip.
+// Issue #384 took the decidable half of that asymmetry: a single-quoted key
+// holding no delimiter byte is now stepped over, so `${m[(r)${Z['a']}]}` parses
+// (see flag_pattern_quoted_nested_key_test.go). The rows below are the half
+// that remains refused — a double quote either way, and a single quote holding
+// a bracket, whose native verdict varies by enclosing construct. Each keeps the
+// verdict it has on main rather than gaining one; this pins the limit so a
+// later fix has a test to flip.
 //
 // The front end's wider divergence on that quoted family is separate and
 // pre-existing: `${m[${Z["a b"]}]}` has no flagged pattern, never reaches this
@@ -281,7 +285,6 @@ func TestFlagPatternSubscriptedExpansionQuotedBracketLimit(t *testing.T) {
 		"print ${m[(r)${Z[\"a]b\"]}]}\n",
 		"print ${m[(r)${Z['a]b']}]}\n",
 		"print ${m[(r)${Z[\"a\"]}]}\n",
-		"print ${m[(r)${Z['a']}]}\n",
 	} {
 		t.Run(strings.TrimSpace(src), func(t *testing.T) {
 			if _, err := Parse(strings.NewReader(src), "quoted-limit.zsh"); err == nil {
@@ -289,7 +292,7 @@ func TestFlagPatternSubscriptedExpansionQuotedBracketLimit(t *testing.T) {
 			}
 		})
 	}
-	t.Log("known limit: a quoted bracket is counted as a bracket, so a quoted unbalanced one refuses")
+	t.Log("known limit: a double quote refuses, and so does a single one holding a delimiter")
 }
 
 // maskNestedExpansion is the changed helper, and the end-to-end rows above
@@ -327,11 +330,15 @@ func TestMaskNestedExpansion(t *testing.T) {
 		// runtime, so refusing costs nothing real and it keeps the
 		// verdict it has on main.
 		{"close then open, count balanced", "${Z]a[}", 1, false, 0, nil},
-		// Quoting is not tracked, so a quote refuses the expansion: a
-		// quoted bracket still moves a byte count, which is how a quoted
-		// `[` could rebalance an unquoted stray `]`.
+		// Quoting: a double quote refuses the expansion, since a quoted
+		// bracket still moves a byte count, which is how a quoted `[`
+		// could rebalance an unquoted stray `]`. A single-quoted key
+		// inside the subscript is stepped over instead (#384), because
+		// Zsh reads such a region literally; the offsets it masks are
+		// pinned in TestMaskSingleQuotedKey.
 		{"double quote", "${Z[\"a\"]}", 1, false, 0, nil},
-		{"single quote", "${Z['a']}", 1, false, 0, nil},
+		{"single quote", "${Z['a']}", 1, true, 9, []int{3, 7}},
+		{"single quote holding a bracket", "${Z['a]b']}", 1, false, 0, nil},
 		{"quoted bracket rebalancing a stray one", "${Z[a]]\"[\"}", 1, false, 0, nil},
 		// An escaped bracket is masked like the outer scan masks its own,
 		// and does not move the count: the escape means it is not a

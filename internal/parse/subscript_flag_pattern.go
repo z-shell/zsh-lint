@@ -89,6 +89,23 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 		// The assignment error is reported at the name, not at the
 		// premature `]`, so there is no cut byte to match below.
 		seed = -1
+	case parseErr.Text == unclosedSingleQuote:
+		// A `,` inside a single-quoted key does not cut the pattern at a
+		// `]`; mvdan/sh splits the raw literal at the comma, so the
+		// fragment after it opens a quote that never closes and the
+		// error lands on the key's own closing `'` (issue #384). The cut
+		// byte is therefore a `,`, not a `]`, which is what the arms
+		// above look for; holdsFlagPattern below still verifies the
+		// retry produced the pattern whole.
+		seed = int(parseErr.Pos.Offset())
+		if seed < 0 || seed >= len(src) {
+			return nil, firstErr
+		}
+		patternStart, ok = flagPatternQuotedCommaBeforeError(src, seed)
+		// The error sits at the quote, not just past the masked `,`, so
+		// there is no single cut byte to match below; the helper already
+		// required a masked `,` before the error.
+		seed = -1
 	default:
 		// Outside the texts above the cut surfaces as whatever error the
 		// bytes after it produce. In arithmetic (issue #368) they are read
@@ -225,6 +242,42 @@ func flagPatternCutBeforeError(src []byte, seed int) (int, bool) {
 		}
 		for _, edit := range edits {
 			if edit.original == ']' && edit.offset < seed {
+				return start, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// flagPatternQuotedCommaBeforeError locates a flagged subscript on seed's line
+// whose pattern scanFlagPatternBrackets masks a `,` in before seed, and returns
+// the pattern start (issue #384).
+//
+// It is flagPatternCutBeforeError's twin for the one cut that is not a bracket:
+// a `,` inside a single-quoted key. mvdan/sh splits a subscript index at any
+// `,` in the raw literal, so the fragment after the comma carries an unbalanced
+// `'` and the error is reported at the key's closing quote rather than past a
+// premature `]`. The gate is the same shape as its twin's — the nearest flag
+// group opener back from the error whose scanned pattern masks a cut byte
+// before it — with `,` as the byte instead of `]`.
+func flagPatternQuotedCommaBeforeError(src []byte, seed int) (int, bool) {
+	for i := min(seed, len(src)) - 1; i > 0; i-- {
+		if src[i] == '\n' {
+			return 0, false
+		}
+		if src[i] != '(' || !isFlagGroupOpener(src, i) {
+			continue
+		}
+		start, ok := flagPatternStart(src, i-1)
+		if !ok || start > seed {
+			continue
+		}
+		edits, _, ok := scanFlagPatternBrackets(src, start)
+		if !ok {
+			continue
+		}
+		for _, edit := range edits {
+			if edit.original == ',' && edit.offset < seed {
 				return start, true
 			}
 		}
@@ -505,18 +558,22 @@ func scanFlagPatternBrackets(src []byte, start int) ([]patternEdit, int, bool) {
 // extent the scanner cannot decide returns the parser error rather than a
 // guess.
 //
-// Quoting is deliberately not tracked, so a quote inside the nested expansion
-// refuses it. That is not fastidiousness: a byte count and a quote are not
-// composable. A quoted bracket still moves the count, so a quoted `[` can
-// rebalance an unquoted stray `]` and hand the parser
+// Quoting is deliberately not tracked, so a double quote inside the nested
+// expansion refuses it. That is not fastidiousness: a byte count and a quote
+// are not composable. A quoted bracket still moves the count, so a quoted `[`
+// can rebalance an unquoted stray `]` and hand the parser
 // `${m[(r)${Z[a]]"["}]}` — `bad substitution` natively — as a balanced
 // expansion. Tracking quotes properly would mean reproducing native Zsh's own
 // rule for a quote inside a subscript, which is position-dependent and
 // asymmetric between quote kinds: `x=${Z["a]b"]}` is valid while the same
 // expansion in command position is not, and `${Z[${Y['a b']}]}` is valid while
-// `${Z[${Y["a b"]}]}` is not. Refusing is the honest answer until something
-// implements that rule; every refused row keeps the verdict it has on main
-// rather than gaining one.
+// `${Z[${Y["a b"]}]}` is not.
+//
+// That asymmetry is what maskSingleQuotedKey exploits (issue #384): a single
+// quote standing inside the nested subscript's own brackets, and holding no
+// delimiter byte, is stepped over rather than refused, because Zsh reads such
+// a region literally. Every other quoted shape still refuses and keeps the
+// verdict it has on main rather than gaining one.
 //
 // The front end's wider divergence on that quoted family is separate and
 // pre-existing: `${m[${Z["a b"]}]}` has no flagged pattern, never reaches this
@@ -546,9 +603,23 @@ func maskNestedExpansion(src []byte, brace int, mask func(int)) (int, bool) {
 			i++
 		case '\n':
 			return 0, false
-		case '"', '\'':
+		case '"':
 			// See the quoting note above: the count cannot survive one.
 			return 0, false
+		case '\'':
+			// A single-quoted key inside the nested subscript is the one
+			// quoted shape whose extent is decidable here (issue #384).
+			// Outside the brackets the quote is not a key at all and
+			// keeps its refusal: `${Z[a]'x'}` passes `zsh -f -n` and is
+			// `bad substitution` when run.
+			if brackets == 0 {
+				return 0, false
+			}
+			end, ok := maskSingleQuotedKey(src, i, &masked)
+			if !ok {
+				return 0, false
+			}
+			i = end
 		case '{':
 			depth++
 		case '[':
@@ -585,6 +656,56 @@ func maskNestedExpansion(src []byte, brace int, mask func(int)) (int, bool) {
 				}
 				return i + 1, true
 			}
+		}
+	}
+	return 0, false
+}
+
+// maskSingleQuotedKey reports where a single-quoted key inside a nested
+// expansion's subscript ends, and masks the `,` inside it (issue #384).
+//
+// quote is the offset of the opening `'`; the returned offset is the closing
+// one, so the caller's own `i++` steps past it. The caller has already
+// established that the quote stands inside the nested subscript's brackets.
+//
+// Zsh reads a single-quoted region inside a subscript literally, so its bytes
+// are neither subscript delimiters nor arithmetic operators: `${m[(i)${Z['a
+// b']}]}` and `$(( m[(i)a'(b'] ))` are both valid and run clean, while the
+// double-quoted twin `${m[(i)${Z["a b"]}]}` is `bad substitution`. That
+// asymmetry is why only this quote kind is stepped over; the general "a byte
+// count and a quote are not composable" rule (#371) still holds for `"`.
+//
+// A delimiter inside the quotes refuses the whole expansion rather than being
+// stepped over. Native Zsh's verdict on those rows is not the literal reading
+// this step-over implies and varies by enclosing construct: `m[(i)${Z['a[b']}]=v`
+// runs clean, `$(( m[(i)${Z['a[b']}] ))` is `bad substitution` at runtime, and
+// `${Z['['}]}` — no subscript open — is rejected outright. Deciding those needs
+// the position-dependent rule this scanner declines to reproduce, so each such
+// row keeps the verdict it has on main.
+//
+// Only the `,` is masked, for the same reason the substitution step-over masks
+// it: mvdan/sh splits a subscript index at any `,` in the raw literal, while
+// Zsh reads a quoted one as key text. The brackets are refused rather than
+// masked, so the caller's balance count is unaffected by anything in here.
+//
+// An unterminated quote runs off the end and refuses, which matches the
+// enclosing scan's treatment of any extent it cannot bound.
+func maskSingleQuotedKey(src []byte, quote int, masked *[]int) (int, bool) {
+	// The commas are buffered and committed only on success: the caller
+	// discards a refused extent, so reporting bytes before running into a
+	// delimiter would leave it holding a mask for source it did not repair.
+	var commas []int
+	for i := quote + 1; i < len(src); i++ {
+		switch src[i] {
+		case '\'':
+			*masked = append(*masked, commas...)
+			return i, true
+		case '[', ']', '{', '}', '(', ')', '\n':
+			// See the refusal note above. A newline refuses with them:
+			// the enclosing scans bound a pattern to one line.
+			return 0, false
+		case ',':
+			commas = append(commas, i)
 		}
 	}
 	return 0, false
