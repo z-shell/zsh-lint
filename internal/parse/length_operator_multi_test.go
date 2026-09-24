@@ -68,6 +68,51 @@ func TestLengthOperatorRestoresEveryExpansion(t *testing.T) {
 	}
 }
 
+// Positions reported to users must match the ORIGINAL source, because the
+// mask is byte-preserving. A construct placed after a fixed expansion is the
+// direct check: its column is computed from the source string itself, so the
+// assertion cannot drift with the implementation.
+func TestLengthOperatorKeepsLaterPositions(t *testing.T) {
+	t.Parallel()
+	const trailer = "$UNSET_XYZ"
+	for _, src := range []string{
+		"print ${#a[@]:#x} " + trailer + "\n",
+		"print ${#a:#x} " + trailer + "\n",
+		"print ${#a//x/y} " + trailer + "\n",
+		"print ${#a:-y} " + trailer + "\n",
+		"print ${#a:#x} ${#b:#y} " + trailer + "\n",
+		// The already-working nested spelling, as the control.
+		"print ${#${a[@]:#x}} " + trailer + "\n",
+	} {
+		t.Run(strings.TrimSpace(src), func(t *testing.T) {
+			t.Parallel()
+			tree, err := parseWithAdapters([]byte(src), "t.zsh")
+			if err != nil {
+				t.Fatalf("parse %q: %v", src, err)
+			}
+			wantOffset := strings.Index(src, trailer)
+			found := false
+			syntax.Walk(tree, func(node syntax.Node) bool {
+				exp, ok := node.(*syntax.ParamExp)
+				if !ok || exp.Param == nil || exp.Param.Value != "UNSET_XYZ" {
+					return true
+				}
+				found = true
+				if got := int(exp.Pos().Offset()); got != wantOffset {
+					t.Errorf("trailing expansion offset = %d, want %d", got, wantOffset)
+				}
+				if got := int(exp.Pos().Col()); got != wantOffset+1 {
+					t.Errorf("trailing expansion column = %d, want %d", got, wantOffset+1)
+				}
+				return false
+			})
+			if !found {
+				t.Fatalf("trailing expansion not found in %q", src)
+			}
+		})
+	}
+}
+
 // A one-character name makes the restored value exactly one byte, which is
 // the boundary of the `len(lit.Value) < 2` guard, and a name that already
 // starts with `_` is the case where the mask byte is indistinguishable from
