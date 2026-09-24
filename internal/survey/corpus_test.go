@@ -43,6 +43,7 @@ var requiredFixtures = []string{
 	"ok-flag-pattern-arithmetic.zsh",
 	"ok-flag-pattern-bracket-before-operator.zsh",
 	"ok-flag-pattern-command-substitution.zsh",
+	"ok-flag-pattern-quoted-nested-key.zsh",
 	"ok-flag-pattern-subscripted-expansion.zsh",
 	"ok-flagged-second-subscript-bracket.zsh",
 	"ok-function-non-brace-body.zsh",
