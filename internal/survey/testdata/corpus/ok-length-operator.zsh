@@ -34,9 +34,11 @@ print -r -- ${#a:-fallback}
 print -r -- ${#a:+alternate}
 print -r -- ${#a#x}
 print -r -- ${#a%z}
-print -r -- ${#a:1}
-print -r -- ${#a:1:2}
 print -r -- ${#a[@]//x/y}
+
+# Slices and bare modifiers are NOT covered: they are masked into a path
+# that is more permissive than Zsh, so the adapter refuses them rather than
+# spread that permissiveness. `${#a:1}` stays rejected, as it is on main.
 
 # A subscript flag before the operator.
 print -r -- ${#a[(r)x]:#nomatch}

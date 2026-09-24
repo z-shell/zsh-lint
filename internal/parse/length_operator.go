@@ -48,6 +48,35 @@ func parseLengthOperator(src []byte, name string, firstErr error) (*syntax.File,
 	return parseLengthOperatorWithParser(src, name, firstErr, parseWithAdapters)
 }
 
+// lengthOperatorRetryError chooses the error to report when the masked source
+// still does not parse.
+//
+// The mask makes the length `#` part of the parameter name, so a diagnostic
+// that describes the masked construct itself would be describing a name the
+// user never wrote. Those are discarded in favour of the original error, which
+// describes the same bytes in the parser's own terms.
+//
+// An error positioned strictly after the masked byte is different: the retry
+// got past this construct and stopped somewhere else, so the later position is
+// the one the user needs. Reporting firstErr there would pin the blame on a
+// construct this adapter just proved readable, which is how a file with two
+// length operators reported the first one forever while the real blocker sat
+// further down (zi's lib/zsh/install.zsh: the true stop is a brace-form `if`
+// whose condition is an `&&` list, filed separately, not line 307).
+//
+// mvdan/sh parse errors quote operator bytes and delimiters, never parameter
+// names, so a later error cannot carry the masked `_` into its text.
+func lengthOperatorRetryError(firstErr, retryErr error, hash int) error {
+	var retry syntax.ParseError
+	if !errors.As(retryErr, &retry) {
+		return firstErr
+	}
+	if int(retry.Pos.Offset()) <= hash {
+		return firstErr
+	}
+	return retryErr
+}
+
 func parseLengthOperatorWithParser(
 	src []byte,
 	name string,
@@ -69,12 +98,40 @@ func parseLengthOperatorWithParser(
 
 	tree, err := parse(masked, name)
 	if err != nil {
-		return nil, err
+		return nil, lengthOperatorRetryError(firstErr, err, hash)
 	}
 	if !restoreLengthPrefix(tree, hash) {
 		return nil, firstErr
 	}
 	return tree, nil
+}
+
+// lengthOperatorIsDecidable reports whether the expansion the mask produced
+// is one this adapter can vouch for.
+//
+// The mask turns `${#name...}` into `${_name...}`, so the rest of the
+// expansion is parsed by the ordinary un-prefixed path -- including that
+// path's existing permissiveness. Two of its shapes are more permissive than
+// Zsh, and accepting them here would turn a row the parser rejects today into
+// one it accepts, which is a false accept this change would have introduced:
+//
+//	${#a:x}     `zsh -f -n` rejects, "unrecognized modifier 'x'"; the
+//	            upstream modifier scan takes any ASCII letter
+//	${#a:1:-1}  `zsh -f -n` rejects, "substring expression: -1 < 1"; Zsh
+//	            has no negative slice length, unlike bash
+//
+// Both are already accepted without the prefix (`${a:x}` parses on `main`),
+// so the divergence is not introduced by the mask -- but it is not this
+// adapter's to spread to a shape that is rejected today. A recognized
+// operator or a replacement is decidable, because the mask does not change
+// how either is read; a slice or a bare modifier is refused, keeping the
+// verdict those rows have on `main`.
+//
+// The cost is real and bounded: `${#a:1}` and `${#a:1:2}` are valid Zsh and
+// stay rejected. They are recorded in the survey record and the PR rather
+// than quietly dropped.
+func lengthOperatorIsDecidable(exp *syntax.ParamExp) bool {
+	return exp.Exp != nil || exp.Repl != nil
 }
 
 // lengthPrefixBefore reports the offset of the `#` that opens the expansion
@@ -151,9 +208,9 @@ func subscriptStartBefore(src []byte, close int) (int, bool) {
 // name begins with the `_` written over the length `#`, drops that byte from
 // the name, and records the length the source asked for.
 //
-// It reports false when no expansion matches, so the caller returns the
-// original parser error instead of a tree that does not correspond to the
-// source.
+// It reports false when no expansion matches, or when the expansion is one
+// lengthOperatorIsDecidable refuses, so the caller returns the original
+// parser error instead of a tree that does not correspond to the source.
 func restoreLengthPrefix(tree *syntax.File, hash int) bool {
 	restored := false
 	syntax.Walk(tree, func(node syntax.Node) bool {
@@ -167,6 +224,11 @@ func restoreLengthPrefix(tree *syntax.File, hash int) bool {
 		lit := exp.Param
 		if int(lit.ValuePos.Offset()) != hash || len(lit.Value) < 2 || lit.Value[0] != '_' {
 			return true
+		}
+		if !lengthOperatorIsDecidable(exp) {
+			// Stop without restoring: the caller discards the tree, so
+			// the mask byte never reaches anything that reads it.
+			return false
 		}
 		lit.Value = lit.Value[1:]
 		lit.ValuePos = syntax.NewPos(lit.ValuePos.Offset()+1, lit.ValuePos.Line(), lit.ValuePos.Col()+1)

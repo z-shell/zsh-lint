@@ -31,8 +31,6 @@ func TestParseLengthOperator(t *testing.T) {
 		{"assign default", "print ${#a:=y}\n"},
 		{"prefix strip", "print ${#a#p}\n"},
 		{"suffix strip", "print ${#a%p}\n"},
-		{"offset", "print ${#a:1}\n"},
-		{"offset and length", "print ${#a:1:2}\n"},
 		{"subscript then replacement", "print ${#a[@]//x/y}\n"},
 		{"a positional name", "print ${#0:#x}\n"},
 		{"inside arithmetic", "x=$(( ${#a[@]:#y} ))\n"},
@@ -176,6 +174,14 @@ func TestLengthOperatorDeclines(t *testing.T) {
 		{"an at parameter", "print ${#@:#x}\n"},
 		// The `+` prefix is a different operator with its own semantics.
 		{"an existence prefix", "print ${+a:#x}\n"},
+		// Slices and bare modifiers are refused deliberately: the
+		// un-prefixed path they are masked into is more permissive than
+		// Zsh, and spreading that to shapes rejected today would be a
+		// false accept. These are valid Zsh that stays rejected, at the
+		// verdict it already has on main. See lengthOperatorIsDecidable.
+		{"an offset slice", "print ${#a:1}\n"},
+		{"an offset and length slice", "print ${#a:1:2}\n"},
+		{"a bare modifier", "print ${#a:h}\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -220,9 +226,15 @@ func TestLengthOperatorRejectsInvalidSource(t *testing.T) {
 		wantMsg string
 		wantCol int
 	}{
-		{"testdata/invalid-373-unclosed-expansion.txt", "reached EOF without matching `${` with `}`", 7},
+		{"testdata/invalid-373-unclosed-expansion.txt", "cannot combine multiple parameter expansion operators", 14},
 		{"testdata/invalid-373-unclosed-subscript.txt", "ternary operator missing `?` before `:`", 13},
 		{"testdata/invalid-373-space-after-length.txt", "not a valid parameter expansion operator: ` `", 10},
+		// Rows an earlier revision of this adapter accepted: the mask
+		// turned them into the un-prefixed form, where upstream is more
+		// permissive than Zsh. Found by adversarial review; both are
+		// rejected on main and must stay rejected.
+		{"testdata/invalid-373-unrecognized-modifier.txt", "cannot combine multiple parameter expansion operators", 11},
+		{"testdata/invalid-373-negative-slice-length.txt", "cannot combine multiple parameter expansion operators", 11},
 	} {
 		t.Run(test.file, func(t *testing.T) {
 			t.Parallel()
@@ -291,6 +303,58 @@ func TestLengthOperatorGatesOnItsOwnError(t *testing.T) {
 			t.Error("the adapter reparsed on a non-parse error")
 		}
 	})
+}
+
+// A file with two length operators must not report the first one forever.
+// Fixing one exposes the next error; returning the original error there blames
+// a construct this adapter just proved readable, which is what hid zi's real
+// blocker behind line 307. The later position must win.
+func TestLengthOperatorReportsTheLaterBlocker(t *testing.T) {
+	t.Parallel()
+	// Two readable length operators, then an unrelated syntax error.
+	const src = "print ${#a[@]:#x}\nprint ${#b[@]:#y}\nprint ${c:\n"
+	_, err := Parse(bytes.NewReader([]byte(src)), "t.zsh")
+	if err == nil {
+		t.Fatalf("expected the trailing error to survive")
+	}
+	var perr syntax.ParseError
+	if !errors.As(err, &perr) {
+		t.Fatalf("expected a ParseError, got %T: %v", err, err)
+	}
+	if perr.Pos.Line() != 3 {
+		t.Fatalf("expected the error on line 3, the real blocker, got line %d: %v",
+			perr.Pos.Line(), err)
+	}
+	if strings.Contains(perr.Text, "_") {
+		t.Fatalf("the mask byte reached a diagnostic: %q", perr.Text)
+	}
+}
+
+// An error inside the masked construct itself must NOT be preferred: its
+// position describes a parameter name the user never wrote.
+func TestLengthOperatorKeepsItsOwnErrorForTheMaskedConstruct(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"testdata/invalid-373-unrecognized-modifier.txt",
+		"testdata/invalid-373-negative-slice-length.txt",
+	} {
+		src, readErr := os.ReadFile(name)
+		if readErr != nil {
+			t.Fatalf("read %s: %v", name, readErr)
+		}
+		_, err := Parse(bytes.NewReader(src), name)
+		if err == nil {
+			t.Fatalf("%s: expected a refusal", name)
+		}
+		var perr syntax.ParseError
+		if !errors.As(err, &perr) {
+			t.Fatalf("%s: expected a ParseError, got %T", name, err)
+		}
+		if perr.Text != invalidCombinedLengthOperator {
+			t.Fatalf("%s: expected the adapter's own error text, got %q",
+				name, perr.Text)
+		}
+	}
 }
 
 // lengthPrefixBefore is the gate. Test it directly: some of its refusals
