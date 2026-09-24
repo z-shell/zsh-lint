@@ -239,28 +239,43 @@ func TestFlagPatternInArithmeticKeepsUndecidableVerdicts(t *testing.T) {
 	tests := []struct {
 		name string
 		src  string
+		want string // the error main reports, byte for byte
 	}{
 		// `zsh -f -n`: parse error near `c]]'.
-		{"unopened `)` inside the pattern", "print $(( m[(i)a[b)c]] ))\n"},
+		{"unopened `)` inside the pattern", "print $(( m[(i)a[b)c]] ))\n",
+			"1:22: not a valid arithmetic operator: `]`"},
 		// `zsh -f -n`: parse error; the `(` swallows the closing `))`.
-		{"unclosed `(` inside the pattern", "print $(( m[(i)a[b(c]] ))\n"},
+		{"unclosed `(` inside the pattern", "print $(( m[(i)a[b(c]] ))\n",
+			"1:22: not a valid arithmetic operator: `]`"},
 		// `zsh -f -n`: parse error near `('; a later `(` must not rebalance.
-		{"`)` before `(`", "print $(( m[(i)a[b)(c]] ))\n"},
+		{"`)` before `(`", "print $(( m[(i)a[b)(c]] ))\n",
+			"1:23: not a valid arithmetic operator: `]`"},
 		// Passes `-n`; run, it is a command substitution and reports
 		// `no matches found: m[(i)a]b[x]]`.
-		{"escaped `]`", "print $(( m[(i)a\\]b[x]] ))\n"},
-		{"escaped `]` inside the bracket expression", "print $(( m[(i)a[b\\]c]] ))\n"},
-		{"escaped `[` inside the bracket expression", "print $(( m[(i)a[b\\[c]] ))\n"},
+		{"escaped `]`", "print $(( m[(i)a\\]b[x]] ))\n",
+			"1:19: not a valid arithmetic operator: `b`"},
+		{"escaped `]` inside the bracket expression", "print $(( m[(i)a[b\\]c]] ))\n",
+			"1:21: not a valid arithmetic operator: `c`"},
+		{"escaped `[` inside the bracket expression", "print $(( m[(i)a[b\\[c]] ))\n",
+			"1:23: not a valid arithmetic operator: `]`"},
 		// A quoted `)` is not counted natively, so a byte count would
 		// call this balanced; Zsh reads the quotes, and `-n` passes. It is
 		// valid, and stays a known gap rather than a guess.
-		{"quoted `)`", "print $(( m[(i)a[b\")\"c]] ))\n"},
-		{"quoted bytes", "print $(( m[(i)a[b\"x\"]] ))\n"},
+		{"quoted `)`", "print $(( m[(i)a[b\")\"c]] ))\n",
+			"1:24: not a valid arithmetic operator: `]`"},
+		{"quoted bytes", "print $(( m[(i)a[b\"x\"]] ))\n",
+			"1:23: not a valid arithmetic operator: `]`"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := Parse(strings.NewReader(test.src), "undecidable.zsh"); err == nil {
-				t.Errorf("Parse(%q) unexpectedly succeeded", test.src)
+			_, err := Parse(strings.NewReader(test.src), "undecidable.zsh")
+			if err == nil {
+				t.Fatalf("Parse(%q) unexpectedly succeeded", test.src)
+			}
+			// A refused row must fail exactly as it does on main, not at a
+			// byte the mask wrote.
+			if got := strings.TrimPrefix(err.Error(), "undecidable.zsh:"); got != test.want {
+				t.Errorf("Parse(%q) error = %q, want %q", test.src, got, test.want)
 			}
 		})
 	}
