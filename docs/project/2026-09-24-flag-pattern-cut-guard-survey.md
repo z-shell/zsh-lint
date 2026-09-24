@@ -46,7 +46,16 @@ An earlier run used the bare spelling and produced 8 phantom regressions that we
 
 All nine rows of the issue's three tables now match native Zsh on both oracles.
 
-Remaining on the main probe: 1,283 false accepts and 197 gaps, all pre-existing and none in this shape.
+Remaining on the main probe: 1,283 false accepts and 197 gaps, all pre-existing and none in this shape. Of the gaps, 130 are solid (native runs clean) and 67 sit on a boundary where Zsh errors in a different class, such as `no matches found`. The families are now filed individually:
+
+| Issue | Family                                                                 | Rows                      |
+| ----- | ---------------------------------------------------------------------- | ------------------------- |
+| #384  | gap: a single-quoted string in a nested expansion, with a flag present | 118 of the 130 solid gaps |
+| #385  | false accept: a pattern holding an unbalanced bracket                  | 534                       |
+| #386  | false accept: a pattern holding an escaped `\${`                       | 384                       |
+| #387  | false accept: a comma with an index-returning flag (`(i)`, `(I)`)      | 338                       |
+
+The residue past those is 27 rows, all `(R)` in an assignment target, where Zsh reports `assignment to invalid subscript range`.
 
 ## Workspace survey
 
