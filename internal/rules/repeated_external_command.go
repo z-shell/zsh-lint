@@ -20,6 +20,9 @@ import (
 // call. Process creation is the dominant fixed cost even when the command does
 // little work. Hoist invariant work, use Zsh-native parameter operations, or
 // measure and retain the call when its result genuinely varies per iteration.
+// Zsh invokes a shell function or builtin of that name first; only when
+// neither exists does it search `$path` and execute the program found there.
+// See https://zsh.sourceforge.io/Doc/Release/Command-Execution.html#Command-Execution.
 //
 // Severity: Info. The cost model is certain, but whether it matters depends on
 // iteration count, command work, and the interactive completion workload.

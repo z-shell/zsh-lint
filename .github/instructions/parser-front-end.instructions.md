@@ -12,7 +12,8 @@ The contract is in [`docs/project/parser-gap-workflow.md`](../../docs/project/pa
 
 1. Prove the gap with both oracles: `zsh -f -n <file>` passes and `go run ./cmd/zsh-lint-survey <file>` fails.
    A file both reject is a broken script, not a gap.
-2. Name the language feature from the Zsh manual (`zshmisc`, `zshexpn`, `zshparam`).
+2. Name the language feature from the Zsh manual (`zshmisc`, `zshexpn`, `zshparam`) and link its section in the issue body and in the fixture's `# Manual: <url>` line.
+   Read the released manual; do not ground a gap in memory, another shell, or mvdan/sh behavior.
    One issue per feature; label it `parser-gap`.
 3. Fix locally by default.
    Upstream `mvdan/sh` is a source of fixes to take and test, not a dependency to wait on ([ADR-0023](https://github.com/z-shell/.github/blob/main/decisions/0023-zsh-lint-parser-front-end-strategy.md)).
@@ -35,6 +36,7 @@ The contract is in [`docs/project/parser-gap-workflow.md`](../../docs/project/pa
   When it starts parsing, rename it to `ok-<slug>.zsh`; the corpus test discovers fixtures by name.
 - Invalid Zsh that must stay rejected: `internal/parse/testdata/invalid-<issue>-<slug>.txt`, asserted from a focused parser test.
   Use `.txt` so the repository-wide `zsh -n` gate never sees it.
+- Every new fixture carries a `# Manual: https://zsh.sourceforge.io/Doc/Release/<Page>.html#<Section>` line; `internal/manualcite` enforces it.
 
 ## Front-end bumps
 

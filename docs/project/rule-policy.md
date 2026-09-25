@@ -14,6 +14,8 @@ A rule candidate qualifies for the first wave only if all of these hold:
    Rules invented from intuition wait for a later wave.
 2. **Manual grounding.** The behavior the rule warns about is explainable from the Zsh manual (`zshexpn`, `zshparam`, `zshmisc`, `zshoptions`) or the Z-Shell Plugin Standard.
    The proposal names the section.
+   The rule's doc comment links it: `https://zsh.sourceforge.io/Doc/Release/<Page>.html#<Section>` for the released manual (baseline Zsh 5.9.2), or `https://wiki.zshell.dev/community/zsh_plugin_standard#<section>` for the Plugin Standard.
+   `internal/manualcite` fails for a rule without such a link and for a manual link to a page the released manual does not have.
 3. **Parseable today.** The rule must be implementable on AST shapes the current front end produces.
    Patterns masked by open parser gaps (#11, #12, #13, #15, #16, #53) are deferred until the gap is resolved — a rule that can never see its target construct is untestable.
 4. **Actionable message.** The diagnostic must tell the user what to do, not only what is wrong.
