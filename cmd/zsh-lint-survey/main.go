@@ -24,7 +24,7 @@ func main() {
 	flags.SetOutput(os.Stderr)
 	flags.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: zsh-lint-survey [-trace-parses] <file.zsh> [file.zsh ...]")
-		fmt.Fprintln(os.Stderr, "       zsh-lint-survey -compare <base-binary> [-native] <file.zsh> [file.zsh ...]")
+		fmt.Fprintln(os.Stderr, "       zsh-lint-survey -compare <base-binary> [-native [-known]] <file.zsh> [file.zsh ...]")
 		flags.PrintDefaults()
 	}
 	traceParses := flags.Bool("trace-parses", false,
@@ -33,6 +33,8 @@ func main() {
 		"report verdict changes against the zsh-lint-survey `binary` of a base build")
 	native := flags.Bool("native", false,
 		"with -compare, classify changes by the zsh -f -n verdict (needs zsh on PATH)")
+	known := flags.Bool("known", false,
+		"with -compare -native, also list unchanged files that disagree with zsh -f -n")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
 	}
@@ -42,8 +44,8 @@ func main() {
 	}
 
 	if *compare == "" {
-		if *native {
-			fmt.Fprintln(os.Stderr, "zsh-lint-survey: -native needs -compare")
+		if *native || *known {
+			fmt.Fprintln(os.Stderr, "zsh-lint-survey: -native and -known need -compare")
 			os.Exit(2)
 		}
 		var opts survey.Options
@@ -57,7 +59,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "zsh-lint-survey: -trace-parses does not combine with -compare")
 		os.Exit(2)
 	}
-	opts := survey.CompareOptions{Base: survey.BaseBinary(*compare)}
+	if *known && !*native {
+		fmt.Fprintln(os.Stderr, "zsh-lint-survey: -known needs -native")
+		os.Exit(2)
+	}
+	opts := survey.CompareOptions{Base: survey.BaseBinary(*compare), ListKnown: *known}
 	if *native {
 		zsh, err := exec.LookPath("zsh")
 		if err != nil {

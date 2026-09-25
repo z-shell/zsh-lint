@@ -87,12 +87,33 @@ func TestCompareUnchanged(t *testing.T) {
 	base := map[string]Verdict{okFile: candidateVerdict(okFile), gapFile: candidateVerdict(gapFile)}
 
 	var out bytes.Buffer
-	code := Compare(names, &out, CompareOptions{Base: fixedBase(base), Native: func(string) (bool, error) {
-		t.Fatal("native verdict requested for an unchanged file")
-		return false, nil
-	}})
+	code := Compare(names, &out, CompareOptions{Base: fixedBase(base)})
 	if code != 0 || out.String() != "\n2 file(s) compared, 2 unchanged\n" {
 		t.Fatalf("code = %d, output = %q", code, out.String())
+	}
+}
+
+// With a native verdict, unchanged files that still disagree with Zsh are
+// counted as known gaps and false accepts, listed only on request, and never
+// change the exit status (#428).
+func TestCompareCountsKnownDisagreements(t *testing.T) {
+	names := []string{okFile, gapFile}
+	base := map[string]Verdict{okFile: candidateVerdict(okFile), gapFile: candidateVerdict(gapFile)}
+	// okFile parses but Zsh calls it invalid; gapFile fails but Zsh calls it
+	// valid: one known false accept and one known gap.
+	native := func(name string) (bool, error) { return name == gapFile, nil }
+
+	var out bytes.Buffer
+	code := Compare(names, &out, CompareOptions{Base: fixedBase(base), Native: native})
+	if want := "\n2 file(s) compared, 2 unchanged; known: 1 gap(s), 1 false accept(s)\n"; code != 0 || out.String() != want {
+		t.Fatalf("code = %d, output = %q, want %q", code, out.String(), want)
+	}
+
+	out.Reset()
+	Compare(names, &out, CompareOptions{Base: fixedBase(base), Native: native, ListKnown: true})
+	got := out.String()
+	if !strings.Contains(got, "ACCEPTED "+okFile+"\n") || !strings.Contains(got, "GAP "+gapFile+"\n"+candidateVerdict(gapFile).Diagnostic+"\n") {
+		t.Fatalf("listing lacks the known lines:\n%s", got)
 	}
 }
 
