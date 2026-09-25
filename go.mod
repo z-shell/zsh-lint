@@ -63,3 +63,5 @@ require (
 )
 
 tool github.com/princjef/gomarkdoc/cmd/gomarkdoc
+
+replace mvdan.cc/sh/v3 => ./third_party/mvdan-sh

@@ -1,0 +1,189 @@
+// Copyright (c) 2016, Daniel Martí <mvdan@mvdan.cc>
+// See LICENSE for licensing information
+
+package syntax
+
+import (
+	"fmt"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestWalk(t *testing.T) {
+	t.Parallel()
+	seen := map[string]bool{
+		"*syntax.File":         false,
+		"*syntax.Comment":      false,
+		"*syntax.Stmt":         false,
+		"*syntax.Assign":       false,
+		"*syntax.Redirect":     false,
+		"*syntax.CallExpr":     false,
+		"*syntax.Subshell":     false,
+		"*syntax.Block":        false,
+		"*syntax.IfClause":     false,
+		"*syntax.WhileClause":  false,
+		"*syntax.ForClause":    false,
+		"*syntax.WordIter":     false,
+		"*syntax.CStyleLoop":   false,
+		"*syntax.BinaryCmd":    false,
+		"*syntax.FuncDecl":     false,
+		"*syntax.Word":         false,
+		"*syntax.Lit":          false,
+		"*syntax.SglQuoted":    false,
+		"*syntax.DblQuoted":    false,
+		"*syntax.CmdSubst":     false,
+		"*syntax.ParamExp":     false,
+		"*syntax.ArithmExp":    false,
+		"*syntax.ArithmCmd":    false,
+		"*syntax.BinaryArithm": false,
+		"*syntax.UnaryArithm":  false,
+		"*syntax.ParenArithm":  false,
+		"*syntax.CaseClause":   false,
+		"*syntax.CaseItem":     false,
+		"*syntax.TestClause":   false,
+		"*syntax.BinaryTest":   false,
+		"*syntax.UnaryTest":    false,
+		"*syntax.ParenTest":    false,
+		"*syntax.DeclClause":   false,
+		"*syntax.ArrayExpr":    false,
+		"*syntax.ArrayElem":    false,
+		"*syntax.ExtGlob":      false,
+		"*syntax.ProcSubst":    false,
+		"*syntax.TimeClause":   false,
+		"*syntax.CoprocClause": false,
+		"*syntax.LetClause":    false,
+	}
+	parser := NewParser(KeepComments(true))
+	var allStrs []string
+	for _, c := range fileTests {
+		allStrs = append(allStrs, c.inputs[0])
+	}
+	for _, c := range printTests {
+		allStrs = append(allStrs, c.in)
+	}
+	countRan := 0
+	for _, in := range allStrs {
+		t.Run("", func(t *testing.T) {
+			t.Logf("input: %s", in)
+			countRan++
+			prog, err := parser.Parse(strings.NewReader(in), "")
+			if err != nil {
+				// good enough for now, as the bash parser
+				// ignoring errors covers what we need.
+				return
+			}
+			lastOffs := uint(0)
+			Walk(prog, func(node Node) bool {
+				if node == nil {
+					return false
+				}
+				tstr := reflect.TypeOf(node).String()
+				if _, ok := seen[tstr]; !ok {
+					t.Errorf("unexpected type: %s", tstr)
+				} else {
+					seen[tstr] = true
+				}
+				switch node.(type) {
+				case *Lit:
+					return false
+				case *Comment:
+				default:
+					return true
+				}
+				offs := node.Pos().Offset()
+				if offs >= lastOffs {
+					lastOffs = offs
+				} else {
+					t.Errorf("comment offset goes back")
+				}
+				return true
+			})
+		})
+	}
+	// If we're running a subset of the tests,
+	// we can't expect to have seen all node types.
+	if countRan == len(allStrs) {
+		for tstr, tseen := range seen {
+			if !tseen {
+				t.Errorf("type not seen: %s", tstr)
+			}
+		}
+	}
+}
+
+func TestWalkIfClauseComments(t *testing.T) {
+	t.Parallel()
+	// Comments aligned with "else" or "fi" are attached to IfClause.Last.
+	in := "if a; then\n\tb\n# document the else\nelse\n\tc\n# document the fi\nfi\n"
+	prog, err := NewParser(KeepComments(true)).Parse(strings.NewReader(in), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var comments []string
+	for node := range Preorder(prog) {
+		if c, ok := node.(*Comment); ok {
+			comments = append(comments, c.Text)
+		}
+	}
+	want := []string{" document the else", " document the fi"}
+	if !slices.Equal(comments, want) {
+		t.Fatalf("walked comments %q, want %q", comments, want)
+	}
+}
+
+func TestPreorder(t *testing.T) {
+	t.Parallel()
+	in := "echo ${foo:-bar}; { baz >f; } # comment"
+	prog, err := NewParser(KeepComments(true)).Parse(strings.NewReader(in), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Comment nodes are addressed differently on each traversal,
+	// so compare the nodes by type and position rather than by pointer.
+	describe := func(node Node) string {
+		return fmt.Sprintf("%T@%d", node, node.Pos().Offset())
+	}
+	var walked []string
+	Walk(prog, func(node Node) bool {
+		if node != nil {
+			walked = append(walked, describe(node))
+		}
+		return true
+	})
+	var collected []string
+	for node := range Preorder(prog) {
+		collected = append(collected, describe(node))
+	}
+	if !slices.Equal(collected, walked) {
+		t.Errorf("Preorder visited %q, Walk visited %q in preorder", collected, walked)
+	}
+	var stopped []string
+	for node := range Preorder(prog) {
+		stopped = append(stopped, describe(node))
+		if len(stopped) == 3 {
+			break
+		}
+	}
+	if !slices.Equal(stopped, walked[:3]) {
+		t.Errorf("stopping early visited %q, want %q", stopped, walked[:3])
+	}
+}
+
+type newNode struct{}
+
+func (newNode) Pos() Pos { return Pos{} }
+func (newNode) End() Pos { return Pos{} }
+
+func TestWalkUnexpectedType(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("did not panic")
+		}
+	}()
+	Walk(newNode{}, func(node Node) bool {
+		return true
+	})
+}
