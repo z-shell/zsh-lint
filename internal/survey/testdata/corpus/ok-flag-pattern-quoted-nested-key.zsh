@@ -1,5 +1,7 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Parsing
 # Issue #384: a single-quoted key inside a nested expansion, where the
 # enclosing subscript carries a pattern flag. The nested-expansion scan of
 # #371 refused any quote outright, because a byte count and a quote are not

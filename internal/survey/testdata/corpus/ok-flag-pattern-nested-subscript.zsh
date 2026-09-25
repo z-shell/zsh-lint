@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
 # Issue #382: a flagged subscript whose pattern holds a nested subscripted
 # expansion. The parser ends the raw pattern at the first ']', which inside the
 # nested expansion belongs to the inner subscript, so the pattern is cut and the

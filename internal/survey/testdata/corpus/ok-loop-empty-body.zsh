@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Issue #327: a while, until or for header whose body is the empty sublist
 # native Zsh reads before a closer, before a pipeline or list operator, or at
 # end of file. par_while and par_for in parse.c, when neither `do` nor `{`

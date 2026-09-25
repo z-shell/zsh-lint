@@ -1,3 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Rules
 # Fixture for #250.
 # A flagged subscript pattern holding a bracket expression, in the two places
 # a flagged pattern may stand: at the start of a subscript, and after a range

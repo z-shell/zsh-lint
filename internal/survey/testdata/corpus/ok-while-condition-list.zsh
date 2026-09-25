@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Fixture for #330. A `while` or `until` condition is a *list*, so it absorbs
 # every sublist up to the end of the enclosing list and the body stays empty.
 #

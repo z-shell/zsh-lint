@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
 # Fixture for #307.
 # zshmisc spells a function definition as `word ... () [ term ] { list }`, so
 # the separator before the body brace is optional in the `()` spelling exactly

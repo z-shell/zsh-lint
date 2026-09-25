@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Issue #301: the brace-body form of select, `select name [in word ...] term { list }`
 # (term is `;` or a newline; with no `in` list the term may be absent:
 # `select o { list }`), is native-valid Zsh but rejected by zsh-lint. Native

@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Subscripts
 # Issue #242: a bare associative key may place '-' next to '.', '@', '/', or
 # the closing ']', which mvdan/sh reads as an arithmetic operator missing an
 # operand.

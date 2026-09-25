@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Reserved-Words
 # Issue #231 and #259: a declaration builtin or `let` may be the last command
 # before `}` with no separator. The parser reads the clause up to a stop token
 # and a `}` word is not one, so zsh-lint closes the block with a masked
