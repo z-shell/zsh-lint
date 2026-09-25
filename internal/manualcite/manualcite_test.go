@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/z-shell/zsh-lint/internal/rules"
 )
 
 // manualBase is the released manual. Its index page names Zsh 5.9.2, the
@@ -26,9 +28,9 @@ const manualBase = "https://zsh.sourceforge.io/Doc/Release/"
 const pluginStandard = "https://wiki.zshell.dev/community/zsh_plugin_standard"
 
 // manualPages lists every chapter page linked from the Zsh 5.9.2 manual index
-// (https://zsh.sourceforge.io/Doc/Release/index.html). A citation to any other
-// page is a typo or an invented reference. Refresh the list when the baseline
-// release changes.
+// (https://zsh.sourceforge.io/Doc/Release/index.html), without the index
+// pages. A citation to any other page is a typo or an invented reference.
+// Refresh the list when the baseline release changes.
 var manualPages = map[string]bool{
 	"Arithmetic-Evaluation.html":    true,
 	"Calendar-Function-System.html": true,
@@ -47,9 +49,11 @@ var manualPages = map[string]bool{
 	"Parameters.html":               true,
 	"Prompt-Expansion.html":         true,
 	"Redirection.html":              true,
+	"Roadmap.html":                  true,
 	"Shell-Builtin-Commands.html":   true,
 	"Shell-Grammar.html":            true,
 	"TCP-Function-System.html":      true,
+	"The-Z-Shell-Manual.html":       true,
 	"User-Contributions.html":       true,
 	"Zftp-Function-System.html":     true,
 	"Zsh-Line-Editor.html":          true,
@@ -58,10 +62,22 @@ var manualPages = map[string]bool{
 
 var (
 	reURL            = regexp.MustCompile(`https?://[^\s<>()"'` + "`" + `]+`)
+	reDocID          = regexp.MustCompile("\nID: `([^`]+)`")
 	reFixtureCite    = regexp.MustCompile(`^#\s*Manual:\s*(\S+)\s*$`)
 	reCitedFixture   = regexp.MustCompile(`^(gap|ok)-.*\.zsh$|^invalid-.*\.txt$`)
 	exemptionsRecord = filepath.Join("testdata", "fixture-exemptions.txt")
 )
+
+// exemptionCeiling is the most entries fixture-exemptions.txt may hold. Lower
+// it when fixtures gain citations; never raise it.
+const exemptionCeiling = 239
+
+// isPluginStandardURL reports whether raw links the Plugin Standard page.
+func isPluginStandardURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host == "wiki.zshell.dev" &&
+		strings.TrimSuffix(u.Path, "/") == "/community/zsh_plugin_standard"
+}
 
 // checkManualURL reports why raw is not a citation of a released manual page.
 func checkManualURL(raw string) error {
@@ -108,9 +124,24 @@ func TestCheckManualURL(t *testing.T) {
 	}
 }
 
-// TestRulesCiteGrounding requires every documented rule type in
-// internal/rules to link the Zsh manual or the Plugin Standard, and every
-// manual link to name a real chapter page.
+// registeredRuleIDs returns the IDs of every rule the default set or the
+// current project profile registers.
+func registeredRuleIDs(t *testing.T) map[string]bool {
+	t.Helper()
+	profile, err := rules.ForProfile(rules.CurrentProjectProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[string]bool)
+	for _, rule := range append(rules.Default(), profile...) {
+		ids[string(rule.ID())] = true
+	}
+	return ids
+}
+
+// TestRulesCiteGrounding requires every registered rule to carry a documented
+// type in internal/rules that links the Zsh manual or the Plugin Standard, and
+// every manual link to name a real chapter page.
 func TestRulesCiteGrounding(t *testing.T) {
 	dir := repositoryPath(t, "internal", "rules")
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
@@ -118,7 +149,7 @@ func TestRulesCiteGrounding(t *testing.T) {
 		t.Fatal(err)
 	}
 	fset := token.NewFileSet()
-	rules := 0
+	documented := make(map[string]bool)
 	for _, path := range paths {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
@@ -133,16 +164,17 @@ func TestRulesCiteGrounding(t *testing.T) {
 				continue
 			}
 			doc := gen.Doc.Text()
-			if !strings.Contains(doc, "\nID: `") {
+			m := reDocID.FindStringSubmatch(doc)
+			if m == nil {
 				continue
 			}
 			name := gen.Specs[0].(*ast.TypeSpec).Name.Name
-			rules++
+			documented[m[1]] = true
 			grounded := false
 			for _, raw := range reURL.FindAllString(doc, -1) {
 				raw = strings.TrimRight(raw, ".,;:")
 				switch {
-				case strings.HasPrefix(raw, pluginStandard):
+				case isPluginStandardURL(raw):
 					grounded = true
 				case strings.Contains(raw, "zsh.sourceforge.io"):
 					if err := checkManualURL(raw); err != nil {
@@ -153,12 +185,14 @@ func TestRulesCiteGrounding(t *testing.T) {
 				}
 			}
 			if !grounded {
-				t.Errorf("%s (%s): Why cites neither %s nor %s", name, filepath.Base(path), manualBase, pluginStandard)
+				t.Errorf("%s (%s): doc comment cites neither %s nor %s", name, filepath.Base(path), manualBase, pluginStandard)
 			}
 		}
 	}
-	if rules == 0 {
-		t.Fatal("found no documented rule types; the ID: doc-comment convention changed")
+	for id := range registeredRuleIDs(t) {
+		if !documented[id] {
+			t.Errorf("registered rule %s has no doc comment with an `ID: `%s`` line, so its grounding is unchecked", id, id)
+		}
 	}
 }
 
@@ -228,6 +262,9 @@ func readExemptions(t *testing.T) map[string]bool {
 // fails until it is removed.
 func TestFixturesCiteManual(t *testing.T) {
 	exempt := readExemptions(t)
+	if len(exempt) > exemptionCeiling {
+		t.Errorf("%s holds %d entries, more than the ceiling of %d; cite the manual in new fixtures instead of exempting them", exemptionsRecord, len(exempt), exemptionCeiling)
+	}
 	seen := make(map[string]bool)
 	for _, rel := range fixturePaths(t) {
 		seen[rel] = true

@@ -35,7 +35,7 @@ A fixture that `zsh -n` rejects is a broken script, not a parser gap; never comm
 
 Add the minimized script as `internal/survey/testdata/corpus/gap-<issue>-<slug>.zsh` with the standard Zsh modeline, a leading comment naming the issue, and a `# Manual: <url>` line linking the manual section from step 2.
 `TestFixturesCiteManual` (`internal/manualcite`) requires that line on every `gap-`, `ok-` and `invalid-` fixture and checks that the URL names a page of the released manual.
-Fixtures that predate the requirement are listed in `internal/manualcite/testdata/fixture-exemptions.txt`; the list only shrinks, so a fixture that gains a citation leaves it in the same change.
+Fixtures that predate the requirement are listed in `internal/manualcite/testdata/fixture-exemptions.txt`; the list only shrinks, so a fixture that gains a citation leaves it in the same change and `exemptionCeiling` is lowered to the new count.
 `TestMinimizedCorpus` (`internal/survey/corpus_test.go`) discovers fixtures by scanning the corpus directory and enforces the naming contract: `gap-<issue>-<slug>.zsh` must fail to parse, `ok-<slug>.zsh` must parse, and any other name is rejected.
 There is no fixture count assertion: adding fixtures never requires test edits ([#14](https://github.com/z-shell/zsh-lint/issues/14)).
 The `requiredFixtures` list in that test is a frozen baseline against accidental deletion of the corpus; never add a new fixture to it ([#406](https://github.com/z-shell/zsh-lint/issues/406)).

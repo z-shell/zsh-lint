@@ -114,6 +114,49 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 
 // ProjectUnloadLifecycle checks configured registration and unload presence
 // across every source supplied in one project invocation.
+//
+// ID: `plugin/project-unload-lifecycle`
+//
+// Name: Project-wide unload entrypoint presence
+//
+// Summary: Reports each persistent hook or widget registration (`add-zsh-hook`,
+// `add-zle-hook-widget`, `zle -N`) in configured plugin and Zi annex
+// sourced-library sources when no configured source in the same invocation
+// defines a `*_plugin_unload` function.
+//
+// Why: The Zsh Plugin Standard requires a plugin with persistent side effects
+// to provide a namespaced unload function. A project may register a hook in its
+// entrypoint and define the unload function in another source, so presence is
+// checked across the whole configured project rather than per file.
+// See https://wiki.zshell.dev/community/zsh_plugin_standard#lifecycle-and-resource-ownership.
+//
+// Bad:
+//
+//	# example.plugin.zsh; no configured source defines an unload function
+//	add-zsh-hook precmd _example_precmd
+//
+// Good:
+//
+//	# example.plugin.zsh
+//	add-zsh-hook precmd _example_precmd
+//
+//	# functions/example_plugin_unload, a configured source of the same project
+//	example_plugin_unload() { ... }
+//
+// Severity: Hint. Static presence of an unload entrypoint is a lifecycle
+// recommendation; it does not prove runtime restoration.
+//
+// False positives: Plugins intended only for once-per-session loading without
+// unload support. Suppress with a reason.
+//
+// Suppression: Use
+// `# zsh-lint disable=plugin/project-unload-lifecycle -- <reason>` on the
+// finding line or immediately before the next non-comment, non-blank source
+// line.
+//
+// Corpus evidence: See `plugin/unload-function`; this rule applies the same
+// convention across configured project sources
+// (docs/project/project-configuration.md).
 type ProjectUnloadLifecycle struct{}
 
 func (ProjectUnloadLifecycle) ID() diag.RuleID {
