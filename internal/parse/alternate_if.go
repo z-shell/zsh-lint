@@ -184,10 +184,25 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool, 
 		return editIfThen, kindIfThen
 	}
 
+	// heredocs holds the here-documents opened on the current line; their
+	// bodies are text, not commands, and are skipped at the next line (#429).
+	// arithParens tracks an open `((` or `$((`, where `<<` is a shift.
+	var heredocs []pendingHeredoc
+	arithParens := 0
+
 	i := 0
 	seedRecognized := false
 
 	for i < len(src) {
+		if len(heredocs) > 0 && !inSingleQuote && !inDoubleQuote && !inANSICQuote && atUnescapedLineStart(src, i) {
+			next, ok := consumeHeredocBodies(src, i, heredocs)
+			if !ok {
+				return nil, false, false
+			}
+			heredocs = nil
+			i = next
+			continue
+		}
 		b := src[i]
 		// Inside `${...}` every byte is part of a word: `${a## ##}` has no
 		// comment, `${a:-if}` has no keyword, and a nested `{` is not a
@@ -673,6 +688,33 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool, 
 				i += n
 				atWordStart = true
 				atCommandStart = true
+				continue
+			}
+		}
+
+		switch {
+		case arithParens > 0:
+			switch b {
+			case '(':
+				arithParens++
+			case ')':
+				arithParens--
+			}
+		case b == '(' && i+1 < len(src) && src[i+1] == '(':
+			arithParens = 1
+		case b == '<':
+			heredoc, end, isHeredoc, ok := heredocAt(src, i)
+			if !ok {
+				return nil, false, false
+			}
+			if isHeredoc || end > i {
+				if isHeredoc {
+					heredocs = append(heredocs, heredoc)
+				}
+				i = end
+				atWordStart = false
+				atCommandStart = false
+				condAtElement = false
 				continue
 			}
 		}

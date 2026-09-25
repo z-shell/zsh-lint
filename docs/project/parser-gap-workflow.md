@@ -117,6 +117,8 @@ The `Parse Cost` workflow does this on every pull request that touches the parse
 
 Produce a change's verdict table with `zsh-lint-survey -compare <base-binary> -native <files>`, where the base binary is `zsh-lint-survey` built from the pull request's base ([#412](https://github.com/z-shell/zsh-lint/issues/412)).
 It prints one line per changed file, `FIXED`, `REGRESSED`, `FALSE-ACCEPT`, `REJECTED`, or `MOVED` (still failing at a different first error), judged by `zsh -f -n`, and exits 1 when anything regressed or a false accept was introduced.
+With `-native` the summary also counts the known disagreements the change leaves in place (valid files failing in both builds, invalid files parsing in both); `-known` lists them.
+For a probe grid, `zsh-lint-probe -bodies <file> -out <dir>` places each variant of the construct in every scanner context (compound-command bodies, command substitutions with and without double quotes, backquotes, and positions after here-documents and odd quotes) for `-compare` to judge ([#428](https://github.com/z-shell/zsh-lint/issues/428)).
 
 `internal/parse/adapter_chain_test.go` enforces all of this: every ordered pair of adapter features and all features together must parse; original text must be restored; invalid Zsh must still be rejected; self-recursion must not widen the grammar; and every snippet must genuinely require its adapter, so a snippet the base parser already accepts cannot make its cases vacuously pass.
 Adding an adapter to the chain extends that matrix automatically.

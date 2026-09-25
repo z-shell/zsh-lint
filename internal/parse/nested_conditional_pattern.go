@@ -358,6 +358,27 @@ func scanConditionalPatterns(
 				pushLegacyBacktickFrame(&frames, &backtickRoots, src, i, true, inspectLegacyLookup)
 				continue
 			}
+			// A `${...}` inside the string opens its own quoting context, so a
+			// `"` in its word starts a nested string rather than closing this
+			// one (#401). Its extent comes from the shared rule; a `)` in it is
+			// quoted text, and an expansion that holds a command substitution
+			// gets the same treatment as `$(` above.
+			if b == '$' && i+1 < len(src) && src[i+1] == '{' {
+				if end, ok := skipBracedParameter(src, i+1, true); ok {
+					expansion := src[i : end+1]
+					if bytes.Contains(expansion, []byte("$(")) || bytes.IndexByte(expansion, '`') >= 0 {
+						invalidateActivePattern(frame, i)
+					} else {
+						for j := i; j <= end; j++ {
+							if src[j] == ')' {
+								noteQuotedPatternClose(frame, j)
+							}
+						}
+					}
+					i = end
+					continue
+				}
+			}
 			if b == '\\' {
 				frame.escaped = activeSourceDoubleQuoteEscapes(src, i)
 				continue

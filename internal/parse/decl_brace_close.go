@@ -253,19 +253,17 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 			continue
 		}
 		if b == '<' && i+1 < len(src) && src[i+1] == '<' {
-			stripTabs := i+2 < len(src) && src[i+2] == '-'
-			delimiterStart := i + 2
-			if stripTabs {
-				delimiterStart++
-			}
-			delimiter, end, ok := parseHeredocDelimiter(src, delimiterStart)
+			heredoc, end, isHeredoc, ok := heredocAt(src, i)
 			if !ok {
 				return 0, 0, false
 			}
-			heredocs = append(heredocs, pendingHeredoc{
-				delimiter: delimiter,
-				stripTabs: stripTabs,
-			})
+			if !isHeredoc {
+				// A here-string `<<<`: its word is ordinary text.
+				i += 2
+				atCommandStart = false
+				continue
+			}
+			heredocs = append(heredocs, heredoc)
 			i = end - 1
 			atCommandStart = false
 			continue

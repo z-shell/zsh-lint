@@ -173,6 +173,7 @@ It is used for corpus validation and upstream syntax compatibility tracking.
 zsh-lint-survey path/to/*.zsh
 zsh-lint-survey -trace-parses path/to/file.zsh   # also report parse count and adapter depth on stderr
 zsh-lint-survey -compare ./base/zsh-lint-survey -native path/to/*.zsh   # verdict changes against a base build
+zsh-lint-probe -bodies bodies.txt -out grid/   # place construct variants in every scanner context
 ```
 
 </details>

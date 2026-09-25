@@ -347,24 +347,16 @@ func scanCommandWords(src []byte, visit func(start, end int, word string) (int, 
 			continue
 		case '<', '>':
 			if b == '<' && i+1 < len(src) && src[i+1] == '<' {
-				if i+2 < len(src) && src[i+2] == '<' {
+				heredoc, end, isHeredoc, ok := heredocAt(src, i)
+				if !ok {
+					return
+				}
+				if !isHeredoc {
 					i += 2
 					atCommandStart = false
 					continue
 				}
-				stripTabs := i+2 < len(src) && src[i+2] == '-'
-				delimiterStart := i + 2
-				if stripTabs {
-					delimiterStart++
-				}
-				delimiter, end, ok := parseHeredocDelimiter(src, delimiterStart)
-				if !ok {
-					return
-				}
-				heredocs = append(heredocs, pendingHeredoc{
-					delimiter: delimiter,
-					stripTabs: stripTabs,
-				})
+				heredocs = append(heredocs, heredoc)
 				i = end - 1
 				atCommandStart = false
 				continue

@@ -41,13 +41,14 @@ func TestParseCostScriptFlagsRisesAndNeverFails(t *testing.T) {
 	}
 	script := repositoryFilePath(t, ".github", "scripts", "parse-cost.sh")
 
-	fakeSurvey := func(dir, name string, ziParses int) string {
+	fakeSurvey := func(dir, name string, ziParses int, ziVerdict string) string {
 		path := filepath.Join(dir, name)
 		body := "#!/usr/bin/env bash\n" +
 			"for f in \"$@\"; do\n" +
 			"  [[ $f == -* ]] && continue\n" +
-			"  n=3; [[ $f == corpus/zi/zi.zsh ]] && n=" + strconv.Itoa(ziParses) + "\n" +
+			"  n=3; v=OK; [[ $f == corpus/zi/zi.zsh ]] && n=" + strconv.Itoa(ziParses) + " && v=" + ziVerdict + "\n" +
 			"  echo \"TRACE $f parses=$n adapter-depth=1\" >&2\n" +
+			"  if [[ $v == OK ]]; then echo \"OK   $f\"; else printf 'FAIL %s\\n%s:1:1: x\\n' \"$f\" \"$f\"; fi\n" +
 			"done\n" +
 			"echo 'TRACE total files=0 parses=0 max-adapter-depth=0' >&2\n" +
 			"exit 1\n"
@@ -58,13 +59,18 @@ func TestParseCostScriptFlagsRisesAndNeverFails(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		baseParses int
-		wantNotice bool
+		name        string
+		baseParses  int
+		baseVerdict string
+		wantNotice  bool
+		wantListed  bool
 	}{
-		{name: "rise above threshold", baseParses: 100, wantNotice: true},
-		{name: "rise within threshold", baseParses: 115, wantNotice: false},
-		{name: "unchanged", baseParses: 120, wantNotice: false},
+		{name: "rise above threshold", baseParses: 100, baseVerdict: "OK", wantNotice: true},
+		{name: "rise within threshold", baseParses: 115, baseVerdict: "OK", wantNotice: false},
+		{name: "unchanged", baseParses: 120, baseVerdict: "OK", wantNotice: false},
+		// A file the change fixes starts parsing, so it costs more by
+		// definition: listed, not flagged (#437).
+		{name: "verdict changed", baseParses: 1, baseVerdict: "FAIL", wantNotice: false, wantListed: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -85,8 +91,8 @@ func TestParseCostScriptFlagsRisesAndNeverFails(t *testing.T) {
 			if err := os.Mkdir(tmp, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			fakeSurvey(tmp, "survey-head", 120)
-			fakeSurvey(tmp, "survey-base", tt.baseParses)
+			fakeSurvey(tmp, "survey-head", 120, "OK")
+			fakeSurvey(tmp, "survey-base", tt.baseParses, tt.baseVerdict)
 			summary := filepath.Join(dir, "summary.md")
 
 			command := exec.Command(bash, "--noprofile", "--norc", script)
@@ -103,6 +109,10 @@ func TestParseCostScriptFlagsRisesAndNeverFails(t *testing.T) {
 			report, err := os.ReadFile(summary)
 			if err != nil {
 				t.Fatalf("read summary: %v", err)
+			}
+			listed := strings.Contains(string(report), "| `corpus/zi/zi.zsh` | FAIL | OK | 1 | 120 |")
+			if listed != tt.wantListed {
+				t.Fatalf("verdict-change listing present = %v, want %v:\n%s", listed, tt.wantListed, report)
 			}
 			if !strings.Contains(string(report), "| `corpus/zi/zi.zsh` | 120 | 1 |") {
 				t.Fatalf("summary lacks the head measurement for zi.zsh:\n%s", report)
