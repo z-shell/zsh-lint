@@ -1,5 +1,7 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Issue #303: the parenthesized list form of select, `select name ( word ... )`
 # followed by a sublist, a `{ list }` brace body, a `do list done` body, a
 # separator then a body, or nothing (empty body), is native-valid Zsh (par_for

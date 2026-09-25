@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Reserved-Words
 # Issue #298: a declaration builtin before a bare `}` inside a loop, `if` or
 # `case` body, with a separator after the brace. The clause swallows the `}`
 # and stops at the `;`, so the parser meets `done`, `fi` or `esac` inside the

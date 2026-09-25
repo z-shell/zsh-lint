@@ -1,5 +1,7 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html#Conditional-Expressions
 # Issue #254: a brace-form if, elif, or while ends its [[ ]] condition only at
 # a `]]` that is a whole word. A `]]` inside a bracket class, a pattern, or a
 # quoted string belongs to the condition.

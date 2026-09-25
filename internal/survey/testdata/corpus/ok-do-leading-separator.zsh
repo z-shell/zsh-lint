@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
 # Issue #238: a loop body may begin with a separator directly after `do`.
 # The parser reads `do;` as an empty body and then demands `done`; the front
 # end masks that one separator and verifies the loop's `do` in the tree.

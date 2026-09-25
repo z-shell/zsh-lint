@@ -1,4 +1,6 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Command-Substitution
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Quoting
 # Fixture for #393. Inside a double-quoted string, `$(...)`, `${...}` and
 # backquotes start their own quoting context, so an odd quote in a nested
 # string is a literal byte there. Every alternate form after such a string is

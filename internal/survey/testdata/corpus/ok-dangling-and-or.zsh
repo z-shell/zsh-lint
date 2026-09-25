@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Simple-Commands-_0026-Pipelines
 # Fixture for #331.
 # Native Zsh accepts `&&` and `||` as the last token of a list: the operator has
 # no right operand, and the left one runs exactly as a bare statement would.

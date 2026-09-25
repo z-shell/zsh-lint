@@ -1,5 +1,7 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html#Conditional-Expressions
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Quoting
 # Issue #232: a quoted or escaped `)` inside a conditional pattern group does
 # not close the group. The parser lexes a group up to the first `)` no matter
 # how it is quoted, so zsh-lint masks that byte locally and restores it.

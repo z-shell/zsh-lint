@@ -1,4 +1,6 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
 # Regression fixture for #337. Each statement is valid Zsh; the defect only
 # appeared when an alternate-form `if`, a `while` with a non-brace body, and
 # a `try`/`always` block met in one file, so the combinations matter here

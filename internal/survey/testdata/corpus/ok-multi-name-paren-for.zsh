@@ -1,4 +1,6 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Fixture for #324.
 # zshmisc composes two productions: a `for` header may name more than one
 # variable, and the alternate form spells the word list as `( word ... )`.
