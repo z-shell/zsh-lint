@@ -227,7 +227,13 @@ func (p *Parser) nextKeepSpaces() {
 		switch r {
 		case '}':
 			p.tok = p.paramToken(r)
-		case '`', '"', '$', '\'':
+		case '\'':
+			if p.zshDquoteParam {
+				p.advanceLitOther(r)
+				break
+			}
+			p.tok = p.regToken(r)
+		case '`', '"', '$':
 			p.tok = p.regToken(r)
 		default:
 			p.advanceLitOther(r)
@@ -1041,6 +1047,9 @@ loop:
 		case '\\': // escaped byte follows
 			p.rune()
 		case '\'', '"', '`', '$':
+			if r == '\'' && p.zshDquoteParam && p.quote&(paramExpExp|paramExpRepl) != 0 {
+				continue // Zsh: a quote in a double-quoted ${...} word is text
+			}
 			tok = _Lit
 			break loop
 		case '}':
