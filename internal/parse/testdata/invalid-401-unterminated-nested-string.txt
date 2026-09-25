@@ -1,0 +1,3 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html#Conditional-Expressions
+[[ "${x:-"it's}" == (a|(b|c)) ]]
