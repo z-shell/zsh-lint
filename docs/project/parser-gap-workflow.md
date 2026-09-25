@@ -32,7 +32,8 @@ A fixture that `zsh -n` rejects is a broken script, not a parser gap; never comm
 
 Add the minimized script as `internal/survey/testdata/corpus/gap-<issue>-<slug>.zsh` with the standard Zsh modeline and a leading comment naming the issue.
 `TestMinimizedCorpus` (`internal/survey/corpus_test.go`) discovers fixtures by scanning the corpus directory and enforces the naming contract: `gap-<issue>-<slug>.zsh` must fail to parse, `ok-<slug>.zsh` must parse, and any other name is rejected.
-There is no fixture count assertion — adding fixtures never requires test edits ([#14](https://github.com/z-shell/zsh-lint/issues/14)); only the small `requiredFixtures` baseline list is asserted by name.
+There is no fixture count assertion: adding fixtures never requires test edits ([#14](https://github.com/z-shell/zsh-lint/issues/14)).
+The `requiredFixtures` list in that test is a frozen baseline against accidental deletion of the corpus; never add a new fixture to it ([#406](https://github.com/z-shell/zsh-lint/issues/406)).
 
 ### Native-invalid regression sources
 
@@ -49,7 +50,7 @@ Do not add exceptions to the native Zsh syntax gate for ordinary `.zsh` files.
 ## 5. Close the loop
 
 When a front-end change (or a front-end swap, [#17](https://github.com/z-shell/zsh-lint/issues/17)) makes a `gap-*` fixture parse, the test fails loudly.
-Rename the fixture to `ok-<slug>.zsh` so it becomes permanent regression coverage, update `requiredFixtures`, and close the issue with a link to the survey run confirming the originating real file now parses.
+Rename the fixture to `ok-<slug>.zsh` so it becomes permanent regression coverage, and close the issue with a link to the survey run confirming the originating real file now parses.
 
 ### Front-end strategy
 

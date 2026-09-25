@@ -10,9 +10,10 @@ import (
 	"github.com/z-shell/zsh-lint/internal/parse"
 )
 
-// requiredFixtures is the minimal baseline that must always exist. It guards
-// against accidental deletion without asserting a brittle total count
-// (issue #14): new fixtures can be added freely without touching this test.
+// requiredFixtures is a frozen baseline that must always exist. It guards
+// against accidental deletion of the corpus without asserting a brittle total
+// count (issue #14). Do not add new fixtures here: TestMinimizedCorpus and
+// TestCorpusFixturesAgreeWithNativeZsh check every fixture by discovery (#406).
 var requiredFixtures = []string{
 	"ok-alternate-for-multiline-parens.zsh",
 	"ok-alternate-for-then-anonymous-args-in-function.zsh",
