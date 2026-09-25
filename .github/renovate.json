@@ -14,6 +14,35 @@
         "\"(?<depName>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@(?<currentDigest>[0-9a-f]{40}) # (?<currentValue>v[0-9][0-9A-Za-z.+-]*)\""
       ],
       "datasourceTemplate": "github-tags"
+    },
+    {
+      "description": "golangci-lint version in the Go CI lint step (#422)",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/go-ci\\.yml$/"],
+      "matchStrings": [
+        "golangci/golangci-lint-action@[0-9a-f]{40}[^\\n]*\\n\\s+with:\\n\\s+version: v(?<currentValue>[0-9][0-9.]*)"
+      ],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "description": "golangci-lint version Trunk runs (#422)",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.trunk/trunk\\.yaml$/"],
+      "matchStrings": ["golangci-lint2@(?<currentValue>[0-9][0-9.]*)"],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "description": "golangci-lint version the agent setup script installs (#422)",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/scripts/agent-setup\\.sh$/"],
+      "matchStrings": ["golangci_version=v(?<currentValue>[0-9][0-9.]*)"],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
     }
   ],
   "packageRules": [
@@ -23,6 +52,12 @@
       "matchFileNames": ["internal/workflowcontract/**"],
       "groupName": "github actions non-major updates",
       "groupSlug": "github-actions-non-major"
+    },
+    {
+      "description": "Move every golangci-lint version in one pull request (#422)",
+      "matchPackageNames": ["golangci/golangci-lint"],
+      "groupName": "golangci-lint",
+      "groupSlug": "golangci-lint"
     }
   ]
 }
