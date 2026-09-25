@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"slices"
@@ -1282,4 +1283,38 @@ func TestNestedConditionalAlternationRejectsUnquotedCloseInBracketExpression(t *
 	}
 	assertParseErrorAt(t, fixture, unmatchedConditionalClose, 1, 4)
 	assertParseErrorAt(t, []byte("[[ $b = [)] ]]\n"), unmatchedConditionalClose, 1, 1)
+}
+
+// A case pattern's optional leading `(` is not a pattern group, so a nested
+// group in `[[ ]]` in the arm body is still found (#440). A leading group
+// followed by more pattern, `(x|y))`, keeps its group reading.
+func TestNestedPatternInParenthesizedCaseArm(t *testing.T) {
+	for _, src := range []string{
+		"case x in\n  (x) [[ a == (a|(b|c)) ]] ;;\nesac\n",
+		"case x in\n  (x)\n    [[ a == (a|(b|c)) ]]\n    ;;\nesac\n",
+		"case x in\n  (x) : ;;\n  (y) [[ a == (a|(b|c)) ]] ;;\nesac\n",
+		"case x in\n  (x|y)) [[ a == (a|(b|c)) ]] ;;\nesac\n",
+		"case x in\n  (x) [[ a == (a|(b|c)) ]]\nesac\n",
+	} {
+		if _, err := Parse(strings.NewReader(src), "t.zsh"); err != nil {
+			t.Errorf("%q: %v", src, err)
+		}
+	}
+	src, err := os.ReadFile("testdata/invalid-440-unbalanced-group-in-case-arm.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parseErr syntax.ParseError
+	if _, err := Parse(bytes.NewReader(src), "invalid-440.zsh"); !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error = %v, want a parse error", err)
+	}
+}
+
+func TestCasePatternOpenerCloses(t *testing.T) {
+	src := []byte("(x) (x)y) (x);(x)")
+	for i, want := range map[int]bool{2: true, 6: false, 12: true, 16: true} {
+		if got := casePatternOpenerCloses(src, i); got != want {
+			t.Errorf("casePatternOpenerCloses(%q, %d) = %v, want %v", src, i, got, want)
+		}
+	}
 }
