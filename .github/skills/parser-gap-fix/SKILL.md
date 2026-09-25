@@ -26,7 +26,8 @@ go run ./cmd/zsh-lint-survey gap.zsh    # zsh-lint verdict
 - Valid Zsh that zsh-lint rejects is a parser gap; invalid Zsh that zsh-lint accepts is a false accept.
 - Judge `zsh -f -n` by stderr, not exit status: `! true` exits 1 with no diagnostic.
 - `zsh -f -n` skips arithmetic evaluation and assignment-word expansion (#287); a source Zsh rejects only when it runs is runtime-tier (step 3).
-- Name the language feature from the manual section (`zshmisc`, `zshexpn`, `zshparam`, `zshoptions`) and keep one feature per issue.
+- Name the language feature from the released manual (`zshmisc`, `zshexpn`, `zshparam`, `zshoptions`), not from memory, another shell, or what mvdan/sh accepts, and keep one feature per issue.
+- Keep the section's URL, `https://zsh.sourceforge.io/Doc/Release/<Page>.html#<Section>`: the issue body and every fixture cite it. When the manual and `zsh -f -n` disagree, the binary decides; record both and `zsh --version` in the issue.
 
 ## 2. Check the issue and the backlog
 
@@ -35,7 +36,8 @@ go run ./cmd/zsh-lint-survey gap.zsh    # zsh-lint verdict
 
 ## 3. Add fixtures before the fix
 
-- Valid Zsh: `internal/survey/testdata/corpus/gap-<issue>-<slug>.zsh`, renamed to `ok-<slug>.zsh` once it parses. Do not add it to `requiredFixtures`.
+- Every fixture carries a `# Manual: <url>` line; `TestFixturesCiteManual` (`internal/manualcite`) enforces it. A fixture renamed away from a name in `internal/manualcite/testdata/fixture-exemptions.txt` gains the line and leaves the list, and `exemptionCeiling` drops, in the same change.
+- Name the language feature from the manual section (`zshmisc`, `zshexpn`, `zshparam`, `zshoptions`) and keep one feature per issue.
 - Invalid Zsh that must stay rejected: `internal/parse/testdata/invalid-<issue>-<slug>.txt`, read by a focused parser test that asserts the error family and position.
 - A source `zsh -f -n` accepts but Zsh rejects at run time goes in `runtimeTierInvalidFixtures` (`internal/survey/native_oracle_test.go`) with its runtime error. Never execute an invalid source.
 - `go test ./internal/survey -run TestCorpusFixturesAgreeWithNativeZsh` re-checks every fixture against `zsh -f -n`.
