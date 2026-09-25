@@ -269,8 +269,12 @@ func scanCommandWords(src []byte, visit func(start, end int, word string) (int, 
 			atCommandStart = false
 			continue
 		case '"':
-			inDoubleQuote = true
 			atCommandStart = false
+			if end, ok := skipDoubleQuotedString(src, i); ok {
+				i = end
+				continue
+			}
+			inDoubleQuote = true
 			continue
 		case '#':
 			if i == 0 || isRepeatWordBoundary(src[i-1]) {

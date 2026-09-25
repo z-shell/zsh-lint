@@ -1,0 +1,3 @@
+print "$(print ")")"
+for x ( a b ) { print $x }
+}
