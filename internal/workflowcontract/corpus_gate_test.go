@@ -39,8 +39,20 @@ func TestCorpusManifestIsExactAndContained(t *testing.T) {
 
 func TestCorpusGateUsesReadOnlyPinnedCheckouts(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github", "workflows", "corpus-gate.yml")
-	if got := strings.Count(workflow, "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"); got != 14 {
-		t.Fatalf("two corpus jobs must use fourteen pinned checkout steps; got %d", got)
+	// The corpus gate holds no secrets, so the pin is checked for shape and
+	// consistency rather than one literal commit; a Renovate bump then moves
+	// every checkout together without touching this test (#91, #420).
+	checkouts := pinnedCheckout.FindAllStringSubmatch(workflow, -1)
+	if len(checkouts) != 14 {
+		t.Fatalf("two corpus jobs must use fourteen checkout steps pinned to a full commit SHA with a version comment; got %d", len(checkouts))
+	}
+	for _, checkout := range checkouts[1:] {
+		if checkout[1] != checkouts[0][1] {
+			t.Fatalf("every corpus checkout must use the same pin; got %q and %q", checkouts[0][1], checkout[1])
+		}
+	}
+	if got := strings.Count(workflow, "uses: actions/checkout@"); got != len(checkouts) {
+		t.Fatalf("every corpus checkout must be pinned to a full commit SHA with a version comment; %d of %d are", len(checkouts), got)
 	}
 	if got := strings.Count(workflow, "persist-credentials: false"); got != 14 {
 		t.Fatalf("every corpus checkout must disable persisted credentials; got %d", got)
@@ -66,6 +78,10 @@ func TestCorpusGateUsesReadOnlyPinnedCheckouts(t *testing.T) {
 var corpusRepositories = []string{"src", "zd", "zunit", "z-a-meta-plugins", "zsh-fancy-completions", "zsh-eza"}
 
 var fullCommitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// pinnedCheckout matches a checkout step pinned to a full commit SHA with a
+// version comment and captures the pin.
+var pinnedCheckout = regexp.MustCompile(`uses: (actions/checkout@[0-9a-f]{40} # v[0-9][0-9.]*)\n`)
 
 func TestCorpusRevisionsPinEveryRepository(t *testing.T) {
 	manifest := readRepositoryFile(t, "docs", "project", "corpus-revisions.txt")
