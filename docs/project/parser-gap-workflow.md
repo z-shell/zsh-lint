@@ -14,6 +14,9 @@ Note that the survey reports only the _first_ parse error per file — later con
 ## 2. Classify
 
 Check the Zsh manual (`man zshexpn`, `man zshparam`, `man zshmisc`) to name the language feature involved.
+Read the released manual, not memory, another shell's documentation, or what mvdan/sh accepts.
+Prefer the man pages installed with the `zsh` you run as the oracle, since they describe that binary; link the section from the released HTML manual, `https://zsh.sourceforge.io/Doc/Release/<Page>.html#<Section>` (baseline Zsh 5.9.2), in the issue body.
+When the manual is silent or disagrees with `zsh -f -n`, the binary decides validity; record the disagreement and the output of `zsh --version` in the issue.
 One issue per language feature — split broad "file X fails" findings into narrower feature issues.
 Worked examples: [#11](https://github.com/z-shell/zsh-lint/issues/11) parameter-expansion flags and operators, [#13](https://github.com/z-shell/zsh-lint/issues/13) multi-name loops, [#15](https://github.com/z-shell/zsh-lint/issues/15) reverse subscripts, [#16](https://github.com/z-shell/zsh-lint/issues/16) filename-generation patterns, [#53](https://github.com/z-shell/zsh-lint/issues/53) nested parameter expansions.
 Label new issues `parser-gap` + `corpus`.
@@ -30,7 +33,9 @@ A fixture that `zsh -n` rejects is a broken script, not a parser gap; never comm
 
 ## 4. Promote to fixture
 
-Add the minimized script as `internal/survey/testdata/corpus/gap-<issue>-<slug>.zsh` with the standard Zsh modeline and a leading comment naming the issue.
+Add the minimized script as `internal/survey/testdata/corpus/gap-<issue>-<slug>.zsh` with the standard Zsh modeline, a leading comment naming the issue, and a `# Manual: <url>` line linking the manual section from step 2.
+`TestFixturesCiteManual` (`internal/manualcite`) requires that line on every `gap-`, `ok-` and `invalid-` fixture and checks that the URL names a page of the released manual.
+Fixtures that predate the requirement are listed in `internal/manualcite/testdata/fixture-exemptions.txt`; the list only shrinks, so a fixture that gains a citation leaves it in the same change and `exemptionCeiling` is lowered to the new count.
 `TestMinimizedCorpus` (`internal/survey/corpus_test.go`) discovers fixtures by scanning the corpus directory and enforces the naming contract: `gap-<issue>-<slug>.zsh` must fail to parse, `ok-<slug>.zsh` must parse, and any other name is rejected.
 There is no fixture count assertion: adding fixtures never requires test edits ([#14](https://github.com/z-shell/zsh-lint/issues/14)).
 The `requiredFixtures` list in that test is a frozen baseline against accidental deletion of the corpus; never add a new fixture to it ([#406](https://github.com/z-shell/zsh-lint/issues/406)).
@@ -38,7 +43,7 @@ The `requiredFixtures` list in that test is a frozen baseline against accidental
 ### Native-invalid regression sources
 
 False acceptance defects need the opposite contract: native Zsh rejects the source and zsh-lint must also reject it.
-Store a minimized source as `internal/parse/testdata/invalid-<issue>-<slug>.txt` and exercise it from a focused parser test.
+Store a minimized source as `internal/parse/testdata/invalid-<issue>-<slug>.txt` with a `# Manual: <url>` comment line linking the grammar the source violates, and exercise it from a focused parser test.
 Use `.txt` deliberately so the repository-wide native Zsh syntax gate continues to require every tracked `.zsh` corpus source to be valid.
 
 Record the native decision with `zsh -f -n`, but never execute an invalid test source.
@@ -51,6 +56,7 @@ Do not add exceptions to the native Zsh syntax gate for ordinary `.zsh` files.
 
 When a front-end change (or a front-end swap, [#17](https://github.com/z-shell/zsh-lint/issues/17)) makes a `gap-*` fixture parse, the test fails loudly.
 Rename the fixture to `ok-<slug>.zsh` so it becomes permanent regression coverage, and close the issue with a link to the survey run confirming the originating real file now parses.
+If the old name is in `internal/manualcite/testdata/fixture-exemptions.txt`, the renamed fixture gains its `# Manual: <url>` line and the old entry leaves the list in the same change; `TestFixturesCiteManual` fails otherwise.
 
 ### Front-end strategy
 
