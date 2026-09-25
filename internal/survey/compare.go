@@ -28,6 +28,11 @@ type CompareOptions struct {
 	// splits verdict changes into fixes, regressions, and false accepts.
 	// NativeZsh wraps `zsh -f -n` for it.
 	Native func(name string) (valid bool, err error)
+	// ListKnown, with Native, also prints a line for every unchanged file
+	// whose verdict disagrees with native Zsh: GAP (valid Zsh that fails in
+	// both builds) and ACCEPTED (invalid Zsh that parses in both builds).
+	// Their counts are in the summary either way (#428).
+	ListKnown bool
 }
 
 // Change classes, printed as the first word of each changed file's line.
@@ -39,6 +44,9 @@ const (
 	classNowOK       = "NOW-OK"
 	classNowFail     = "NOW-FAIL"
 	classMoved       = "MOVED"
+
+	knownGap      = "GAP"
+	knownAccepted = "ACCEPTED"
 )
 
 // Compare surveys names with the current build and compares each verdict
@@ -52,6 +60,11 @@ const (
 // A file that fails in both builds with a different first diagnostic is
 // MOVED.
 //
+// With opts.Native the unchanged files are judged too, and the summary
+// counts the known disagreements with native Zsh that the change neither
+// fixed nor introduced: valid files failing in both builds (known gaps) and
+// invalid files parsing in both (known false accepts).
+//
 // It returns 1 when a file regressed or a false accept was introduced
 // (without Native: when any file went from OK to FAIL), 2 when the base or
 // native verdict could not be obtained, and 0 otherwise.
@@ -63,7 +76,7 @@ func Compare(names []string, w io.Writer, opts CompareOptions) int {
 	}
 
 	counts := map[string]int{}
-	var unchanged int
+	var unchanged, gaps, accepted int
 	for _, name := range names {
 		before, ok := base[name]
 		if !ok {
@@ -76,6 +89,29 @@ func Compare(names []string, w io.Writer, opts CompareOptions) int {
 		switch {
 		case before.OK == after.OK && before.Diagnostic == after.Diagnostic:
 			unchanged++
+			if opts.Native == nil {
+				continue
+			}
+			valid, err := opts.Native(name)
+			if err != nil {
+				_, _ = fmt.Fprintf(w, "compare: native verdict for %s: %v\n", name, err)
+				return 2
+			}
+			known := ""
+			switch {
+			case valid && !after.OK:
+				gaps++
+				known = knownGap
+			case !valid && after.OK:
+				accepted++
+				known = knownAccepted
+			}
+			if known != "" && opts.ListKnown {
+				_, _ = fmt.Fprintf(w, "%s %s\n", known, name)
+				if !after.OK {
+					_, _ = fmt.Fprintln(w, after.Diagnostic)
+				}
+			}
 			continue
 		case !before.OK && !after.OK:
 			class = classMoved
@@ -110,6 +146,9 @@ func Compare(names []string, w io.Writer, opts CompareOptions) int {
 		if counts[class] > 0 {
 			_, _ = fmt.Fprintf(w, ", %d %s", counts[class], strings.ToLower(class))
 		}
+	}
+	if opts.Native != nil {
+		_, _ = fmt.Fprintf(w, "; known: %d gap(s), %d false accept(s)", gaps, accepted)
 	}
 	_, _ = fmt.Fprintln(w)
 
