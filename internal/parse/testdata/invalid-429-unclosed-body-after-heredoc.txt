@@ -1,0 +1,6 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Redirection.html#Redirection
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
+cat <<'EOF'
+'
+EOF
+if [[ -n $x ]] { print a
