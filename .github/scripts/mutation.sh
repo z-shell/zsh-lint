@@ -12,12 +12,20 @@
 # that LIVED is a test gap; the script lists them and exits 1. Changed lines
 # no test covers are listed too, as NOT COVERED, without failing the run.
 #
+# gremlins derives each mutant's timeout from the baseline test time. With a
+# fast suite its default is shorter than a mutant's build, so every mutant
+# times out and none can live (#463). The coefficient below is set explicitly
+# (MUTATION_TIMEOUT_COEFFICIENT overrides it), and a run in which timeouts
+# outnumber the mutants that were killed or lived is reported as
+# inconclusive and exits 3 rather than passing.
+#
 # Expect minutes, not seconds: every mutant reruns the tests of its package.
 
 set -euo pipefail
 
 gremlins_version=v0.6.0
 base=${1:-origin/main}
+timeout_coefficient=${MUTATION_TIMEOUT_COEFFICIENT:-30}
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
@@ -31,7 +39,7 @@ trap 'rm -f "$report"' EXIT
 
 status=0
 go run "github.com/go-gremlins/gremlins/cmd/gremlins@$gremlins_version" unleash \
-  --diff "$base" --output-statuses lc >"$report" 2>&1 || status=$?
+  --diff "$base" --output-statuses lc --timeout-coefficient "$timeout_coefficient" >"$report" 2>&1 || status=$?
 
 lived=$(grep -cE '^ *LIVED ' "$report" || true)
 uncovered=$(grep -cE '^ *NOT COVERED ' "$report" || true)
@@ -50,7 +58,18 @@ if ! grep -q '^Killed:' "$report"; then
   exit 2
 fi
 
+# The summary lines read `Killed: K, Lived: L, Not covered: N` and
+# `Timed out: T, ...`.
+killed=$(sed -nE 's/^Killed: ([0-9]+),.*/\1/p' "$report")
+timed_out=$(sed -nE 's/^Timed out: ([0-9]+),.*/\1/p' "$report")
+killed=${killed:-0}
+timed_out=${timed_out:-0}
+
 echo "mutation: against $base, $lived lived, $uncovered on uncovered lines"
 if ((lived > 0)); then
   exit 1
+fi
+if ((timed_out > killed + lived)); then
+  echo "mutation: inconclusive: $timed_out mutants timed out, $killed killed; raise MUTATION_TIMEOUT_COEFFICIENT (now $timeout_coefficient)" >&2
+  exit 3
 fi
