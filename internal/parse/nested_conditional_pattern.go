@@ -358,35 +358,34 @@ func scanConditionalPatterns(
 			}
 			continue
 		case activeSourceDoubleQuoted:
+			// A substitution in the string keeps the pattern: the parser fork
+			// reads a group through it (#439), so only its own frame is new.
 			if b == '$' && i+1 < len(src) && src[i+1] == '(' &&
 				(i+2 >= len(src) || src[i+2] != '(') {
-				invalidateActivePattern(frame, i)
 				frames = append(frames, newActiveSourceFrame(activeSourceCommandSubstitutionFrame, frame))
 				i++
 				continue
 			}
+			// An arithmetic expansion is skipped whole, for the same reason:
+			// its `)` bytes are not quoted pattern closers.
+			if b == '$' && i+1 < len(src) && src[i+1] == '(' {
+				if end, ok := matchingParen(src, i+1, len(src)); ok {
+					i = end
+					continue
+				}
+			}
 			if b == '`' {
-				invalidateActivePattern(frame, i)
 				pushLegacyBacktickFrame(&frames, &backtickRoots, src, i, true, inspectLegacyLookup)
 				continue
 			}
 			// A `${...}` inside the string opens its own quoting context, so a
 			// `"` in its word starts a nested string rather than closing this
-			// one (#401). Its extent comes from the shared rule; a `)` in it is
-			// quoted text, and an expansion that holds a command substitution
-			// gets the same treatment as `$(` above.
+			// one (#401). Its extent comes from the shared rule, and it is
+			// skipped whole: the parser fork does not end a group at a quoted
+			// `)` or inside a substitution (#439), so none of its bytes needs
+			// a mask.
 			if b == '$' && i+1 < len(src) && src[i+1] == '{' {
 				if end, ok := skipBracedParameter(src, i+1, true); ok {
-					expansion := src[i : end+1]
-					if bytes.Contains(expansion, []byte("$(")) || bytes.IndexByte(expansion, '`') >= 0 {
-						invalidateActivePattern(frame, i)
-					} else {
-						for j := i; j <= end; j++ {
-							if src[j] == ')' {
-								noteQuotedPatternClose(frame, j)
-							}
-						}
-					}
 					i = end
 					continue
 				}
@@ -407,7 +406,7 @@ func scanConditionalPatterns(
 		if b == '\n' && frame.arithmeticDepth == 0 && len(frame.heredocs) > 0 {
 			next, ok := consumeHeredocBodies(src, i+1, frame.heredocs)
 			if !ok {
-				return conditionalPatternScan{}, false
+				return abandonedConditionalPatternScan(finding)
 			}
 			frame.heredocs = nil
 			frame.inComment = false
@@ -470,10 +469,10 @@ func scanConditionalPatterns(
 				continue
 			}
 			if escapeDepth != depth-1 {
-				return conditionalPatternScan{}, false
+				return abandonedConditionalPatternScan(finding)
 			}
 			if !activeSourceFrameCanClose(frame) {
-				return conditionalPatternScan{}, false
+				return abandonedConditionalPatternScan(finding)
 			}
 			frame.legacyBacktick.closeStart = i - delimiterEscapes
 			frame.legacyBacktick.closeOffset = i
@@ -599,15 +598,16 @@ func scanConditionalPatterns(
 			frame.atCommandStart = false
 			continue
 		}
+		// A command or arithmetic substitution keeps an active pattern: the
+		// parser fork reads a group through it (#439). A process substitution
+		// below still gives the pattern up.
 		if b == '`' {
-			invalidateActivePattern(frame, i)
 			frame.atWordStart = false
 			frame.atCommandStart = false
 			pushLegacyBacktickFrame(&frames, &backtickRoots, src, i, false, inspectLegacyLookup)
 			continue
 		}
 		if b == '$' && i+2 < len(src) && src[i+1] == '(' && src[i+2] == '(' {
-			invalidateActivePattern(frame, i)
 			frame.arithmeticDepth = 2
 			i += 2
 			frame.atWordStart = false
@@ -622,7 +622,6 @@ func scanConditionalPatterns(
 			continue
 		}
 		if b == '$' && i+1 < len(src) && src[i+1] == '(' {
-			invalidateActivePattern(frame, i)
 			frame.atWordStart = false
 			frame.atCommandStart = false
 			frames = append(frames, newActiveSourceFrame(activeSourceCommandSubstitutionFrame, frame))
@@ -746,7 +745,7 @@ func scanConditionalPatterns(
 				continue
 			}
 			if !activeSourceFrameCanClose(frame) {
-				return conditionalPatternScan{}, false
+				return abandonedConditionalPatternScan(finding)
 			}
 			adaptedPattern := frame.adaptedPattern
 			frames = frames[:len(frames)-1]
@@ -762,7 +761,7 @@ func scanConditionalPatterns(
 		if frame.conditional == nil && b == '<' && i+1 < len(src) && src[i+1] == '<' {
 			heredoc, end, isHeredoc, ok := heredocAt(src, i)
 			if !ok {
-				return conditionalPatternScan{}, false
+				return abandonedConditionalPatternScan(finding)
 			}
 			if !isHeredoc {
 				i = end - 1
@@ -810,11 +809,11 @@ func scanConditionalPatterns(
 		finalizeActivePattern(&frames[0], len(src), &candidates, &finding)
 	}
 	if len(frames) != 1 || !activeSourceRootFrameComplete(&frames[0]) {
-		return conditionalPatternScan{}, false
+		return abandonedConditionalPatternScan(finding)
 	}
 	islands, ok := affectedLegacyBacktickIslands(backtickRoots)
 	if !ok {
-		return conditionalPatternScan{}, false
+		return abandonedConditionalPatternScan(finding)
 	}
 	return conditionalPatternScan{
 		candidates:          candidates,
@@ -822,6 +821,18 @@ func scanConditionalPatterns(
 		backtickIslands:     islands,
 		finding:             finding,
 	}, true
+}
+
+// abandonedConditionalPatternScan ends a scan that lost track of the source.
+// An unmatched pattern group already found stays a finding, since the state it
+// leaves (an open group in a substitution, say) is often what stops the scan;
+// dropping it would accept the source (#439). Only the finding is returned, so
+// the compatibility retry is declined either way.
+func abandonedConditionalPatternScan(finding *conditionalPatternFinding) (conditionalPatternScan, bool) {
+	if finding == nil {
+		return conditionalPatternScan{}, false
+	}
+	return conditionalPatternScan{finding: finding}, true
 }
 
 func activePatternOperatorEnd(src []byte, start int) (int, bool) {
