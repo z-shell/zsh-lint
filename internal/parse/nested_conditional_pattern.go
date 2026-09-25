@@ -23,6 +23,11 @@ const unmatchedConditionalClose = "reached `)` without matching `[[` with `]]`"
 // never closes. A `$'...'` string reports the plain `'` token.
 const unclosedDoubleQuote = "reached EOF without closing quote `\"`"
 const unclosedSingleQuote = "reached EOF without closing quote `'`"
+
+// Inside a backquoted command the lexer reaches the closing backquote, not
+// the end of input, when a quoted `)` ended a pattern group early (#441).
+const unclosedDoubleQuoteInBackquotes = "reached \"`\" without closing quote `\"`"
+const unclosedSingleQuoteInBackquotes = "reached \"`\" without closing quote `'`"
 const nestedPatternMask byte = 'x'
 
 type patternEdit struct {
@@ -234,7 +239,8 @@ func parseNestedConditionalAlternationWithParser(
 
 func nestedPatternSeedError(text string) bool {
 	switch text {
-	case invalidAlternationOperator, unmatchedConditionalClose, unclosedDoubleQuote, unclosedSingleQuote:
+	case invalidAlternationOperator, unmatchedConditionalClose, unclosedDoubleQuote, unclosedSingleQuote,
+		unclosedDoubleQuoteInBackquotes, unclosedSingleQuoteInBackquotes:
 		return true
 	}
 	return false
