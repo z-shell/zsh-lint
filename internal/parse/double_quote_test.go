@@ -67,6 +67,10 @@ func TestSkipDoubleQuotedString(t *testing.T) {
 		{"unbalanced paren in a process substitution comment", "\"$(print <(# c (\nprint \"it's\") )\" x", 32},
 		{"case as a clobber redirection target", "\"$(print a >| case; print \"it's\")\" x", 33},
 		{"case as an array element", "\"$(a=( case x ); print \"it's\")\" x", 30},
+		{"glob flags after a declaration builtin", "\"$(export a (#i)q; print \"it's\")\" x", 32},
+		{"comment in a declared array", "\"$(local a=(# c\n x ); print \"it's\")\" x", 35},
+		{"comment in a second declared array", "\"$(local a=(x) b=(# c\n y ); print \"it's\")\" x", 41},
+		{"case as a declared name", "\"$(local case; print \"it's\")\" x", 28},
 		// Not decidable here: the caller falls back to its own handling.
 		{"unterminated", `"$(print "it's")`, -1},
 		{"case in substitution", `"$(case a in a) print "q'";; esac)" x`, -1},

@@ -247,8 +247,8 @@ func skipCommandSubstitution(src []byte, open int) (int, bool) {
 					frame.kind = frameArithmetic
 					i++
 				}
-			case pos == substArgument:
-				frame.kind = frameGlob
+			case pos == substArgument || pos == substDeclaration:
+				frame.kind = frameGlob // `print (#i)x`, `local a (#i)x`
 			}
 			frames = append(frames, frame)
 			switch frame.kind {
@@ -271,7 +271,11 @@ func skipCommandSubstitution(src []byte, open int) (int, bool) {
 					return 0, false
 				}
 				i++
-			case top.open == i-1 && top.kind != frameArray:
+			case top.kind == frameArray:
+				// `local a=(x) b=(y)`: the next word keeps the position
+				// the assignment had.
+				pos = top.outer
+			case top.open == i-1:
 				// `f ()` and `print a ()` define functions: the body is
 				// a command.
 				pos = substCommand
@@ -349,9 +353,10 @@ func skipCommandSubstitution(src []byte, open int) (int, bool) {
 type substPos int
 
 const (
-	substCommand  substPos = iota // a command may start here
-	substArgument                 // an argument of a simple command
-	substUnknown                  // not decidable from the bytes scanned
+	substCommand     substPos = iota // a command may start here
+	substArgument                    // an argument of a simple command
+	substDeclaration                 // an argument of a declaration builtin
+	substUnknown                     // not decidable from the bytes scanned
 )
 
 // substFrameKind is the role of a `(` inside a command substitution.
@@ -389,6 +394,12 @@ var (
 	precommandModifiers = map[string]bool{
 		"-": true, "builtin": true, "command": true, "exec": true,
 		"nocorrect": true, "noglob": true,
+	}
+	// declarationBuiltins parse `name=(...)` arguments as array
+	// assignments.
+	declarationBuiltins = map[string]bool{
+		"declare": true, "export": true, "float": true, "integer": true,
+		"local": true, "readonly": true, "typeset": true,
 	}
 	patternOperators = map[string]bool{
 		"=": true, "==": true, "!=": true, "=~": true,
@@ -438,7 +449,7 @@ func classifySubstWord(src []byte, i int, pos substPos, kind substFrameKind) (su
 			separated = true
 		}
 	}
-	if word == "case" && separated && pos != substArgument {
+	if word == "case" && separated && pos != substArgument && pos != substDeclaration {
 		return 0, -1, false
 	}
 	if pos != substCommand && separated && patternOperators[word] {
@@ -460,6 +471,9 @@ func classifySubstWord(src []byte, i int, pos substPos, kind substFrameKind) (su
 				// word byte: `noglob (# c )` runs a command of that name.
 				return substArgument, -1, true
 			}
+			if separated && declarationBuiltins[word] {
+				return substDeclaration, -1, true
+			}
 			return substUnknown, -1, true
 		case end < len(src) && src[end] == '(':
 			// `name=(` assigns an array; `f()` defines a function.
@@ -474,6 +488,12 @@ func classifySubstWord(src []byte, i int, pos substPos, kind substFrameKind) (su
 	case substArgument:
 		if substReservedWords[word] {
 			return substUnknown, -1, true
+		}
+	case substDeclaration:
+		// `local a=(# c` assigns an array, as in command position; any
+		// other `(` starting a word opens a glob group.
+		if end < len(src) && src[end] == '(' && isArrayAssignmentPrefix(word) {
+			return substDeclaration, end, true
 		}
 	}
 	return pos, -1, true

@@ -38,6 +38,9 @@ print -r -- "it's") )"
 for n ( i ) { print -r -- $n }
 print -r -- "$(a=( (#i)x(N) ); print -r -- "it's")"
 for n ( j ) { print -r -- $n }
+print -r -- "$(typeset -a a=(# a comment in a declared array
+  x ); print -r -- "it's")"
+for n ( k ) { print -r -- $n }
 g() {
   print -r -- "$(print -r -- "it's")"
   for n ( c ) { print -r -- $n }
