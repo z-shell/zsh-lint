@@ -226,6 +226,7 @@ Run the test suite and static analysis from the repository root:
 
 ```bash
 go build ./... && go vet ./... && go test ./...
+golangci-lint run ./...
 ```
 
 To regenerate API and code-derived reference documentation:

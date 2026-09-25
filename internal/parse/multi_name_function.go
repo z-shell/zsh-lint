@@ -114,13 +114,13 @@ func findMultiNameFunction(src []byte, paren int) ([]sourceSpan, bool) {
 	// begins a definition; any other word before the run (`x=1 a b () { }`,
 	// `! a b () { }`) leaves the site unrecognised.
 	first := names[0]
-	firstWord := string(src[first.start:first.end])
-	if taken, ok := multiNameFunctionPrefixWords[firstWord]; ok {
+	firstWord := src[first.start:first.end]
+	if taken, ok := multiNameFunctionPrefixWords[string(firstWord)]; ok {
 		if len(names) <= taken+1 {
 			return nil, false
 		}
 		names = names[taken+1:]
-	} else if multiNameFunctionNeverNames[firstWord] {
+	} else if multiNameFunctionNeverNames[string(firstWord)] {
 		return nil, false
 	} else {
 		boundary := skipBlanksBackward(src, first.start)
