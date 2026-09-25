@@ -108,6 +108,9 @@ Every masked retry parses the whole file again, so an adapter that resolves one 
 Measure that cost with `go run ./cmd/zsh-lint-survey -trace-parses <file>`, which writes each file's whole-source parse count and deepest adapter retry nesting to standard error ([#408](https://github.com/z-shell/zsh-lint/issues/408)).
 State the before and after numbers in a pull request that changes them on a corpus file.
 
+Produce a change's verdict table with `zsh-lint-survey -compare <base-binary> -native <files>`, where the base binary is `zsh-lint-survey` built from the pull request's base ([#412](https://github.com/z-shell/zsh-lint/issues/412)).
+It prints one line per changed file, `FIXED`, `REGRESSED`, `FALSE-ACCEPT`, `REJECTED`, or `MOVED` (still failing at a different first error), judged by `zsh -f -n`, and exits 1 when anything regressed or a false accept was introduced.
+
 `internal/parse/adapter_chain_test.go` enforces all of this: every ordered pair of adapter features and all features together must parse; original text must be restored; invalid Zsh must still be rejected; self-recursion must not widen the grammar; and every snippet must genuinely require its adapter, so a snippet the base parser already accepts cannot make its cases vacuously pass.
 Adding an adapter to the chain extends that matrix automatically.
 
