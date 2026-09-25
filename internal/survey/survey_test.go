@@ -62,3 +62,35 @@ func TestSurveyMissingFile(t *testing.T) {
 		t.Fatalf("expected error line referencing the file; got:\n%s", out.String())
 	}
 }
+
+func TestSurveyTraceParses(t *testing.T) {
+	names := []string{"testdata/ok.zsh", "testdata/gap.zsh"}
+
+	var plain bytes.Buffer
+	plainCode := Run(names, &plain)
+
+	var out, trace bytes.Buffer
+	code := RunWithOptions(names, &out, Options{Trace: &trace})
+	if code != plainCode {
+		t.Fatalf("exit code with trace = %d, without = %d", code, plainCode)
+	}
+	if out.String() != plain.String() {
+		t.Fatalf("standard output changed with trace:\n%s\nwant:\n%s", out.String(), plain.String())
+	}
+
+	lines := strings.Split(strings.TrimSpace(trace.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("trace has %d lines, want one per file plus a total:\n%s", len(lines), trace.String())
+	}
+	for i, name := range names {
+		if !strings.HasPrefix(lines[i], "TRACE "+name+" parses=") || !strings.Contains(lines[i], " adapter-depth=") {
+			t.Fatalf("trace line %d = %q, want TRACE %s parses=<n> adapter-depth=<d>", i, lines[i], name)
+		}
+		if strings.HasPrefix(lines[i], "TRACE "+name+" parses=0 ") {
+			t.Fatalf("trace line %d = %q, want at least one parse", i, lines[i])
+		}
+	}
+	if !strings.HasPrefix(lines[2], "TRACE total files=2 parses=") {
+		t.Fatalf("trace total = %q, want TRACE total files=2 parses=<n> max-adapter-depth=<d>", lines[2])
+	}
+}

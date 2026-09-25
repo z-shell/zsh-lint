@@ -104,6 +104,10 @@ Because the survey reports only the first error per file, this class of defect m
 Fixing it immediately exposed a further genuine gap in the same file.
 Re-run the discovery survey after any adapter change and expect the reported set to shift.
 
+Every masked retry parses the whole file again, so an adapter that resolves one site per pass costs a parse per site ([#366](https://github.com/z-shell/zsh-lint/issues/366)).
+Measure that cost with `go run ./cmd/zsh-lint-survey -trace-parses <file>`, which writes each file's whole-source parse count and deepest adapter retry nesting to standard error ([#408](https://github.com/z-shell/zsh-lint/issues/408)).
+State the before and after numbers in a pull request that changes them on a corpus file.
+
 `internal/parse/adapter_chain_test.go` enforces all of this: every ordered pair of adapter features and all features together must parse; original text must be restored; invalid Zsh must still be rejected; self-recursion must not widen the grammar; and every snippet must genuinely require its adapter, so a snippet the base parser already accepts cannot make its cases vacuously pass.
 Adding an adapter to the chain extends that matrix automatically.
 
