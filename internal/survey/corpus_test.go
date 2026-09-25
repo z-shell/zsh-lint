@@ -64,6 +64,7 @@ var requiredFixtures = []string{
 	"ok-param-expansion-flags.zsh",
 	"ok-param-glob-toggle.zsh",
 	"ok-paren-semicolon-body.zsh",
+	"ok-quote-in-double-quoted-substitution.zsh",
 	"ok-rc-expand-caret.zsh",
 	"ok-redundant-separator.zsh",
 	"ok-repeat.zsh",
@@ -73,6 +74,7 @@ var requiredFixtures = []string{
 	"ok-select-short-form.zsh",
 	"ok-subscript-pattern-after-comma.zsh",
 	"ok-try-always.zsh",
+	"ok-until-brace-body.zsh",
 	"ok-while-condition-list.zsh",
 }
 

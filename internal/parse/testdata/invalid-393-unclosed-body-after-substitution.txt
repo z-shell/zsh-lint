@@ -1,0 +1,4 @@
+f() {
+  print "$(print "it's")"
+  if (( 1 )) { print a
+}

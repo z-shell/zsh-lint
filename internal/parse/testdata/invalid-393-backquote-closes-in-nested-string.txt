@@ -1,0 +1,2 @@
+print "`print "a`"`"
+for x ( a b ) { print $x }

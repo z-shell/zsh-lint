@@ -268,9 +268,13 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool, 
 			continue
 		}
 		if b == '"' {
-			inDoubleQuote = true
 			atWordStart = false
 			atCommandStart = false
+			if end, ok := skipDoubleQuotedString(src, i); ok {
+				i = end + 1
+				continue
+			}
+			inDoubleQuote = true
 			i++
 			continue
 		}
@@ -325,7 +329,9 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool, 
 				atCommandStart = false
 				continue
 			}
-			if matchSourceWord(src, i, "while") {
+			// `until list { list }` is the same alternate form as `while`;
+			// the rewritten `until ...; do ... done` keeps the keyword.
+			if matchSourceWord(src, i, "while") || matchSourceWord(src, i, "until") {
 				arm(ifSawWhile)
 				i += 5
 				atWordStart = false
@@ -449,14 +455,16 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool, 
 					if conditionConnectiveLen(src, skipInlineSpaces(src, i)) == 0 {
 						disarm()
 					}
-					if currentIf != ifNone {
-						// Resume after the test rather than fall through
-						// with the stale `(` byte, which would count as an
-						// open paren.
-						atWordStart = false
-						atCommandStart = false
-						continue
-					}
+					// Resume at the byte after the test rather than fall
+					// through with the stale `(` byte: that would count an
+					// open paren while armed, and once disarmed the switch
+					// below would consume the byte after `))` as a word
+					// byte. A blank there then hid a following comment
+					// (`(( 1 )) # {`), and a newline or `;` hid the command
+					// start of `if [[ a ]] { : }` on the next line.
+					atWordStart = false
+					atCommandStart = false
+					continue
 				}
 			}
 			if b == '{' && condAfterConnective && atWordStart && condElement {
@@ -475,12 +483,11 @@ func scanAlternateIfEdits(src []byte, seedOffset int) ([]alternateIfEdit, bool, 
 			if b == '{' && currentIf != ifNone && !condAfterConnective && condElement {
 				end := scanClosingBrace(src, i)
 				if end > i {
-					var braceOffset int
-					if currentIf == ifSawWhile {
-						braceOffset = skipSpacesAndComments(src, end)
-					} else {
-						braceOffset = skipInlineSpaces(src, end)
-					}
+					// The body brace sits on the group's line for every
+					// form: after a newline Zsh reads a brace as one more
+					// condition element (#330), so `until { true }`, newline,
+					// `{ : }` has no body brace.
+					braceOffset := skipInlineSpaces(src, end)
 					if braceOffset < len(src) && src[braceOffset] == '{' {
 						if braceOffset == seedOffset {
 							seedRecognized = true

@@ -159,9 +159,13 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 			continue
 		}
 		if b == '"' {
-			inDoubleQuote = true
 			atWordStart = false
 			atCommandStart = false
+			if end, ok := skipDoubleQuotedString(src, i); ok {
+				i = end + 1
+				continue
+			}
+			inDoubleQuote = true
 			i++
 			continue
 		}

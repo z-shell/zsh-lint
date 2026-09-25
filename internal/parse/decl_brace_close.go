@@ -216,8 +216,12 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 			atCommandStart = false
 			continue
 		case '"':
-			inDoubleQuote = true
 			atCommandStart = false
+			if end, ok := skipDoubleQuotedString(src, i); ok {
+				i = end
+				continue
+			}
+			inDoubleQuote = true
 			continue
 		case '#':
 			if i == 0 || isDeclarationWordBoundary(src[i-1]) {
