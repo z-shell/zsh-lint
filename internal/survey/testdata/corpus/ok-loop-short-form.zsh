@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Issue #211: single-command for, while and until loop forms.
 # Preserved as permanent regression coverage.
 local -a a=(one two three)

@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
 # An expansion operator under a length prefix (#373).
 #
 # Zsh applies `#` to the RESULT of the rest of the expansion (zshexpn,

@@ -1,4 +1,6 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Arithmetic-Expansion
 # An arithmetic expansion used as the nested parameter of a parameter
 # expansion, `${$(( expr ))}` and `${(flags)$(( expr ))}` (zshexpn, Parameter
 # Expansion). Native Zsh reads `$((` as arithmetic exactly when the first

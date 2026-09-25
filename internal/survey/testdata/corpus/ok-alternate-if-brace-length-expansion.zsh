@@ -1,5 +1,7 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
 # Issue #230: a brace-form if body containing ${#name} broke the alternate-if
 # scanner, which read the `#` as a comment and skipped the closing brace.
 # Preserved as permanent regression coverage.

@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Simple-Commands-_0026-Pipelines
 # Fixture for #332. A `;` in command position terminates an empty sublist,
 # which Zsh reads as a no-op. Verified by running these rather than by
 # reading the grammar: `print a; ;` prints `a` once.

@@ -1,5 +1,7 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Reserved-Words
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Quoting
 # Issue #314: a bare `}` is never a word, but a quoted or escaped `}`, a
 # bare `{`, a `}` on a here-document line and a `}` inside an expansion are.
 # The front end rejects the bare word (invalid-314-*.txt) and must keep

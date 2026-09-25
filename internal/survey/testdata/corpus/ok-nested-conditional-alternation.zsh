@@ -1,5 +1,7 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html#Conditional-Expressions
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Glob-Operators
 # Issue #112: zsh-lint locally preserves nested pattern-alternation groups on
 # conditional pattern operands while retaining original AST text and positions.
 line=foo

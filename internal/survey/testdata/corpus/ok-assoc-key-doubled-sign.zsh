@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Subscripts
 # Issue #362: an associative key holding `--` or `++` is a literal key, but
 # mvdan/sh reads the subscript as arithmetic and the doubled sign as a
 # decrement or increment with nothing to apply to.

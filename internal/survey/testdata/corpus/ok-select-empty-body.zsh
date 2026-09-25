@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Issue #302: a select name [in word ...] header followed by an empty body is
 # native-valid Zsh (par_for reads one sublist after the header and par_sublist
 # accepts an empty one), so a header at end of file, or directly before a closer

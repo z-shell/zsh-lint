@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
 # Issue #104: parameter expansion glob-toggle ${~spec} did not parse under
 # LangZsh before mvdan/sh v3.14.1; minimized from real-world hostname glob matching.
 pattern='foo*'

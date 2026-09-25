@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Arithmetic-Evaluation.html#Arithmetic-Evaluation
 # Fixture for #354.
 # A math function call is an operand, so it may stand anywhere in a ternary's
 # branches. The retry is gated on the parser's first error, and a call after a

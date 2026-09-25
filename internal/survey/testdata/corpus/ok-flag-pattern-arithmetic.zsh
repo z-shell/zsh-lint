@@ -1,5 +1,7 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Manual: https://zsh.sourceforge.io/Doc/Release/Arithmetic-Evaluation.html#Arithmetic-Evaluation
 # Issue #368: a flagged subscript pattern holding a bracket expression, in
 # arithmetic. mvdan/sh ends the pattern at the bracket expression's own ']'
 # and reads the rest as arithmetic, so the byte after the cut is reported as

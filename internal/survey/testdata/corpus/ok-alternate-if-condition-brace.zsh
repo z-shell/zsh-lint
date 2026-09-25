@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Fixture for #284.
 # Alternate Forms For Complex Commands requires an alternate-form test to be
 # "suitably delimited, such as by `[[ ... ]]` or `(( ... ))`, else the end of

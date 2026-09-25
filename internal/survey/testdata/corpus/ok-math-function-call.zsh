@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Arithmetic-Evaluation.html#Arithmetic-Evaluation
 # Fixture for #233.
 # zshmisc, Arithmetic Evaluation: an arithmetic expression may call a math
 # function, `func(args)`. The front end read the `(` after the name as an

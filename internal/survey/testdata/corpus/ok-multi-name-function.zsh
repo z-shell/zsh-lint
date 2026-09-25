@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
 # Issue #251: multi-name function definitions name1 name2 () { list }.
 # Preserved as permanent regression coverage.
 # z-shell/zpmod vendor/zsh/Test/ztst.zsh:310 defines ZTST_prep and
