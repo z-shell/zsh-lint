@@ -74,6 +74,7 @@ var requiredFixtures = []string{
 	"ok-select-short-form.zsh",
 	"ok-subscript-pattern-after-comma.zsh",
 	"ok-try-always.zsh",
+	"ok-until-brace-body.zsh",
 	"ok-while-condition-list.zsh",
 }
 
