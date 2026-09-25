@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/parse-cost.yml"
+      - ".github/scripts/parse-cost.sh"
       - "cmd/zsh-lint-survey/**"
       - "go.mod"
       - "go.sum"
@@ -19,6 +20,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/parse-cost.yml"
+      - ".github/scripts/parse-cost.sh"
       - "cmd/zsh-lint-survey/**"
       - "go.mod"
       - "go.sum"
