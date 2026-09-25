@@ -169,3 +169,25 @@ func TestHeredocTextIsNotRewritten(t *testing.T) {
 		}
 	}
 }
+
+// A here-string inside a try/always block is a word; the try/always scanner
+// used to read `<<<` as a here-document and give up (#435).
+func TestHereStringInTryAlways(t *testing.T) {
+	for _, src := range []string{
+		"{\n  :\n} always {\ncat <<< \"'\"\nif [[ -n $x ]] { print a }\n}\n",
+		"{\n  cat <<< \"'\"\n} always {\n  :\n}\n",
+		"{ cat <<< \"it's\" } always { : }\n",
+	} {
+		if _, err := Parse(strings.NewReader(src), "t.zsh"); err != nil {
+			t.Errorf("%q: %v", src, err)
+		}
+	}
+	src, err := os.ReadFile("testdata/invalid-435-stray-closer-after-always.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parseErr syntax.ParseError
+	if _, err := Parse(bytes.NewReader(src), "invalid-435.zsh"); !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error = %v, want a parse error", err)
+	}
+}

@@ -725,24 +725,16 @@ func scanConditionalPatterns(
 			continue
 		}
 		if frame.conditional == nil && b == '<' && i+1 < len(src) && src[i+1] == '<' {
-			if i+2 < len(src) && src[i+2] == '<' {
-				i += 2
-				frame.atWordStart = true
-				continue
-			}
-			stripTabs := i+2 < len(src) && src[i+2] == '-'
-			delimiterStart := i + 2
-			if stripTabs {
-				delimiterStart++
-			}
-			delimiter, end, ok := parseHeredocDelimiter(src, delimiterStart)
+			heredoc, end, isHeredoc, ok := heredocAt(src, i)
 			if !ok {
 				return conditionalPatternScan{}, false
 			}
-			frame.heredocs = append(frame.heredocs, pendingHeredoc{
-				delimiter: delimiter,
-				stripTabs: stripTabs,
-			})
+			if !isHeredoc {
+				i = end - 1
+				frame.atWordStart = true
+				continue
+			}
+			frame.heredocs = append(frame.heredocs, heredoc)
 			i = end - 1
 			frame.atWordStart = false
 			continue
