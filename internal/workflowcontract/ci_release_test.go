@@ -491,6 +491,35 @@ func TestGoCIBuildTestReportsOnEveryPullRequest(t *testing.T) {
 	}
 }
 
+// Trunk judges only changed lines, so findings on main went unreported until a
+// weekly run failed (#380). The build-test lint step is the whole-module check
+// that closes that gap; dropping it, limiting it to new issues, or capping the
+// reported findings would reopen it.
+func TestGoCIBuildTestLintsTheWholeModule(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github", "workflows", "go-ci.yml")
+	var lintSteps []string
+	for _, step := range workflowJobSteps(t, workflow, "build-test") {
+		uses := directWorkflowMapping(step, 8)["uses"]
+		if len(uses) == 1 && strings.HasPrefix(uses[0], "golangci/golangci-lint-action@") {
+			lintSteps = append(lintSteps, step)
+		}
+	}
+	if len(lintSteps) != 1 {
+		t.Fatalf("Go CI build-test must run golangci-lint-action exactly once; got %d", len(lintSteps))
+	}
+	withBlock := workflowBlock(t, lintSteps[0], "with:", 8)
+	if values := directWorkflowMapping(withBlock, 10)["only-new-issues"]; len(values) != 0 && values[0] != "false" {
+		t.Fatalf("Go CI lint must judge the whole module, not only new issues; got only-new-issues %q", values)
+	}
+
+	config := readRepositoryFile(t, ".golangci.yml")
+	for _, setting := range []string{"max-issues-per-linter", "max-same-issues"} {
+		if got := len(exactWorkflowLineSpans(config, "  "+setting+": 0")); got != 1 {
+			t.Fatalf(".golangci.yml must set %s to 0 so no finding is hidden (#380); got %d matching lines", setting, got)
+		}
+	}
+}
+
 // A matrix job reports one check run per leg, so zsh-n's contexts are named
 // after the discovered file paths ("zsh-n (./path/to/file.zsh)") and change
 // A ruleset's required_status_checks list cannot reference a moving name. The

@@ -1,0 +1,13 @@
+version: "2"
+
+# Go CI runs this configuration over the whole module, and Trunk runs it over
+# changed lines, so a finding on main fails the next Go CI run instead of
+# waiting for a pull request to touch its line (#380).
+linters:
+  default: standard
+
+issues:
+  # Report every finding. The defaults (50 per linter, 3 with the same text)
+  # hid two of the five QF1003 findings behind #380.
+  max-issues-per-linter: 0
+  max-same-issues: 0

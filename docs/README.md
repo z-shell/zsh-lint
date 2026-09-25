@@ -34,6 +34,7 @@ Reviewed changes are squash-merged; annotated `vX.Y.Z` tags remain the publicati
 
 ```sh
 go build ./... && go vet ./... && go test ./...
+golangci-lint run ./...   # v2.12.2, as Go CI runs it
 go tool gomarkdoc --output ref.md \
   ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
 ```

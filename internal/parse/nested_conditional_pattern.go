@@ -326,9 +326,10 @@ func scanConditionalPatterns(
 
 		switch frame.quote {
 		case activeSourceSingleQuoted:
-			if b == '\'' {
+			switch b {
+			case '\'':
 				frame.quote = activeSourceUnquoted
-			} else if b == ')' {
+			case ')':
 				noteQuotedPatternClose(frame, i)
 			}
 			continue
@@ -337,9 +338,10 @@ func scanConditionalPatterns(
 				frame.escaped = true
 				continue
 			}
-			if b == '\'' {
+			switch b {
+			case '\'':
 				frame.quote = activeSourceUnquoted
-			} else if b == ')' {
+			case ')':
 				noteQuotedPatternClose(frame, i)
 			}
 			continue
@@ -360,9 +362,10 @@ func scanConditionalPatterns(
 				frame.escaped = activeSourceDoubleQuoteEscapes(src, i)
 				continue
 			}
-			if b == '"' {
+			switch b {
+			case '"':
 				frame.quote = activeSourceUnquoted
-			} else if b == ')' {
+			case ')':
 				noteQuotedPatternClose(frame, i)
 			}
 			continue
@@ -820,10 +823,11 @@ func activePatternByteConsumed(
 				pattern.bracketEscaped = true
 				return true
 			}
-			if b == '\'' {
+			switch b {
+			case '\'':
 				pattern.bracketQuote = 0
 				pattern.bracketANSIC = false
-			} else if b == ')' {
+			case ')':
 				noteQuotedPatternClose(frame, offset)
 			}
 			return true
@@ -833,9 +837,10 @@ func activePatternByteConsumed(
 				pattern.bracketEscaped = true
 				return true
 			}
-			if b == '"' {
+			switch b {
+			case '"':
 				pattern.bracketQuote = 0
-			} else if b == ')' {
+			case ')':
 				noteQuotedPatternClose(frame, offset)
 			}
 			return true
