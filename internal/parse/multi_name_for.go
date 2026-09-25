@@ -88,8 +88,23 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 
 	seedRecognized := false
 
+	// heredocs holds the here-documents opened on the current line; their
+	// bodies are text, not commands, and are skipped at the next line (#429).
+	// arithParens tracks an open `((` or `$((`, where `<<` is a shift.
+	var heredocs []pendingHeredoc
+	arithParens := 0
+
 	i := 0
 	for i < len(src) {
+		if len(heredocs) > 0 && !inSingleQuote && !inDoubleQuote && !inANSICQuote && atUnescapedLineStart(src, i) {
+			next, ok := consumeHeredocBodies(src, i, heredocs)
+			if !ok {
+				return nil, false
+			}
+			heredocs = nil
+			i = next
+			continue
+		}
 		b := src[i]
 
 		if escaped {
@@ -272,6 +287,32 @@ func scanForEdits(src []byte, seedOffset int) ([]forEdit, bool) {
 						}
 					}
 				}
+			}
+		}
+
+		switch {
+		case arithParens > 0:
+			switch b {
+			case '(':
+				arithParens++
+			case ')':
+				arithParens--
+			}
+		case b == '(' && i+1 < len(src) && src[i+1] == '(':
+			arithParens = 1
+		case b == '<':
+			heredoc, end, isHeredoc, ok := heredocAt(src, i)
+			if !ok {
+				return nil, false
+			}
+			if isHeredoc || end > i {
+				if isHeredoc {
+					heredocs = append(heredocs, heredoc)
+				}
+				i = end
+				atWordStart = false
+				atCommandStart = false
+				continue
 			}
 		}
 
