@@ -68,7 +68,7 @@ go run ./cmd/zsh-lint-survey -compare "$base/survey-base" -native \
 
 - `-compare -native` must show no `REGRESSED` and no `FALSE-ACCEPT`; every `FIXED` and `MOVED` line belongs in the pull request.
 - Probe the construct in every context the adapter's scanner could meet (quotes, `$( )`, backquotes, here-documents, arithmetic, function bodies, each loop and conditional form) and compare each row with `zsh -f -n`, in both directions.
-- Check the tests are not vacuous: revert each guard the change adds and confirm a test fails.
+- Check the tests are not vacuous: `bash .github/scripts/mutation.sh origin/main` mutates every changed line and exits 1 when a mutant survives; a mutant that hangs the suite counts as caught. List the surviving and uncovered lines it prints in the pull request, with a reason for any that stay.
 - The Parse Cost workflow repeats the retry-cost comparison on the pull request and adds a notice above a 10 percent rise.
 
 ## 6. Record and open the pull request
