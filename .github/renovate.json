@@ -4,5 +4,25 @@
     "local>z-shell/.github:renovate-config",
     ":dependencyDashboardApproval",
     ":disableVulnerabilityAlerts"
+  ],
+  "customManagers": [
+    {
+      "description": "Exact action pins the hardened workflow contract tests compare against (#91, #420)",
+      "customType": "regex",
+      "managerFilePatterns": ["/^internal/workflowcontract/.+_test\\.go$/"],
+      "matchStrings": [
+        "\"(?<depName>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@(?<currentDigest>[0-9a-f]{40}) # (?<currentValue>v[0-9][0-9A-Za-z.+-]*)\""
+      ],
+      "datasourceTemplate": "github-tags"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Bump the test pins in the same pull request as the workflows they mirror",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["internal/workflowcontract/**"],
+      "groupName": "github actions non-major updates",
+      "groupSlug": "github-actions-non-major"
+    }
   ]
 }

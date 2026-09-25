@@ -10,6 +10,25 @@ import (
 	"testing"
 )
 
+// The hardened wiki sync workflow mints a GitHub App token, so its actions are
+// pinned to exact commits and the tests compare them exactly: an exact pin is
+// the guard against a same-name commit from a fork being substituted. Renovate
+// updates these constants in the same pull request that bumps the workflow
+// (the custom manager in renovate.json), so a bump cannot leave them behind
+// (#91, #420).
+const (
+	pinCreateAppToken    = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0"
+	pinCheckout          = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
+	pinSetupGo           = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0"
+	pinCreatePullRequest = "peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1"
+)
+
+// actionRef is a pin without its version comment: "owner/repo@sha".
+func actionRef(pin string) string {
+	ref, _, _ := strings.Cut(pin, " # ")
+	return ref
+}
+
 func wikiDocsSyncWorkflow(t *testing.T) string {
 	t.Helper()
 
@@ -254,10 +273,10 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		{"pull request down-scope", "permission-pull-requests: write"},
 		{"organization scope", "owner: z-shell"},
 		{"repository scope", "repositories: wiki"},
-		{"app token action pin", "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"},
-		{"checkout action pin", "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"},
-		{"setup Go action pin", "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"},
-		{"pull request action pin", "peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1"},
+		{"app token action pin", actionRef(pinCreateAppToken)},
+		{"checkout action pin", actionRef(pinCheckout)},
+		{"setup Go action pin", actionRef(pinSetupGo)},
+		{"pull request action pin", actionRef(pinCreatePullRequest)},
 		{"pull request step ID", "id: sync-pr"},
 		{"generated path scope", "add-paths: community/04_zsh_lint/08_rule_reference.mdx"},
 		{"published release lookup", "gh release view --repo z-shell/zsh-lint"},
@@ -410,11 +429,11 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 	violations = append(violations, exactActionUsesViolations(
 		workflow,
 		[]string{
-			"        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
-			"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
-			"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
-			"        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0",
-			"        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1",
+			"        uses: " + pinCreateAppToken,
+			"        uses: " + pinCheckout,
+			"        uses: " + pinCheckout,
+			"        uses: " + pinSetupGo,
+			"        uses: " + pinCreatePullRequest,
 		},
 	)...)
 
@@ -431,14 +450,14 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		8,
 		[]workflowMappingField{
 			{name: "id", value: "app-token"},
-			{name: "uses", value: "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0"},
+			{name: "uses", value: pinCreateAppToken},
 			{name: "with", value: ""},
 		},
 	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"token minting step",
 		tokenStep,
-		"        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
+		"        uses: "+pinCreateAppToken,
 	)...)
 	tokenInputs := workflowBlock(t, tokenStep, "with:", 8)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -466,14 +485,14 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		sourceCheckoutStep,
 		8,
 		[]workflowMappingField{
-			{name: "uses", value: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"},
+			{name: "uses", value: pinCheckout},
 			{name: "with", value: ""},
 		},
 	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"source checkout step",
 		sourceCheckoutStep,
-		"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+		"        uses: "+pinCheckout,
 	)...)
 	sourceCheckoutInputs := workflowBlock(t, sourceCheckoutStep, "with:", 8)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -492,14 +511,14 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		wikiCheckoutStep,
 		8,
 		[]workflowMappingField{
-			{name: "uses", value: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"},
+			{name: "uses", value: pinCheckout},
 			{name: "with", value: ""},
 		},
 	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"wiki checkout step",
 		wikiCheckoutStep,
-		"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+		"        uses: "+pinCheckout,
 	)...)
 	wikiCheckoutInputs := workflowBlock(t, wikiCheckoutStep, "with:", 8)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -521,14 +540,14 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		setupGoStep,
 		8,
 		[]workflowMappingField{
-			{name: "uses", value: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0"},
+			{name: "uses", value: pinSetupGo},
 			{name: "with", value: ""},
 		},
 	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"setup Go step",
 		setupGoStep,
-		"        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0",
+		"        uses: "+pinSetupGo,
 	)...)
 	setupGoInputs := workflowBlock(t, setupGoStep, "with:", 8)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -593,14 +612,14 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		8,
 		[]workflowMappingField{
 			{name: "id", value: "sync-pr"},
-			{name: "uses", value: "peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1"},
+			{name: "uses", value: pinCreatePullRequest},
 			{name: "with", value: ""},
 		},
 	)...)
 	violations = append(violations, exactWorkflowLineViolations(
 		"pull request step",
 		pullRequestStep,
-		"        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1",
+		"        uses: "+pinCreatePullRequest,
 	)...)
 	pullRequestInputs := workflowBlock(t, pullRequestStep, "with:", 8)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -790,31 +809,31 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name:        "token action mutable ref",
-			old:         "        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
+			old:         "        uses: " + pinCreateAppToken,
 			replacement: "        uses: actions/create-github-app-token@v3",
 		},
 		{
 			name: "source checkout mutable ref",
 			old: "      - name: Check out zsh-lint\n" +
-				"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+				"        uses: " + pinCheckout,
 			replacement: "      - name: Check out zsh-lint\n" +
 				"        uses: actions/checkout@v7",
 		},
 		{
 			name: "wiki checkout mutable ref",
 			old: "      - name: Check out wiki (main)\n" +
-				"        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+				"        uses: " + pinCheckout,
 			replacement: "      - name: Check out wiki (main)\n" +
 				"        uses: actions/checkout@v7",
 		},
 		{
 			name:        "setup Go action mutable ref",
-			old:         "        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0",
+			old:         "        uses: " + pinSetupGo,
 			replacement: "        uses: actions/setup-go@v7",
 		},
 		{
 			name:        "pull request action mutable ref",
-			old:         "        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1",
+			old:         "        uses: " + pinCreatePullRequest,
 			replacement: "        uses: peter-evans/create-pull-request@v8",
 		},
 		{
