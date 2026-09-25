@@ -187,12 +187,9 @@ func TestAlternateIfConditionGroupThenBody(t *testing.T) {
 	}
 }
 
-// scanAlternateConditionBrace decides body-or-condition, so test it directly:
-// a returned offset is the body opener only when it holds a `{`.
-func TestScanAlternateConditionBrace(t *testing.T) {
-	// Each source starts `if [[ -n x ]]`, so the scan begins at offset 13,
-	// just past the condition's closing `]]`.
-	const condEnd = 13
+// After a connective, a `{` is either the body or a condition group: the tree
+// must show which, as native Zsh reads it.
+func TestAlternateConditionBraceBodyOrGroup(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		src  string
@@ -210,10 +207,23 @@ func TestScanAlternateConditionBrace(t *testing.T) {
 		{"unterminated condition group", "if [[ -n x ]] && { true;\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := scanAlternateConditionBrace([]byte(tc.src), condEnd, false)
-			isBody := got >= 0 && got < len(tc.src) && tc.src[got] == '{'
+			// The parser fork reads brace-form bodies natively (#446): a
+			// body brace becomes the IfClause's ThenPos, a condition group
+			// stays in Cond and the clause keeps its `then`.
+			file, err := parseWithAdapters([]byte(tc.src), "t.zsh")
+			isBody := false
+			if err == nil {
+				syntax.Walk(file, func(node syntax.Node) bool {
+					if clause, ok := node.(*syntax.IfClause); ok && clause.ThenPos.IsValid() {
+						offset := int(clause.ThenPos.Offset())
+						isBody = isBody || (offset < len(tc.src) && tc.src[offset] == '{')
+						return false
+					}
+					return true
+				})
+			}
 			if isBody != tc.body {
-				t.Fatalf("offset %d (body=%v), want body=%v", got, isBody, tc.body)
+				t.Fatalf("brace body = %v (err %v), want %v", isBody, err, tc.body)
 			}
 		})
 	}

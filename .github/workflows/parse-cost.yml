@@ -17,6 +17,7 @@ on:
       - "go.sum"
       - "internal/parse/**"
       - "internal/survey/**"
+      - "third_party/mvdan-sh/**"
   pull_request:
     paths:
       - ".github/workflows/parse-cost.yml"
@@ -26,6 +27,7 @@ on:
       - "go.sum"
       - "internal/parse/**"
       - "internal/survey/**"
+      - "third_party/mvdan-sh/**"
   schedule:
     - cron: "37 4 * * 1"
   workflow_dispatch:

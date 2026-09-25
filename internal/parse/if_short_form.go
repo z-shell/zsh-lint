@@ -156,7 +156,7 @@ func scanIfShortFormSites(src []byte) []ifShortFormSite {
 // scanIfShortFormSite reads the condition after the `if` at start: one or
 // more delimited tests joined by `&&` or `||`, each optionally negated. The
 // site is a short form only when the same line continues with a word that
-// is neither `then`, a `{` (the brace form, handled by parseAlternateIfBrace),
+// is neither `then`, a `{` (the brace form, read natively by the parser fork, #446),
 // a separator, a comment nor a redirection, and only when a blank precedes
 // that word for the probe to write its `;` over.
 func scanIfShortFormSite(src []byte, start int) (ifShortFormSite, bool) {

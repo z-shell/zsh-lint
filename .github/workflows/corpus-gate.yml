@@ -15,6 +15,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "internal/**"
+      - "third_party/**"
   pull_request:
     paths:
       - ".github/workflows/corpus-gate.yml"
@@ -27,6 +28,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "internal/**"
+      - "third_party/**"
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
