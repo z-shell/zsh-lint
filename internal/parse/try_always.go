@@ -123,6 +123,10 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 			inSingleQuote = true
 			continue
 		case '"':
+			if end, ok := skipDoubleQuotedString(src, i); ok {
+				i = end
+				continue
+			}
 			inDoubleQuote = true
 			continue
 		case '#':

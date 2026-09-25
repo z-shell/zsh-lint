@@ -168,6 +168,9 @@ func skipRedundantSeparatorQuote(src []byte, index int, mark byte) int {
 // skipRedundantSeparatorDoubleQuote returns the offset just past the double
 // quote opened at index, honouring backslash escapes.
 func skipRedundantSeparatorDoubleQuote(src []byte, index int) int {
+	if end, ok := skipDoubleQuotedString(src, index); ok {
+		return end + 1
+	}
 	for cursor := index + 1; cursor < len(src); cursor++ {
 		switch src[cursor] {
 		case '\\':
