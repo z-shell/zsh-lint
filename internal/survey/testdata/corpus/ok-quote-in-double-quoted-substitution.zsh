@@ -26,6 +26,18 @@ print -r -- "$([[ a == (#b)(*) ]] && print -r -- "it's")"
 for n ( e ) { print -r -- $n }
 print -r -- "$(cat <<<"it's")"
 for n ( f ) { print -r -- $n }
+print -r -- "$(# a comment right after the opener )
+print -r -- "it's")"
+for n ( g ) { print -r -- $n }
+print -r -- "$(print -r -- case "it's")"
+if (( 1 )) { print -r -- case-argument-body }
+print -r -- "$( (( 1 << 2 )) && print -r -- "it's" )"
+for n ( h ) { print -r -- $n }
+print -r -- "$( (# a comment in a subshell )
+print -r -- "it's") )"
+for n ( i ) { print -r -- $n }
+print -r -- "$(a=( (#i)x(N) ); print -r -- "it's")"
+for n ( j ) { print -r -- $n }
 g() {
   print -r -- "$(print -r -- "it's")"
   for n ( c ) { print -r -- $n }

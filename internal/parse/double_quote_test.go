@@ -46,11 +46,40 @@ func TestSkipDoubleQuotedString(t *testing.T) {
 		{"glob flags in substitution", `"$( [[ a == (#b)(*) ]] && print "it's" )" x`, 40},
 		{"glob qualifier in substitution", `"$(print -l x(#qN) "it's")" x`, 26},
 		{"herestring in substitution", `"$(cat <<<"it's")" x`, 17},
+		// Whether `#` opens a comment follows the grammar position of the
+		// `(` before it (review of #399).
+		{"comment right after the opener", "\"$(# c )\nprint \"it's\")\" x", 22},
+		{"case as an argument", "\"$(print case \"it's\")\" x", 21},
+		{"shift in an arithmetic command", "\"$( (( 1 << 2 )) && print \"it's\" )\" x", 34},
+		{"comment in a subshell", "\"$( (# c )\nprint \"it's\") )\" x", 26},
+		{"comment in a subshell after a separator", "\"$(print a; (# c )\nprint \"it's\") )\" x", 34},
+		{"comment in a process substitution", "\"$(print <(# c )\nprint \"it's\") )\" x", 32},
+		{"comment in an equals process substitution", "\"$(print =(# c )\nprint \"it's\") )\" x", 32},
+		{"comment in a function body subshell", "\"$(f() (# c )\nprint \"it's\"); f)\" x", 31},
+		{"comment in an array assignment", "\"$(a=(# c )\n y ); print \"it's\")\" x", 31},
+		{"glob flags in an argument", "\"$(print a (#i)b \"it's\")\" x", 24},
+		{"glob flags in an array element", "\"$(a=( (#i)x ); print \"it's\")\" x", 29},
+		{"glob flags after a precommand modifier", "\"$(noglob print (#i)a \"it's\")\" x", 29},
+		{"hash in a glob alternative", "\"$(print (a|#b) \"it's\")\" x", 23},
+		{"glob flags in a condition alternative", "\"$([[ A == (x|(#i)a) ]] && print \"it's\")\" x", 40},
+		{"comment in a subshell after time", "\"$(time (# c )\nprint \"it's\") )\" x", 30},
+		{"glob flags after a redirection", "\"$(print a >&2 (#i)q \"it's\")\" x", 28},
+		{"unbalanced paren in a process substitution comment", "\"$(print <(# c (\nprint \"it's\") )\" x", 32},
+		{"case as a clobber redirection target", "\"$(print a >| case; print \"it's\")\" x", 33},
+		{"case as an array element", "\"$(a=( case x ); print \"it's\")\" x", 30},
 		// Not decidable here: the caller falls back to its own handling.
 		{"unterminated", `"$(print "it's")`, -1},
 		{"case in substitution", `"$(case a in a) print "q'";; esac)" x`, -1},
 		{"heredoc in substitution", "\"$(cat <<E\nit's\nE\n)\" x", -1},
+		{"heredoc body holding a closer", "\"$(cat <<E\nx ) '\nE\n)\" x", -1},
+		{"case command after a separator", "\"$(print a; case a in (a) print \"q'\";; esac)\" x", -1},
+		{"comment in a paren the scan cannot place", "\"$(\"print\" (#i)x\n) \"it's\")\" x", -1},
 		{"quote in arithmetic", `"$(( '1' ))" x`, -1},
+		// `##'` is the character code of a quote, not a quote: refused. Two
+		// of them would pair up as one single-quoted string without the
+		// refusal, and the scan would report an end it never checked.
+		{"quote in an arithmetic command", `"$( (( x = ##' )) ; print "it's")" x`, -1},
+		{"two quotes in arithmetic commands", `"$( (( x = ##' )); (( y = ##' )); print "it's")" x`, -1},
 		{"unterminated backquote", "\"`print \" x", -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
