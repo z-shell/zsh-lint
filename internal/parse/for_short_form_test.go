@@ -183,7 +183,7 @@ func TestParseForShortFormRejectsInvalidShapes(t *testing.T) {
 		wantPos  string
 		wantText string
 	}{
-		{"invalid-211-for-without-term.txt", "1:1", "`for foo` must be followed by `in`, `do`, `;`, or a newline"},
+		{"invalid-211-for-without-term.txt", "2:1", "`for foo` must be followed by `in`, `do`, `;`, or a newline"},
 	}
 	for _, test := range tests {
 		t.Run(test.fixture, func(t *testing.T) {

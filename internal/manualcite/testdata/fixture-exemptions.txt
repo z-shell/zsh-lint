@@ -2,7 +2,6 @@
 # (docs/project/parser-gap-workflow.md, "Classify"). The list only shrinks:
 # add a citation to a fixture, then delete its line here.
 
-parse/testdata/invalid-211-for-without-term.txt
 parse/testdata/invalid-212-brace-close-body.txt
 parse/testdata/invalid-212-brace-close-in-body.txt
 parse/testdata/invalid-212-double-semicolon-after-list.txt
