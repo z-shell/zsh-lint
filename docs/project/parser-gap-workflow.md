@@ -103,7 +103,6 @@ Never call `parseTree` directly for a retry, and never hand-write a list of peer
 A masked retry is an ordinary parse of a whole file.
 Any unrelated Zsh construct elsewhere in that file must still parse, so an adapter that retries through a subset of its peers makes correctness depend on which adapter happens to run first.
 That defect shipped once: `parseAfterAlternateIf` named exactly two peers, and 40 of 42 ordered pairs of adapter features failed to parse even though each parsed alone.
-It surfaced as `${~ZI[BIN_DIR]}` failing in `z-shell/zi` `zi.zsh` only because an alternate brace-form `if` appeared earlier in the file.
 
 Composition is permissive across distinct adapters, but it is not unbounded within one.
 Most adapters mask a single occurrence of their feature per pass and rely on re-entering themselves to reach a second occurrence, which is correct.
@@ -111,8 +110,15 @@ An adapter whose repeated masking would widen its own accepted grammar must opt 
 The grouped-case adapter needs this: allowed to recurse, it masked one extra `)` per pass and accepted `case x in (x|y))) : ;; esac`, which native Zsh rejects.
 
 Because the survey reports only the first error per file, this class of defect masks real gaps rather than merely reporting false ones.
-Fixing it immediately exposed a further genuine gap in the same file.
 Re-run the discovery survey after any adapter change and expect the reported set to shift.
+
+`internal/parse/adapter_chain_test.go` enforces all of this: every ordered pair of adapter features and all features together must parse; original text must be restored; invalid Zsh must still be rejected; self-recursion must not widen the grammar; and every snippet must genuinely require its adapter, so a snippet the base parser already accepts cannot make its cases vacuously pass.
+Adding an adapter to the chain extends that matrix automatically.
+
+A bounded local island may use source-mapped synthetic terminators only when the adapter verifies the original AST structure, invalid-syntax behavior, and every source position before returning the complete tree.
+This exception does not permit general source rewriting or consuming separators from the full-file retry.
+
+### Verification tools
 
 Every masked retry parses the whole file again, so an adapter that resolves one site per pass costs a parse per site ([#366](https://github.com/z-shell/zsh-lint/issues/366)).
 Measure that cost with `go run ./cmd/zsh-lint-survey -trace-parses <file>`, which writes each file's whole-source parse count and deepest adapter retry nesting to standard error ([#408](https://github.com/z-shell/zsh-lint/issues/408)).
@@ -123,39 +129,30 @@ Produce a change's verdict table with `zsh-lint-survey -compare <base-binary> -n
 It prints one line per changed file, `FIXED`, `REGRESSED`, `FALSE-ACCEPT`, `REJECTED`, or `MOVED` (still failing at a different first error), judged by `zsh -f -n`, and exits 1 when anything regressed or a false accept was introduced.
 With `-native` the summary also counts the known disagreements the change leaves in place (valid files failing in both builds, invalid files parsing in both); `-known` lists them.
 For a probe grid, `zsh-lint-probe -bodies <file> -out <dir>` places each variant of the construct in every scanner context (compound-command bodies, command substitutions with and without double quotes, backquotes, and positions after here-documents and odd quotes) for `-compare` to judge ([#428](https://github.com/z-shell/zsh-lint/issues/428)).
+`.github/scripts/mutation.sh [base-ref]` mutates every changed line and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425)).
+The parser-gap fix skill (`.github/skills/parser-gap-fix/SKILL.md`) runs these in order.
 
-`internal/parse/adapter_chain_test.go` enforces all of this: every ordered pair of adapter features and all features together must parse; original text must be restored; invalid Zsh must still be rejected; self-recursion must not widen the grammar; and every snippet must genuinely require its adapter, so a snippet the base parser already accepts cannot make its cases vacuously pass.
-Adding an adapter to the chain extends that matrix automatically.
-
-A bounded local island may use source-mapped synthetic terminators only when the adapter verifies the original AST structure, invalid-syntax behavior, and every source position before returning the complete tree.
-This exception does not permit general source rewriting or consuming separators from the full-file retry.
+### Typed metadata and synthesized nodes
 
 When an upstream AST has no field for a native construct, the parser result may retain source-mapped typed syntax nodes as explicit `parse.File` metadata.
 This exception requires the adapter gate and byte-preserving retry above, plus a stable association with the owning AST node.
 Consumers must inspect the typed metadata rather than recover masked source text.
-Anonymous-function invocation words use this boundary because mvdan/sh v3.13.1 represents the declaration but has no field for its invocation arguments.
-The unconditional assignment operator `${name::=word}` (#216) uses it too: the tree carries the closest typed shape, the conditional `:=` operator, and `File.AssignAlwaysExpansions` names the expansions whose source operator is `::=`.
-A second subscript `${name[a][b]}` (#215) has no index field to go to: the retry joins both subscripts into the one index as a comma expression, and `Parse` splits that expression at the commas whose source bytes are `][`, leaving the first subscript in `Index` and the rest, as the parser's own typed arithmetic nodes, in `File.SecondSubscripts`.
-The expression after `,` in a flagged subscript, `${name[(r)pattern,--[^:]##]}` (#277), needs no metadata: native Zsh reads that expression by the parameter's type (a pattern for an associative array, arithmetic or a flagged pattern for a plain array), which no parser can know, so an expression the parser already reads as arithmetic keeps that reading, and only one it rejects (a bracket expression, a leading `--`, a `^`) is retried as one literal, the shape the parser already gives `${name[(r)a,b]}`: a `BinaryArithm` `,` whose right operand is a `Word`.
-The short form of select, `select name [in word ...] term sublist` (#212), needs no metadata either: the tree is the `ForClause` with `Select` set that the parser gives the `do` form, with `do` and `done` inserted through a source map at the body's first byte and after the sublist.
-The body has no tree before the retry, so a byte-preserving probe first blanks the header of every unread site and parses through the chain; the statement at the body's first byte, widened through the `&&`, `||`, `|` and `time` operators it is the left operand of, is the sublist native Zsh runs, and its end is where `done` goes.
-The last unread site is rewritten first, so a site whose body is another site sees that loop with a real `done`, and the sublist's end is scanned back from the source as the `repeat` and short `if` adapters do (#300).
-A `{ list }` body, an empty body and the parenthesized list form keep the parser error.
-The alternate form of the arithmetic for loop, `for (( expr1 ; expr2 ; expr3 )) sublist` (#241), needs no metadata either: the tree is the `ForClause` whose `Loop` is a `*syntax.CStyleLoop`, with `do` and `done` inserted through a source map (over `{` and `}` for the brace body, around the one sublist statement otherwise, with a `;` when the header has no separator).
-The arithmetic header is located by reading the header via a probe tree as the `do` form parses; the body has no tree before the retry, so a byte-preserving probe blanks the header of every unread site and parses through the chain; the statement at the body's first byte, widened through the `&&`, `||`, `|` and `time` operators it is the left operand of, is the sublist native Zsh runs, and its end is where `done` goes.
-The last unread site is rewritten first, and the tree is verified to hold a `ForClause` at the `for` word whose Loop is a `*syntax.CStyleLoop` and whose Do statements sit at their original offsets.
-The `repeat count sublist` loop (#208) has no node at all in mvdan/sh through v3.14.1, which reads `repeat` as a command name.
-`resolveRepeatLoops` rewrites each loop, after the file parses, into a `WhileClause` positioned at the `repeat` word whose only condition is the count word, with source-mapped `do` and `done` inserted around the body native Zsh runs (the next sublist, a `do ... done` block or a `{ ... }` block); the sublist's last byte is scanned back from the next statement or the enclosing closer, as the short `if` adapter does, since a closing keyword another adapter synthesized makes the statement's `End()` overshoot (#300); `File.RepeatLoops` names each loop and its count so a consumer can tell it from a `while`.
-The loop is the one construct whose typed node is synthesized rather than carried: a `while` is the closest upstream shape, and the count word is kept as its condition rather than moved into metadata so every rule that walks loop bodies sees the body once.
-The condition statement is synthesized, not a command the script runs, so the analyzer's shared walk feeds neither it nor its `CallExpr` to any rule (`synthesizedStatements`, `internal/analyzer/analyzer.go`) while still walking the expansions inside the count.
-That skip covers only the shared walk: a rule that traverses the tree itself from the `File` node still sees the count as a command and today matches specific command names there.
-The single-command loop forms, `for name in words; sublist`, `for name (words) sublist`, `while list sublist` and `until list sublist` (#211), produce standard `ForClause` and `WhileClause` trees without metadata.
-The `for` forms adapt like the select short form: a byte-preserving probe blanks the unread headers, the sublist statement at the body's first byte yields the end where `done` goes, and source-mapped `do` and `done` are inserted around the body, with a parenthesized word list rewritten to `in` through the same source map.
-The `while` and `until` forms adapt like the short `if`: gating on the exact separator error at the sublist's first byte after a delimited condition (`[[ ... ]]`, `(( ... ))`, `{ ... }` or `( ... )`), a probe writes a `;` between condition and sublist with the keyword blanked, and source-mapped `; do` and `done` surround the sublist.
-Both adapters rebase all positions and verify the expected loop node at each site before returning the tree.
-An arithmetic expansion nested as a parameter, `${$(( expr ))}` or `${(l:5:)$(( expr ))}` (#361), needs no metadata: the tree is the `ArithmExp` the parser builds for the same bytes at the top level.
-mvdan/sh v3.14.1 reads every nested `$((` as a command substitution, so the body parses as a subshell command: `a[1]` fails as an assignment target, and `x > 3` parses silently as a redirect to a file named `3`.
-Native Zsh decides lexically, reading `$((` as arithmetic exactly when its first unbalanced `)` is followed by another `)`, so `${$((echo a) )}` stays a command substitution.
-After the chain succeeds, `resolveNestedArithmetic` replaces each nested command substitution whose source is arithmetic by that rule, reparsing the span with every other byte blanked so positions are the original ones; it is post-parse, like the `repeat` rewrite, because a misread body that happens to parse has no error to gate on.
-When the misread body fails instead, the adapter gates on the error position lying inside such a span, masks the span to a same-length `$(:` placeholder, and verifies the retry holds a nested command substitution over exactly that span, which the resolver then replaces.
-A body native Zsh would reject at runtime as `bad math expression` gets the error the same body gets as a top-level `$(( ))`.
+
+A construct with no upstream node at all may instead be synthesized as the closest upstream shape, with its own metadata so a consumer can tell it apart.
+A synthesized statement is not a command the script runs: the analyzer's shared walk feeds neither it nor its `CallExpr` to any rule (`synthesizedStatements`, `internal/analyzer/analyzer.go`) while still walking the expansions inside it.
+That skip covers only the shared walk; a rule that traverses the tree itself from the `File` node still sees it.
+
+Each construct's mechanism is documented where it is implemented:
+
+| Construct                           | Issue        | Tree                                                            | Mechanism                                                        |
+| ----------------------------------- | ------------ | --------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Anonymous function invocation words | release #165 | `File.AnonymousInvocations`                                     | `parse.go` (`AnonymousInvocation`), `anonymous_function_args.go` |
+| `${name::=word}`                    | #216         | `:=` operator plus `File.AssignAlwaysExpansions`                | `assign_always.go`                                               |
+| `${name[a][b]}`                     | #215         | first subscript in `Index`, the rest in `File.SecondSubscripts` | `second_subscript.go`                                            |
+| `${name[(r)pattern,expr]}`          | #277         | standard tree                                                   | `subscript_pattern_after_comma.go`                               |
+| `select name ... sublist`           | #212         | standard `ForClause` with `Select`                              | `select_short_form.go`                                           |
+| `for (( ... )) sublist`             | #241         | standard `ForClause` with a `CStyleLoop`                        | `arith_for_sublist.go`                                           |
+| `repeat count sublist`              | #208         | synthesized `WhileClause` plus `File.RepeatLoops`               | `repeat.go` (`resolveRepeatLoops`)                               |
+| `for`, `while`, `until` short forms | #211         | standard `ForClause` and `WhileClause`                          | `for_short_form.go`, `while_short_form.go`                       |
+| `${$(( expr ))}`                    | #361         | standard `ArithmExp`                                            | `nested_arithmetic.go` (`resolveNestedArithmetic`)               |
+| Brace-form `if` and `while` bodies  | #446         | standard `IfClause` and `WhileClause`                           | parser fork, `third_party/mvdan-sh/FORK.md`                      |
