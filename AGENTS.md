@@ -41,6 +41,8 @@ Read the matching file before changing code under its path; Copilot loads them b
   Rule intake follows `docs/project/rule-policy.md`.
 - `.github/instructions/parser-front-end.instructions.md` for the parser (`internal/parse/`, `internal/survey/`): dual-oracle proof, adapter invariants, fixture naming.
   The full contract is `docs/project/parser-gap-workflow.md`.
+- `.github/skills/parser-gap-fix/SKILL.md` is the step-by-step procedure for a parser change, with the commands that prove and verify it; it is advisory and defers to the contract.
+- For parser and scanner logic, follow the organization's [generator-verifier workflow](https://github.com/z-shell/.github/blob/main/.github/instructions/generator-verifier-workflow.instructions.md) and [testing instructions](https://github.com/z-shell/.github/blob/main/.github/instructions/testing.instructions.md): draft, then verify adversarially against native Zsh.
 
 `docs/project/README.md` separates the living contracts from dated survey reports.
 
@@ -66,9 +68,12 @@ Both point at the wiki as the canonical reading surface.
 
 ## Build & test
 
+    bash .github/scripts/agent-setup.sh   # once per session: zsh, golangci-lint, module cache
     go build ./... && go vet ./... && go test ./...
     golangci-lint run ./...
 
 Go CI runs `golangci-lint` v2.12.2 over the whole module with `.golangci.yml`, so a finding anywhere fails the build, not only on changed lines.
+With a local Go newer than the release `go.mod` names, run it as `GOTOOLCHAIN=go1.26.0 golangci-lint run ./...`; the setup script prints the exact command.
+Tests that need `zsh` skip without it, so install it before trusting a local pass.
 
 Go 1.26 (`GOTOOLCHAIN=auto` auto-fetches the toolchain; CI pins the same version explicitly). mvdan/sh v3.14 dropped Go 1.25.
