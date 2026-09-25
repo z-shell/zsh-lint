@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Subscripts
 # Issue #236: a bare associative key may begin with '<', which mvdan/sh reads
 # as an arithmetic operator without a left operand.
 local -A map persisted_free

@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
 # Issue #371: a flagged subscript pattern holding a nested parameter
 # expansion that itself carries a subscript. mvdan/sh reads the whole
 # flagged pattern as one raw literal and ends it at the first ']', so the

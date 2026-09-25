@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
 # Issue #283: a bracket expression before '#', '*' or ',' in a flagged
 # subscript pattern. mvdan/sh ends the raw pattern at the first ']', and the
 # byte after that premature close decides the outcome: '#' and '##' are valid

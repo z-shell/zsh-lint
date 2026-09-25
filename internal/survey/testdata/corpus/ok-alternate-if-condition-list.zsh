@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Fixture for #376. In the alternate forms `if list { list }` and
 # `while list { list }` the condition is a list, so a plain command may head an
 # `&&`/`||` or pipeline sublist and the brace after the last element is still

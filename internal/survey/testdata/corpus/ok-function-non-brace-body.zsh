@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
 # Fixture for #346.
 # zshmisc spells a function body as a `list`, and a brace group is only one way
 # to write one. Both definition spellings accept any statement as the body.

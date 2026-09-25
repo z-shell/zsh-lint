@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Fixture for #394. `until list { list }` is the alternate form listed next to
 # `while list { list }` in zshmisc, Alternate Forms For Complex Commands; the
 # brace after the condition list is the loop body.

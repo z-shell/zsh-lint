@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
 # Issue #297: an `if` branch may begin with a separator directly after `then`
 # or `else` (or after `elif ...; then`). The parser reads `then;` or `else;`
 # as an empty branch; the front end masks that one separator and verifies

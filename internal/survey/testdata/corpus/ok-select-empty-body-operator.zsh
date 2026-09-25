@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 # Issue #319: a select header with an empty body may be the left operand of
 # a pipeline or list operator: native par_sublist reads the empty sublist
 # and the loop is then piped or chained like any complex command. Both the

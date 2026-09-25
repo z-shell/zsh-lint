@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
 # Issue #379: a command substitution, a grave-accent substitution or an
 # arithmetic expansion straight after a bracket expression in a flagged
 # subscript pattern. mvdan/sh reads the whole flagged pattern as one raw

@@ -1,5 +1,6 @@
 # -*- mode: zsh; sh-indentation: 2; indent-tabs-mode: nil; sh-basic-offset: 2; -*-
 # vim: ft=zsh sw=2 ts=2 et
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
 # Issue #277: the expression after ',' in a flagged subscript holds a bracket
 # expression or starts with '--'; mvdan/sh reads it as arithmetic, where '[',
 # '--' and '^' are operators, while Zsh reads it by the parameter's type.
