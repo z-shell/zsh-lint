@@ -64,16 +64,20 @@ If the old name is in `internal/manualcite/testdata/fixture-exemptions.txt`, the
 The mvdan/sh front end is a source of fixes to take and test, not a dependency to wait on ([ADR-0023](https://github.com/z-shell/.github/blob/main/decisions/0023-zsh-lint-parser-front-end-strategy.md)).
 This replaces the upstream-first wording in the 2026-06-12 records and supersedes the upstream-first acceptance criterion recorded in #125 (closed; its text is historical).
 
-- Fix a proven valid-Zsh gap locally, under the adapter contract below, without conditioning on an upstream response.
+- Fix a proven valid-Zsh gap locally, without conditioning on an upstream response.
   Prioritize by corpus evidence.
 - Link an existing upstream issue as a reference.
   Filing new upstream issues is optional and never appears in acceptance criteria.
 - A front-end bump is a parser behavior change.
   Land it with tree-shape assertions for every corpus fixture the release affects and a survey run before and after.
   A `gap-*` fixture that stops erroring must fail on tree shape, not pass vacuously: v3.14.1 turns `foreach ... end` (#214) from a parse error into a silent three-command tree.
-- Fork the `syntax` package only when a tracked gap needs an AST node the upstream tree lacks and the metadata exception below cannot carry it, or when the adapter composition matrix becomes the bottleneck.
-  The fork then replaces adapters for the constructs it covers.
-  `repeat` (#208) was the first candidate; the metadata exception carries it as a `while` loop plus `File.RepeatLoops`, so no fork exists yet.
+- The fork trigger has fired ([ADR-0030](https://github.com/z-shell/.github/blob/main/decisions/0030-zsh-lint-parser-fork-trigger-fired.md)).
+  The parser is a fork of mvdan.cc/sh under `third_party/mvdan-sh`, wired with a `replace` directive; `third_party/mvdan-sh/FORK.md` lists every local change.
+  Adapters migrate into it one construct family at a time, and each migration removes the adapter it replaces and shows parity on the corpus, the workspace, and a probe grid judged by `zsh -f -n`.
+  The brace-form `if`/`elif`/`else` and `while`/`until` bodies were the first family ([#446](https://github.com/z-shell/zsh-lint/issues/446)).
+- Do not add an adapter.
+  Fix a new gap in the fork, or in the shared scanner of an adapter whose family has not moved yet.
+  Fork changes stay Zsh-only, behind `LangZsh`, and upstream's own tests in the fork must keep passing.
 
 ### Local compatibility adapters
 

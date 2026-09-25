@@ -44,8 +44,8 @@ go run ./cmd/zsh-lint-survey gap.zsh    # zsh-lint verdict
 
 ## 4. Implement
 
-- Prefer extending an existing adapter or a shared scanner (`internal/parse/double_quote.go`) over a new adapter. A new adapter grows the composition matrix and the retry cost, and ADR-0023 point 4 schedules a front-end decision once the chain becomes the bottleneck.
-- Follow the adapter invariants: register once in `adapterChain`, retry through `parseWithAdapters`, gate on one construct and one parser error, map every byte back, restore the typed AST, return the parser error when unsure.
+- Fix the gap in the parser fork (`third_party/mvdan-sh`, ADR-0030), behind `LangZsh`, and list the change in its `FORK.md`; run upstream's tests there (`cd third_party/mvdan-sh && go test ./syntax/`). Never add an adapter. When the construct belongs to an adapter whose family has not moved into the fork, fix that adapter through its shared scanner (`internal/parse/double_quote.go`, `internal/parse/heredoc_scan.go`), or migrate the family.
+- In an adapter, follow the invariants: register once in `adapterChain`, retry through `parseWithAdapters`, gate on one construct and one parser error, map every byte back, restore the typed AST, return the parser error when unsure.
 - Resolve every site of the construct in one pass; masking one site per pass and re-entering the chain costs one whole-file parse per site (#366).
 - For non-trivial scanner or grammar logic, use the organization's generator-verifier workflow (`.github/instructions/generator-verifier-workflow.instructions.md` in z-shell/.github): draft, then verify adversarially against native Zsh.
 

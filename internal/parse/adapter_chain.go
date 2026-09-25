@@ -38,7 +38,6 @@ type adapterAttempt func(src []byte, name string, firstErr error) (*syntax.File,
 func adapterChain() []adapterAttempt {
 	return []adapterAttempt{
 		parseNestedConditionalAlternation,
-		parseAlternateIfBrace,
 		parseIfShortForm,
 		parseWhileShortForm,
 		parseWhileEmptyBody,

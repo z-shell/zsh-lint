@@ -17,6 +17,9 @@ The contract is in [`docs/project/parser-gap-workflow.md`](../../docs/project/pa
    One issue per feature; label it `parser-gap`.
 3. Fix locally by default.
    Upstream `mvdan/sh` is a source of fixes to take and test, not a dependency to wait on ([ADR-0023](https://github.com/z-shell/.github/blob/main/decisions/0023-zsh-lint-parser-front-end-strategy.md)).
+4. Fix in the parser fork, not with a new adapter ([ADR-0030](https://github.com/z-shell/.github/blob/main/decisions/0030-zsh-lint-parser-fork-trigger-fired.md)).
+   The fork is `third_party/mvdan-sh`; keep each change Zsh-only behind `LangZsh`, list it in `third_party/mvdan-sh/FORK.md`, and keep upstream's tests there passing.
+   An adapter whose family has not moved into the fork yet may still be fixed in place, through its shared scanner.
 
 ## Adapter invariants
 

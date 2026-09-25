@@ -351,7 +351,7 @@ func noProgressSource(n int) string {
 // retry is a full parse of the prefix: the cost was quadratic in file size
 // (22.7 s at n = 2000). The retry count is asserted rather than wall clock,
 // so the test is exact and does not depend on machine load: it must not grow
-// with n, and the error reported must be the same one as before.
+// with n, and the error reported must not change with it.
 func TestAnonymousFunctionClosersStopWithoutProgress(t *testing.T) {
 	retries := func(n int) (int64, error) {
 		before := closerRetries.Load()
@@ -373,7 +373,10 @@ func TestAnonymousFunctionClosersStopWithoutProgress(t *testing.T) {
 	if !errors.As(largeErr, &parseErr) {
 		t.Fatalf("error type = %T, want syntax.ParseError", largeErr)
 	}
-	if parseErr.Pos.Line() != 204 || parseErr.Pos.Col() != 7 || parseErr.Text != "statements must be separated by &, ; or a newline" {
-		t.Errorf("error = %d:%d %q, want 204:7 %q", parseErr.Pos.Line(), parseErr.Pos.Col(), parseErr.Text, "statements must be separated by &, ; or a newline")
+	// The outer `{` is never closed. Since the brace-form if moved into the
+	// parser fork (#446), that is the error reported, at end of input.
+	const want = "reached EOF without matching `{` with `}`"
+	if parseErr.Pos.Line() != 201 || parseErr.Pos.Col() != 1 || parseErr.Text != want {
+		t.Errorf("error = %d:%d %q, want 201:1 %q", parseErr.Pos.Line(), parseErr.Pos.Col(), parseErr.Text, want)
 	}
 }
