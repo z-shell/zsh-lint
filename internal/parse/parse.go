@@ -103,6 +103,7 @@ func (f *File) RepeatLoops() []RepeatLoop {
 }
 
 func parseTree(src []byte, name string) (*syntax.File, error) {
+	treeParses.Add(1)
 	parser := syntax.NewParser(
 		syntax.KeepComments(true),
 		syntax.Variant(syntax.LangZsh),
