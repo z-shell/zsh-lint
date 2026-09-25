@@ -159,7 +159,7 @@ func TestParseSelectBraceBodyRejectsInvalidShapes(t *testing.T) {
 		line    uint
 		col     uint
 	}{
-		{"invalid-301-unterminated-block.txt", "reached EOF without matching `{` with `}`", 1, 20},
+		{"invalid-301-unterminated-block.txt", "`{` must be followed by `}`", 1, 20},
 		{"invalid-301-closer-before-opener.txt", "`}` can only be used to close a block", 1, 20},
 		{"invalid-301-extra-closer.txt", "`}` can only be used to close a block", 1, 30},
 		{"invalid-301-case-terminator-after-block.txt", "`;;` can only be used in a case clause", 1, 29},
@@ -172,31 +172,5 @@ func TestParseSelectBraceBodyRejectsInvalidShapes(t *testing.T) {
 			}
 			assertParseErrorAt(t, src, test.text, test.line, test.col)
 		})
-	}
-}
-
-// A retry whose tree lacks the loop at the site is not trusted.
-func TestParseSelectBraceBodyFailsClosed(t *testing.T) {
-	src := []byte("select o in a b c; { break }\n")
-	_, firstErr := parseTree(src, "closed.zsh")
-	if firstErr == nil {
-		t.Fatal("parseTree() unexpectedly accepted the brace body")
-	}
-	calls := 0
-	_, err := parseSelectShortFormWithParser(src, "closed.zsh", firstErr, func(masked []byte, name string) (*syntax.File, error) {
-		calls++
-		if calls == 1 {
-			return parseTree(masked, name) // the probe
-		}
-		if string(masked) != "select o in a b c; do\n break \ndone\n" {
-			t.Fatalf("retry source = %q", masked)
-		}
-		return &syntax.File{}, nil
-	})
-	if err != firstErr {
-		t.Fatalf("error = %v, want the incoming error %v", err, firstErr)
-	}
-	if calls != 2 {
-		t.Fatalf("parser called %d times, want 2 (probe and retry)", calls)
 	}
 }

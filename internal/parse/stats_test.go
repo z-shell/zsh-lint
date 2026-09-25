@@ -31,9 +31,11 @@ func TestStatsCountTreeParsesAndAdapterDepth(t *testing.T) {
 			stats: Stats{TreeParses: 5, MaxAdapterDepth: 2},
 		},
 		{
-			name:  "two adapters nest after a native brace-form if",
+			// The parser fork reads the brace-form if and the alternate for
+			// (#446, #459), so only the repeat loop retries.
+			name:  "one adapter after a native brace-form if and alternate for",
 			src:   "if [[ -n $x ]] { print a }\nfor x (a b) print $x\nrepeat 3 do print a; done\n",
-			stats: Stats{TreeParses: 7, MaxAdapterDepth: 2},
+			stats: Stats{TreeParses: 3, MaxAdapterDepth: 1},
 		},
 	}
 	for _, tt := range tests {

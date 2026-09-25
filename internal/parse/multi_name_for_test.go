@@ -82,9 +82,11 @@ done
 			wantStmts: 1,
 		},
 		{
-			name:    "invalid for loop syntax",
-			src:     `for k v ;`,
-			wantErr: true,
+			// Native Zsh reads two names over the positional parameters and
+			// an empty body at the end of the input (`zsh -f -n` exits 0).
+			name:      "names with no list and an empty body",
+			src:       `for k v ;`,
+			wantStmts: 1,
 		},
 	}
 
@@ -333,66 +335,66 @@ func TestParseMultiNameForMultilineListRetryError(t *testing.T) {
 	assertParseErrorAt(t, fixture, "statements must be separated by &, ; or a newline", 7, 12)
 }
 
-// TestParseMultiNameForRejectsCommentInsideList documents the conservative
-// bail: a `#` comment inside the list is valid zsh (the source is inline
-// rather than an `invalid-` fixture for that reason), but masking it would
-// drop a comment node the suppression pass may read, so the original parser
-// error stands for that loop.
-func TestParseMultiNameForRejectsCommentInsideList(t *testing.T) {
-	src := []byte(`for p (
+// TestParseMultiNameForCommentInsideList: a `#` comment inside the
+// parenthesized list is valid Zsh, and the parser fork reads the list with
+// its comment (#459); the `)` inside the comment does not close the list.
+func TestParseMultiNameForCommentInsideList(t *testing.T) {
+	src := `for p (
   a # comment )
   b
 ) {
   x=1
 }
-`)
-	assertParseErrorAt(t, src, "`for foo` must be followed by `in`, `do`, `;`, or a newline", 1, 1)
+`
+	file, err := Parse(strings.NewReader(src), "comment.zsh")
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	loops := forLoops(file.AST())
+	if len(loops) != 1 {
+		t.Fatalf("for loops = %d, want 1", len(loops))
+	}
+	iter, ok := loops[0].Loop.(*syntax.WordIter)
+	if !ok || len(iter.Items) != 2 {
+		t.Fatalf("loop items = %#v, want a and b", loops[0].Loop)
+	}
+	found := false
+	syntax.Walk(file.AST(), func(node syntax.Node) bool {
+		if c, ok := node.(*syntax.Comment); ok && c.Text == " comment )" {
+			found = true
+		}
+		return true
+	})
+	if !found {
+		t.Error("the comment inside the list is missing from the tree")
+	}
 }
 
-// TestParseMultiNameForDeclinesUnlexableList asserts that a list the
-// front-end's word lexer cannot read, or that never closes, leaves the loop
-// untouched so the raw parser error stands instead of a rewrite built on a
-// guessed boundary.
-func TestParseMultiNameForDeclinesUnlexableList(t *testing.T) {
+// TestParseMultiNameForUnreadableList: an invalid list stays a parse error
+// at the list, and so does a flag group the lexer cannot read yet, which
+// native Zsh accepts. A `;` inside the list separates words (#270).
+func TestParseMultiNameForUnreadableList(t *testing.T) {
 	tests := []struct {
-		name string
-		src  string
+		name, src, text string
+		line, col       uint
 	}{
 		{
 			// mvdan reads a zsh flag group as a literal ending at its first
 			// `)`, so the `.` delimiter that follows is not a valid operator.
-			name: "flag group delimiter",
-			src: `for item ( ${(s.).)v} two ) {
-  print -r -- "$item"
-}
-`,
+			"flag group delimiter",
+			"for item ( ${(s.).)v} two ) {\n  print -r -- \"$item\"\n}\n",
+			"not a valid parameter expansion operator: `.`", 1, 18,
 		},
-		{
-			name: "list never closes",
-			src: `for item ( one two
-`,
-		},
-		{
-			// #270 tracks the `;` separator; until it is implemented the
-			// loop stays untouched and this raw error is the promised report.
-			name: "semicolon separator inside the list",
-			src: `for item ( one; two ) {
-  print -r -- "$item"
-}
-`,
-		},
-		{
-			name: "operator inside the list",
-			src: `for item ( one < two ) {
-  print -r -- "$item"
-}
-`,
-		},
+		{"list never closes", "for item ( one two\n", "reached EOF without matching `(` with `)`", 1, 10},
+		{"operator inside the list", "for item ( one < two ) {\n  print -r -- \"$item\"\n}\n", "word list can only contain words", 1, 16},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertParseErrorAt(t, []byte(tt.src), "`for foo` must be followed by `in`, `do`, `;`, or a newline", 1, 1)
+			assertParseErrorAt(t, []byte(tt.src), tt.text, tt.line, tt.col)
 		})
+	}
+	if _, err := Parse(strings.NewReader("for item ( one; two ) {\n  print -r -- \"$item\"\n}\n"), "semicolon.zsh"); err != nil {
+		t.Errorf("a `;` inside the list: %v", err)
 	}
 }
 
@@ -404,5 +406,5 @@ func TestParseMultiNameForKeepsInFormNewlineInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read invalid fixture: %v", err)
 	}
-	assertParseErrorAt(t, fixture, "`for foo [in words]` must be followed by `do`", 1, 1)
+	assertParseErrorAt(t, fixture, "`do` can only be used in a loop", 2, 9)
 }

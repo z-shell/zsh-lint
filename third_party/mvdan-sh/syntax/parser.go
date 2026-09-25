@@ -512,6 +512,11 @@ type Parser struct {
 	// a statement with no separator, zshBraceWhile after any statement.
 	zshBraceStop zshBraceMode
 
+	// zshShortStop reports that the last condition list read under
+	// zshBraceStop ended at a statement with no separator after it, which
+	// in Zsh starts a one-sublist body (SHORT_LOOPS, zsh-lint #459).
+	zshShortStop bool
+
 	// zshDquoteParam reports that the parameter expansion being lexed sits
 	// inside a double-quoted string, where Zsh reads a `'` in its word as an
 	// ordinary character (zsh-lint #400).
@@ -1101,6 +1106,15 @@ loop:
 					break loop
 				}
 			}
+			// A condition list ends at a word that closes an enclosing
+			// construct; its if or loop decides whether the empty body is
+			// valid.
+			if braceStop != zshBraceNone && count > 0 {
+				switch p.val {
+				case "}", "then", "else", "elif", "fi", "do", "done", "esac":
+					break loop
+				}
+			}
 			if p.val == "}" {
 				p.curErr(`%#q can only be used to close a block`, rightBrace)
 			}
@@ -1119,6 +1133,14 @@ loop:
 			p.curErr("%#q can only be used in a case clause", p.tok)
 		}
 		if !newLine && !gotEnd {
+			// A condition ends at a statement with no separator after
+			// it, and the sublist that follows is the body.
+			// After an anonymous function the words are its arguments
+			// in Zsh's reading, so no body starts there.
+			if braceStop != zshBraceNone && count > 0 && !endsWithAnonFunc(lastStmt) {
+				p.zshShortStop = true
+				break loop
+			}
 			p.curErr("statements must be separated by &, ; or a newline")
 		}
 		if p.tok == _EOF {
@@ -2316,6 +2338,11 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			p.curErr(`%#q can only be used to close a block`, rightBrace)
 		case "then", "elif":
 			p.curErr("%#q can only be used in an `if`", p.val)
+		case "else":
+			// Zsh reserves `else` in command position too (zsh-lint #459).
+			if p.lang.in(LangZsh) {
+				p.curErr("%#q can only be used in an `if`", p.val)
+			}
 		case "fi":
 			p.curErr("%#q can only be used to end an `if`", p.val)
 		case "do":
@@ -2537,6 +2564,7 @@ func endsWithAnonFunc(s *Stmt) bool {
 // list may end at the `{` of a brace-form body (Alternate Forms For Complex
 // Commands); the caller sees that `{` as the current token.
 func (p *Parser) condStmts(left string, lpos Pos, mode zshBraceMode, stops ...string) ([]*Stmt, []Comment) {
+	p.zshShortStop = false
 	if p.lang.in(LangZsh) {
 		p.zshBraceStop = mode
 	}
@@ -2591,6 +2619,7 @@ func (p *Parser) ifClause(s *Stmt) {
 				els.ThenPos, els.Then, els.ThenLast = lb, body, bodyLast
 				curIf.Else = els
 				p.setIfEnd(rootIf, rb)
+				p.setZshIfEnd(rootIf, posAddCol(rb, 1))
 				s.Cmd = rootIf
 				return
 			}
@@ -2604,6 +2633,23 @@ func (p *Parser) ifClause(s *Stmt) {
 				}
 			}
 			p.setIfEnd(rootIf, rbrace)
+			p.setZshIfEnd(rootIf, posAddCol(rbrace, 1))
+			s.Cmd = rootIf
+			return
+		}
+		if p.zshShortStop || p.zshEmptyIfBody() {
+			// One sublist for a body ends the whole if. It may be empty
+			// where the condition list ended at a closer, as in
+			// `{ if true }`, but not at the end of the input.
+			p.zshShortStop = false
+			var body *Stmt
+			var end Pos
+			curIf.ThenPos, end, body = p.zshShortBody(left)
+			if body != nil {
+				curIf.Then = []*Stmt{body}
+			}
+			p.setIfEnd(rootIf, end)
+			p.setZshIfEnd(rootIf, end)
 			s.Cmd = rootIf
 			return
 		}
@@ -2644,6 +2690,14 @@ func (p *Parser) setIfEnd(rootIf *IfClause, end Pos) {
 	}
 }
 
+// setZshIfEnd records where a Zsh brace or short form of if ends, since it
+// has no `fi` to measure from.
+func (p *Parser) setZshIfEnd(rootIf *IfClause, end Pos) {
+	for cur := rootIf; cur != nil; cur = cur.Else {
+		cur.ZshEnd = end
+	}
+}
+
 func (p *Parser) whileClause(s *Stmt, until bool) {
 	wc := &WhileClause{WhilePos: p.pos, Until: until}
 	rsrv := "while"
@@ -2654,8 +2708,22 @@ func (p *Parser) whileClause(s *Stmt, until bool) {
 	}
 	p.next()
 	wc.Cond, wc.CondLast = p.condStmts(rsrv, wc.WhilePos, zshBraceWhile, "do")
+	// A condition list may run to the end of the input or to a closer,
+	// leaving an empty body, as in `while true; print x`.
+	if p.zshShortStop || (p.lang.in(LangZsh) && p.zshEmptyLoopBody() && !(p.tok == _LitWord && p.val == "do")) {
+		p.zshShortStop = false
+		var body *Stmt
+		wc.DoPos, wc.DonePos, body = p.zshShortBody(rsrv + " loop")
+		if body != nil {
+			wc.Do = []*Stmt{body}
+		}
+		wc.ZshEnd = wc.DonePos
+		s.Cmd = wc
+		return
+	}
 	if lbrace, body, bodyLast, rbrace, ok := p.zshBraceBody(); ok {
 		wc.DoPos, wc.Do, wc.DoLast, wc.DonePos = lbrace, body, bodyLast, rbrace
+		wc.ZshEnd = posAddCol(rbrace, 1)
 		s.Cmd = wc
 		return
 	}
@@ -2668,6 +2736,16 @@ func (p *Parser) whileClause(s *Stmt, until bool) {
 func (p *Parser) forClause(s *Stmt) {
 	fc := &ForClause{ForPos: p.pos}
 	p.next()
+	if p.lang.in(LangZsh) {
+		if p.tok == dblLeftParen {
+			fc.Loop = p.loop(fc.ForPos)
+		} else {
+			fc.Loop = p.zshWordIter("for", fc.ForPos, true)
+		}
+		p.zshLoopBody(s, fc, "for")
+		s.Cmd = fc
+		return
+	}
 	fc.Loop = p.loop(fc.ForPos)
 
 	start, end := "do", "done"
@@ -2739,9 +2817,197 @@ func (p *Parser) wordIter(ftok string, fpos Pos) *WordIter {
 	return wi
 }
 
+// zshWordIter reads the header of a Zsh `for` or `select` loop after its
+// keyword, as par_for in zsh's parse.c does (#459). A `for` may name more
+// than one variable before its list; the tree keeps the first, as WordIter
+// has room for one. The list is `in word ...` up to `;` or a newline, or
+// `( word ... )`, where newlines are allowed, when no newline separates it
+// from the names; with neither, the loop runs over the positional
+// parameters.
+func (p *Parser) zshWordIter(ftok string, fpos Pos, multi bool) *WordIter {
+	wi := &WordIter{}
+	if wi.Name = p.getLit(); wi.Name == nil {
+		p.followErr(fpos, ftok, noQuote("a literal"))
+		return wi
+	}
+	// Every word before `in` is another name and must be one; `do`, `}`
+	// and a word starting with `{` are reserved words here, not names.
+	for multi {
+		if p.tok == _LitWord {
+			switch {
+			case p.val == "in", p.val == "do", p.val == "}", strings.HasPrefix(p.val, "{"):
+			default:
+				if !zshParamName(p.val) {
+					p.curErr("%#q is not a valid name for a %s loop", p.val, ftok)
+				}
+				p.next()
+				continue
+			}
+		} else if p.zshWordStart() {
+			p.curErr("%s loop names must be literal names", ftok)
+		}
+		break
+	}
+	newline := p.tok == _Newl
+	for p.got(_Newl) {
+	}
+	if pos, ok := p.gotRsrv("in"); ok {
+		wi.InPos = pos
+		for !p.stopToken() {
+			if w := p.getWord(); w == nil {
+				p.curErr("word list can only contain words")
+			} else {
+				wi.Items = append(wi.Items, w)
+			}
+		}
+		if p.tok != semicolon && p.tok != _Newl {
+			p.followErr(pos, ftok+" foo in words", noQuote("`;` or a newline"))
+		}
+	} else if !newline && p.tok == leftParen {
+		wi.InPos = p.pos
+		p.next()
+		for p.tok != rightParen && p.tok != _EOF {
+			// Newlines and `;` separate the words like blanks (#270).
+			if p.got(_Newl) || p.got(semicolon) {
+				continue
+			}
+			if w := p.getWord(); w == nil {
+				p.curErr("word list can only contain words")
+			} else {
+				wi.Items = append(wi.Items, w)
+			}
+		}
+		if p.tok != rightParen {
+			p.matchingErr(wi.InPos, leftParen, rightParen)
+		}
+		p.next()
+	}
+	return wi
+}
+
+// zshParamName reports whether val names a parameter a Zsh loop can set:
+// an identifier, or digits for a positional parameter.
+func zshParamName(val string) bool {
+	if ValidName(val) {
+		return true
+	}
+	for _, r := range val {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return val != ""
+}
+
+// zshWordStart reports whether the current token starts a word, which Zsh
+// lexes as a string.
+func (p *Parser) zshWordStart() bool {
+	switch p.tok {
+	case _Lit, _LitWord, _LitRedir, dollBrace, dollDblParen, dollBrack, dollParen, dollar,
+		cmdIn, cmdOut, sglQuote, dollSglQuote, dblQuote, dollDblQuote, bckQuote,
+		globQuest, globStar, globPlus, globAt, globExcl:
+		return true
+	}
+	return false
+}
+
+// zshLoopBody reads the body of a Zsh `for` or `select` loop after any
+// number of `;` and newlines: `do list done`, `{ list }`, or, with the
+// default SHORT_LOOPS, one sublist without its terminator, so a following
+// `&` applies to the loop (#459). A brace body sits on its braces and a
+// sublist body on its own extent, as `do` and `done` would.
+func (p *Parser) zshLoopBody(s *Stmt, fc *ForClause, rsrv string) {
+	for p.got(semicolon) || p.got(_Newl) {
+	}
+	// Comments before `do` or `{` go with the loop, as upstream keeps them;
+	// before a sublist body they lead that statement.
+	if p.tok == _LitWord && (p.val == "do" || p.val == "{") {
+		s.Comments = append(s.Comments, p.accComs...)
+		p.accComs = nil
+	}
+	if pos, ok := p.gotRsrv("do"); ok {
+		fc.DoPos = pos
+		fc.Do, fc.DoLast = p.followStmts("do", fc.DoPos, "done")
+		fc.DonePos = p.stmtEnd(fc, rsrv, "done")
+		return
+	}
+	if lbrace, body, bodyLast, rbrace, ok := p.zshBraceBody(); ok {
+		fc.DoPos, fc.Do, fc.DoLast, fc.DonePos = lbrace, body, bodyLast, rbrace
+		fc.ZshEnd = posAddCol(rbrace, 1)
+		return
+	}
+	var body *Stmt
+	fc.DoPos, fc.DonePos, body = p.zshShortBody(rsrv + " loop")
+	if body != nil {
+		fc.Do = []*Stmt{body}
+	}
+	fc.ZshEnd = fc.DonePos
+}
+
+// zshShortBody reads the one-sublist body of a Zsh short form, without its
+// terminator, and reports where it starts and ends. An empty body is
+// allowed where the next token cannot start a command.
+func (p *Parser) zshShortBody(what string) (start, end Pos, body *Stmt) {
+	start, end = p.pos, p.pos
+	if p.tok == _EOF {
+		// The end-of-input token keeps the last token's position; an empty
+		// body there sits at the end of the input.
+		start, end = p.nextPos(), p.nextPos()
+	}
+	if p.zshEmptyLoopBody() {
+		return start, end, nil
+	}
+	if body = p.getStmt(false, false, false); body == nil {
+		if p.err == nil {
+			p.curErr("%s body must be a command", what)
+		}
+		return start, end, nil
+	}
+	return start, body.End(), body
+}
+
+// zshEmptyIfBody reports whether an if condition list ended at a token that
+// leaves the Zsh short form an empty body: a closer, but not `then`, the end
+// of the input, or the end of a command substitution.
+func (p *Parser) zshEmptyIfBody() bool {
+	if !p.lang.in(LangZsh) || !p.zshEmptyLoopBody() {
+		return false
+	}
+	switch {
+	case p.tok == _EOF, p.tok == _LitWord && p.val == "then",
+		p.tok == rightParen && p.quote == subCmd, p.tok == bckQuote:
+		return false
+	}
+	return true
+}
+
+// zshEmptyLoopBody reports whether the sublist body of a Zsh loop is empty:
+// native Zsh accepts that when the next token cannot start a command and
+// ends or continues the enclosing list, as in `{ for i in a b; }`.
+func (p *Parser) zshEmptyLoopBody() bool {
+	switch p.tok {
+	case _EOF, rightParen, dblSemicolon, semiAnd, dblSemiAnd, semiOr, andAnd, orOr, or, orAnd:
+		return true
+	case bckQuote:
+		return p.backquoteEnd()
+	case _LitWord:
+		switch p.val {
+		case "}", "then", "do", "done", "fi", "elif", "else", "esac":
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Parser) selectClause(s *Stmt) {
 	fc := &ForClause{ForPos: p.pos, Select: true}
 	p.next()
+	if p.lang.in(LangZsh) {
+		fc.Loop = p.zshWordIter("select", fc.ForPos, false)
+		p.zshLoopBody(s, fc, "select")
+		s.Cmd = fc
+		return
+	}
 	fc.Loop = p.wordIter("select", fc.ForPos)
 	fc.DoPos = p.followRsrv(fc.ForPos, "select foo [in words]", "do")
 	fc.Do, fc.DoLast = p.followStmts("do", fc.DoPos, "done")

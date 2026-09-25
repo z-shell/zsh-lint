@@ -398,8 +398,8 @@ func TestParseArithForSublistRejectsInvalidShapes(t *testing.T) {
 		wantText string
 	}{
 		{"invalid-241-missing-semicolon.txt", "1:21", "`expr` must be followed by `;`"},
-		{"invalid-241-ampersand-body.txt", "1:29", "`&` can only immediately follow a statement"},
-		{"invalid-241-then-body.txt", "1:29", "`then` can only be used in an `if`"},
+		{"invalid-241-ampersand-body.txt", "1:29", "for loop body must be a command"},
+		{"invalid-241-then-body.txt", "1:29", "statements must be separated by &, ; or a newline"},
 		{"invalid-241-brace-close-body.txt", "1:29", "`}` can only be used to close a block"},
 		{"invalid-241-double-semicolon-after-header.txt", "1:29", "`;;` can only be used in a case clause"},
 	}
@@ -419,54 +419,6 @@ func TestParseArithForSublistRejectsInvalidShapes(t *testing.T) {
 			}
 			if perr.Text != test.wantText {
 				t.Errorf("text = %q, want %q", perr.Text, test.wantText)
-			}
-		})
-	}
-}
-
-// The adapter only acts on arithmetic for errors at a scanned site.
-func TestParseArithForSublistAdapterDeclinesUnrelatedErrors(t *testing.T) {
-	src := []byte("for (( i = 1; i < 3; i++ )) print $i\n")
-	other := syntax.ParseError{Filename: "x.zsh", Pos: syntax.NewPos(0, 1, 1), Text: "`select foo [in words]` must be followed by `do`"}
-	if _, err := parseArithForSublistWithParser(src, "x.zsh", other, parseWithAdapters); !errors.Is(err, other) {
-		t.Errorf("unrelated text: error = %v, want the incoming error", err)
-	}
-	elsewhere := syntax.ParseError{Filename: "x.zsh", Pos: syntax.NewPos(7, 1, 8), Text: "`for foo [in words]` must be followed by `do`"}
-	if _, err := parseArithForSublistWithParser(src, "x.zsh", elsewhere, parseWithAdapters); !errors.Is(err, elsewhere) {
-		t.Errorf("position off the word: error = %v, want the incoming error", err)
-	}
-}
-
-// scanArithForSites finds arithmetic for headers in command position only.
-func TestScanArithForSites(t *testing.T) {
-	tests := []struct {
-		name string
-		src  string
-		want []int
-	}{
-		{"top level single command", "for (( i = 1; i < 3; i++ )) print $i\n", []int{0}},
-		{"top level brace body", "for (( i = 1; i < 3; i++ )) { print $i }\n", []int{0}},
-		{"do form is not a site", "for (( i = 1; i < 3; i++ )); do print $i; done\n", nil},
-		{"for name is not a site", "for a in 1 2; do print $a; done\n", nil},
-		{"after separator and in function", "x; for (( i = 0; i < 2; i++ )) print $i\nf() { for (( j = 0; j < 2; j++ )) print $j }\n", []int{3, 46}},
-		{"argument position", "print for (( i = 0; i < 2; i++ ))\n", nil},
-		{"quoted", "print 'for (( i = 0; i < 2; i++ ))'\n", nil},
-		{"comment", "# for (( i = 0; i < 2; i++ ))\n", nil},
-		{"nested", "for (( i = 0; i < 2; i++ )) for (( j = 0; j < 2; j++ )) print $i $j\n", []int{0, 28}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var got []int
-			for _, site := range scanArithForSites([]byte(test.src)) {
-				got = append(got, site.start)
-			}
-			if len(got) != len(test.want) {
-				t.Fatalf("sites = %v, want %v", got, test.want)
-			}
-			for i := range got {
-				if got[i] != test.want[i] {
-					t.Fatalf("sites = %v, want %v", got, test.want)
-				}
 			}
 		})
 	}

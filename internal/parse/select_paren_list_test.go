@@ -1,7 +1,6 @@
 package parse
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -42,7 +41,7 @@ func TestParseSelectParenList(t *testing.T) {
 		{"brace body", "select o (a b c) { print $o; break }\n", []string{"1:1:1:10:1:18:1:36/2[1:11 a, 1:13 b, 1:15 c]"}},
 		{"do body", "select o (a b c) do break; done\n", []string{"1:1:1:10:1:18:1:28/1[1:11 a, 1:13 b, 1:15 c]"}},
 		{"separator then do body", "select o (a b c); do break; done\n", []string{"1:1:1:10:1:19:1:29/1[1:11 a, 1:13 b, 1:15 c]"}},
-		{"empty body at end of file", "select o (a b c)\n", []string{"1:1:1:10:1:18:1:18/0[1:11 a, 1:13 b, 1:15 c]"}},
+		{"empty body at end of file", "select o (a b c)\n", []string{"1:1:1:10:2:1:2:1/0[1:11 a, 1:13 b, 1:15 c]"}},
 		{"empty body before brace", "f() { select o (a b c) }\n", []string{"1:7:1:16:1:24:1:24/0[1:17 a, 1:19 b, 1:21 c]"}},
 		{"blanks inside parens", "select o ( a b c ) break\n", []string{"1:1:1:10:1:20:1:25/1[1:12 a, 1:14 b, 1:16 c]"}},
 		{"multi-line list", "select o (a\n  b\n  c) break\n", []string{"1:1:1:10:3:6:3:11/1[1:11 a, 2:3 b, 3:3 c]"}},
@@ -78,18 +77,6 @@ func TestParseSelectParenList(t *testing.T) {
 	}
 }
 
-// Every row is gated by the parser's `select foo` error before the adapter
-// runs; a row the base parser accepts tests nothing.
-func TestParseSelectParenListGatesOnTheParserError(t *testing.T) {
-	for _, src := range []string{"select o (a b c) break\n", "select o (a b c)\n", "select o () break\n"} {
-		_, firstErr := parseTree([]byte(src), "gate.zsh")
-		var parseErr syntax.ParseError
-		if !errors.As(firstErr, &parseErr) || parseErr.Text != selectParenListError {
-			t.Errorf("parseTree(%q) error = %v, want %q", src, firstErr, selectParenListError)
-		}
-	}
-}
-
 // Native Zsh rejects each fixture (`zsh -f -n`); the parser error is kept
 // or the retry's own blocker is reported on its byte.
 func TestParseSelectParenListRejectsInvalidShapes(t *testing.T) {
@@ -99,12 +86,12 @@ func TestParseSelectParenListRejectsInvalidShapes(t *testing.T) {
 		line    uint
 		col     uint
 	}{
-		{"invalid-303-unterminated-list.txt", selectParenListError, 1, 1},
-		{"invalid-303-extra-closer.txt", "`)` can only be used to close a subshell", 1, 17},
+		{"invalid-303-unterminated-list.txt", "reached EOF without matching `(` with `)`", 1, 10},
+		{"invalid-303-extra-closer.txt", "statements must be separated by &, ; or a newline", 1, 17},
 		// The rewritten header `select o in a b c ;;` is itself the parser's
 		// header error at the `select` word, so the site keeps its own.
-		{"invalid-303-case-terminator-after-list.txt", selectParenListError, 1, 1},
-		{"invalid-303-ampersand-opening-body.txt", "`&` can only immediately follow a statement", 1, 18},
+		{"invalid-303-case-terminator-after-list.txt", "`;;` can only be used in a case clause", 1, 17},
+		{"invalid-303-ampersand-opening-body.txt", "select loop body must be a command", 1, 18},
 		{"invalid-303-missing-name.txt", "`select` must be followed by a literal", 1, 1},
 	}
 	for _, test := range tests {
@@ -115,46 +102,5 @@ func TestParseSelectParenListRejectsInvalidShapes(t *testing.T) {
 			}
 			assertParseErrorAt(t, src, test.text, test.line, test.col)
 		})
-	}
-}
-
-// A `((` after the name is arithmetic, not a list, and a list holding a
-// comment is not rewritten: both keep the parser error without a retry.
-func TestParseSelectParenListLeavesOtherShapesUntouched(t *testing.T) {
-	for _, src := range []string{"select o ((1)) break\n", "select o (a # c\nb) break\n"} {
-		src := []byte(src)
-		_, firstErr := parseTree(src, "other.zsh")
-		if firstErr == nil {
-			t.Fatalf("parseTree(%q) unexpectedly succeeded", src)
-		}
-		calls := 0
-		_, err := parseSelectParenListWithParser(src, "other.zsh", firstErr, func([]byte, string) (*syntax.File, error) {
-			calls++
-			return nil, nil
-		})
-		if err != firstErr {
-			t.Fatalf("%q: error = %v, want the incoming error %v", src, err, firstErr)
-		}
-		if calls != 0 {
-			t.Fatalf("%q: parser called %d times, want 0", src, calls)
-		}
-	}
-}
-
-// A retry whose tree lacks the loop at a site is not trusted.
-func TestParseSelectParenListFailsClosed(t *testing.T) {
-	src := []byte("select o (a b c) break\n")
-	_, firstErr := parseTree(src, "closed.zsh")
-	if firstErr == nil {
-		t.Fatal("parseTree() unexpectedly accepted the paren list")
-	}
-	_, err := parseSelectParenListWithParser(src, "closed.zsh", firstErr, func(masked []byte, _ string) (*syntax.File, error) {
-		if string(masked) != "select o  in a b c; break\n" {
-			t.Fatalf("retry source = %q", masked)
-		}
-		return &syntax.File{}, nil
-	})
-	if err != firstErr {
-		t.Fatalf("error = %v, want the incoming error %v", err, firstErr)
 	}
 }

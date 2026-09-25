@@ -392,7 +392,7 @@ func TestParseDeclarationBraceCloseInsideBody(t *testing.T) {
 		{"elif body", "if true; then :; elif true; then { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:44"}},
 		{"else body", "if true; then :; else { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:33"}},
 		{"then body before elif", "if true; then { local x }; elif true; then :; fi\n", "`elif` can only be used in an `if`", []string{"1:25"}},
-		{"then body before else", "if true; then { local x }; else :; fi\n", "`fi` can only be used to end an `if`", []string{"1:25"}},
+		{"then body before else", "if true; then { local x }; else :; fi\n", "`else` can only be used in an `if`", []string{"1:25"}},
 		{"case arm with separator", "case x in (x) { local x }; esac\n", "`esac` can only be used to end a `case`", []string{"1:25"}},
 		{"case arm then newline", "case x in (x) { local x }\nesac\n", "`esac` can only be used to end a `case`", []string{"1:25"}},
 		{"while condition", "while { local x }; do :; done\n", "`do` can only be used in a loop", []string{"1:17"}},

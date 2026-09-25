@@ -384,7 +384,6 @@ func TestParseMultiNameFunctionLeavesUnrecognisedSitesUntouched(t *testing.T) {
 		"reserved word only": "then b () { : }\n",
 		"repeat count only":  "repeat 3 () { print $1 } a b\n",
 		"repeat one name":    "repeat 2 f() { : }\n",
-		"select header":      "select a b () { : }\n",
 	}
 	for name, src := range sources {
 		t.Run(name, func(t *testing.T) {

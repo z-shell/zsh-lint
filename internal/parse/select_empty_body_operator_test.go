@@ -88,19 +88,6 @@ func TestParseSelectEmptyBodyOperatorChain(t *testing.T) {
 	}
 }
 
-// The guard takes the operators that chain the loop and nothing else.
-func TestSelectOperatorAt(t *testing.T) {
-	src := []byte("| |& || && & ;; ;| x")
-	for _, test := range []struct {
-		at   int
-		want bool
-	}{{0, true}, {2, true}, {5, true}, {8, true}, {11, false}, {13, false}, {16, false}, {19, false}, {len(src), false}} {
-		if got := selectOperatorAt(src, test.at); got != test.want {
-			t.Errorf("selectOperatorAt(%q) = %v, want %v", src[test.at:], got, test.want)
-		}
-	}
-}
-
 // Native Zsh rejects each fixture (`zsh -f -n` reports a parse error): a
 // lone `&` would background an empty sublist, and `;|` and `;&` are case
 // terminators.
@@ -111,10 +98,10 @@ func TestParseSelectEmptyBodyOperatorRejectsInvalidShapes(t *testing.T) {
 		line    uint
 		col     uint
 	}{
-		{"invalid-319-background-empty-body.txt", "`&` can only immediately follow a statement", 1, 20},
-		{"invalid-319-paren-background.txt", "`&` can only immediately follow a statement", 1, 17},
-		{"invalid-319-glued-pipe.txt", "`select foo [in words]` must be followed by `do`", 1, 1},
-		{"invalid-319-glued-ampersand.txt", "`select foo [in words]` must be followed by `do`", 1, 1},
+		{"invalid-319-background-empty-body.txt", "select loop body must be a command", 1, 20},
+		{"invalid-319-paren-background.txt", "select loop body must be a command", 1, 17},
+		{"invalid-319-glued-pipe.txt", "`select foo in words` must be followed by `;` or a newline", 1, 10},
+		{"invalid-319-glued-ampersand.txt", "`select foo in words` must be followed by `;` or a newline", 1, 10},
 	}
 	for _, test := range tests {
 		t.Run(test.fixture, func(t *testing.T) {

@@ -108,6 +108,9 @@ func TestSubstitutionBodyParses(t *testing.T) {
 		"fo",
 		"time",
 		"coproc",
+		// A while condition may run to the end of the input with an empty
+		// body under SHORT_LOOPS (#459).
+		"while true",
 	}
 	for _, body := range accepted {
 		if !substitutionBodyParses([]byte(body)) {
@@ -125,7 +128,6 @@ func TestSubstitutionBodyParses(t *testing.T) {
 		"| echo a",
 		"echo (",
 		"if true",
-		"while true",
 		// Upstream parses these as ordinary commands; Zsh reports a parse error.
 		"else",
 		"nocorrect",

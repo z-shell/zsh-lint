@@ -1,7 +1,6 @@
 package parse
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -46,7 +45,7 @@ func TestParseWhileShortForm(t *testing.T) {
 		{"while in function", "f() { while (( 1 )) print hi }\n", "f() { while ((1)); do print hi; done; }\n", "1:7", "1:21", "1:29", false, 1, false},
 		{"while in if body", "if true; then while (( 1 )) print hi; fi\n", "if true; then while ((1)); do print hi; done; fi\n", "1:15", "1:29", "1:37", false, 1, false},
 		{"while in case body", "case x in (x) while (( 1 )) print hi ;; esac\n", "case x in x) while ((1)); do print hi; done ;; esac\n", "1:15", "1:29", "1:37", false, 1, false},
-		{"while comment on line", "while (( 1 )) print hi # tail\nprint after\n", "while ((1)); do print hi # tail\ndone\nprint after\n", "1:1", "1:15", "1:30", false, 1, false},
+		{"while comment on line", "while (( 1 )) print hi # tail\nprint after\n", "while ((1)); do print hi # tail\ndone\nprint after\n", "1:1", "1:15", "1:23", false, 1, false},
 		{"while heredoc body", "while (( 1 )) cat <<EOT\nhi\nEOT\nprint after\n", "while ((1)); do cat <<EOT\nhi\nEOT\ndone\nprint after\n", "1:1", "1:15", "3:4", false, 1, false},
 		{"nested while sites", "while (( 1 )) while (( 2 )) print hi\n", "while ((1)); do while ((2)); do print hi; done; done\n", "1:1", "1:15", "1:37", false, 1, false},
 		{"until with negated condition", "until ! (( 1 )) print hi\n", "until ! ((1)); do print hi; done\n", "1:1", "1:17", "1:25", true, 1, false},
@@ -200,54 +199,6 @@ func TestParseWhileShortFormUndelimitedIsEmptyBody(t *testing.T) {
 	}
 	if len(call.Args) != 3 {
 		t.Errorf("condition holds %d words, want 3 (`true print x` is one command)", len(call.Args))
-	}
-}
-
-// The adapter only acts on statementSeparatorRequired at the body start of a site.
-func TestParseWhileShortFormAdapterDeclinesUnrelatedErrors(t *testing.T) {
-	src := []byte("while (( 1 )) break\n")
-	other := syntax.ParseError{Filename: "x.zsh", Pos: syntax.NewPos(14, 1, 15), Text: "`while <cond>` must be followed by `do`"}
-	if _, err := parseWhileShortFormWithParser(src, "x.zsh", other, parseWithAdapters); !errors.Is(err, other) {
-		t.Errorf("unrelated text: error = %v, want the incoming error", err)
-	}
-	elsewhere := syntax.ParseError{Filename: "x.zsh", Pos: syntax.NewPos(0, 1, 1), Text: statementSeparatorRequired}
-	if _, err := parseWhileShortFormWithParser(src, "x.zsh", elsewhere, parseWithAdapters); !errors.Is(err, elsewhere) {
-		t.Errorf("position off site: error = %v, want the incoming error", err)
-	}
-}
-
-// scanWhileShortFormSites finds headers in command position only and ignores do and brace forms.
-func TestScanWhileShortFormSites(t *testing.T) {
-	tests := []struct {
-		name string
-		src  string
-		want []int
-	}{
-		{"while arithmetic", "while (( 1 )) break\n", []int{0}},
-		{"until test", "until [[ -n $x ]] break\n", []int{0}},
-		{"brace form is not a site", "while (( 1 )) { shift }\n", nil},
-		{"do form is not a site", "while (( 1 )) do shift; done\n", nil},
-		{"undelimited is not a site", "while true print x\n", nil},
-		{"argument position", "print while (( 1 )) break\n", nil},
-		{"quoted", "print 'while (( 1 )) break'\n", nil},
-		{"comment", "# while (( 1 )) break\n", nil},
-		{"nested", "while (( 1 )) while (( 2 )) break\n", []int{0, 14}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var got []int
-			for _, site := range scanWhileShortFormSites([]byte(test.src)) {
-				got = append(got, site.start)
-			}
-			if len(got) != len(test.want) {
-				t.Fatalf("sites = %v, want %v", got, test.want)
-			}
-			for i := range got {
-				if got[i] != test.want[i] {
-					t.Fatalf("sites = %v, want %v", got, test.want)
-				}
-			}
-		})
 	}
 }
 
