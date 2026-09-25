@@ -507,6 +507,11 @@ type Parser struct {
 
 	stopAt []byte
 
+	// zshBraceStop makes the next stmts call end its list at a `{` that
+	// opens a brace-form body (zsh-lint #443): zshBraceIf only directly after
+	// a statement with no separator, zshBraceWhile after any statement.
+	zshBraceStop zshBraceMode
+
 	recoveredErrors  int
 	recoverErrorsMax int
 
@@ -1067,12 +1072,25 @@ func (p *Parser) checkLang(pos Pos, langSet LangVariant, format string, a ...any
 }
 
 func (p *Parser) stmts(yield func(*Stmt, error) bool, stops ...string) {
+	braceStop := p.zshBraceStop
+	p.zshBraceStop = zshBraceNone
+	count := 0
+	var lastStmt *Stmt
 	gotEnd := true
 loop:
 	for p.tok != _EOF {
 		newLine := p.got(_Newl)
 		switch p.tok {
 		case _LitWord:
+			// A brace-form body's `{` follows the condition on its line: an
+			// if directly after the last statement, a while or until also
+			// after a `;`. A `{` after an anonymous function is its argument
+			// list in Zsh's reading, which it then rejects, so it never opens
+			// the body there.
+			if p.val == "{" && count > 0 && !newLine && !endsWithAnonFunc(lastStmt) &&
+				(braceStop == zshBraceWhile || (braceStop == zshBraceIf && !gotEnd)) {
+				break loop
+			}
 			for _, stop := range stops {
 				if p.val == stop {
 					break loop
@@ -1109,6 +1127,8 @@ loop:
 			break
 		}
 		gotEnd = s.Semicolon.IsValid()
+		count++
+		lastStmt = s
 		if !yield(s, p.err) {
 			break
 		}
@@ -2401,23 +2421,118 @@ func (p *Parser) block(s *Stmt) {
 	s.Cmd = b
 }
 
+type zshBraceMode uint8
+
+const (
+	zshBraceNone zshBraceMode = iota
+	zshBraceIf
+	zshBraceWhile
+)
+
+// endsWithAnonFunc reports whether the last command of s, after any `&&` or
+// `||`, is an anonymous function definition (Zsh `() { ... }` or
+// `function { ... }`).
+func endsWithAnonFunc(s *Stmt) bool {
+	for s != nil {
+		switch cmd := s.Cmd.(type) {
+		case *BinaryCmd:
+			s = cmd.Y
+		case *FuncDecl:
+			return cmd.Name == nil && len(cmd.Names) == 0
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// condStmts reads an if, elif, while or until condition list. In Zsh the
+// list may end at the `{` of a brace-form body (Alternate Forms For Complex
+// Commands); the caller sees that `{` as the current token.
+func (p *Parser) condStmts(left string, lpos Pos, mode zshBraceMode, stops ...string) ([]*Stmt, []Comment) {
+	if p.lang.in(LangZsh) {
+		p.zshBraceStop = mode
+	}
+	stmts, last := p.followStmts(left, lpos, stops...)
+	p.zshBraceStop = zshBraceNone
+	return stmts, last
+}
+
+// zshBraceBody reads `{ list }` when the current token is a brace-form body's
+// `{` in Zsh, reporting both brace positions.
+func (p *Parser) zshBraceBody() (lbrace Pos, stmts []*Stmt, last []Comment, rbrace Pos, ok bool) {
+	if !p.lang.in(LangZsh) || p.tok != _LitWord || p.val != "{" {
+		return Pos{}, nil, nil, Pos{}, false
+	}
+	lbrace = p.pos
+	p.next()
+	stmts, last = p.followStmts("{", lbrace, "}")
+	rbrace = p.followRsrv(lbrace, "{", "}")
+	return lbrace, stmts, last, rbrace, true
+}
+
 func (p *Parser) ifClause(s *Stmt) {
 	rootIf := &IfClause{Position: p.pos}
 	p.next()
-	rootIf.Cond, rootIf.CondLast = p.followStmts("if", rootIf.Position, "then")
-	rootIf.ThenPos = p.followRsrv(rootIf.Position, "if <cond>", "then")
-	rootIf.Then, rootIf.ThenLast = p.followStmts("then", rootIf.ThenPos, "fi", "elif", "else")
 	curIf := rootIf
-	for p.tok == _LitWord && p.val == "elif" {
-		elf := &IfClause{Position: p.pos}
-		curIf.Last = p.accComs
-		p.accComs = nil
-		p.next()
-		elf.Cond, elf.CondLast = p.followStmts("elif", elf.Position, "then")
-		elf.ThenPos = p.followRsrv(elf.Position, "elif <cond>", "then")
-		elf.Then, elf.ThenLast = p.followStmts("then", elf.ThenPos, "fi", "elif", "else")
-		curIf.Else = elf
-		curIf = elf
+	left := "if"
+	for {
+		curIf.Cond, curIf.CondLast = p.condStmts(left, curIf.Position, zshBraceIf, "then")
+		if lbrace, then, thenLast, rbrace, ok := p.zshBraceBody(); ok {
+			curIf.ThenPos, curIf.Then, curIf.ThenLast = lbrace, then, thenLast
+			// A brace-form branch continues only on the same line.
+			if p.tok == _LitWord && p.val == "elif" {
+				elf := &IfClause{Position: p.pos}
+				curIf.Last = p.accComs
+				p.accComs = nil
+				p.next()
+				curIf.Else = elf
+				curIf = elf
+				left = "elif"
+				continue
+			}
+			if elsePos, ok := p.gotRsrv("else"); ok {
+				curIf.Last = p.accComs
+				p.accComs = nil
+				els := &IfClause{Position: elsePos}
+				for p.got(_Newl) {
+				}
+				lb, body, bodyLast, rb, ok := p.zshBraceBody()
+				if !ok {
+					p.followErr(elsePos, "else", "{")
+				}
+				els.ThenPos, els.Then, els.ThenLast = lb, body, bodyLast
+				curIf.Else = els
+				p.setIfEnd(rootIf, rb)
+				s.Cmd = rootIf
+				return
+			}
+			// Native Zsh accepts only a separator after the `}` that ends
+			// a brace-form if without an else.
+			switch p.tok {
+			case _EOF, _Newl, semicolon:
+			default:
+				if p.err == nil {
+					p.curErr("a brace-form if without else must be followed by a newline or `;`")
+				}
+			}
+			p.setIfEnd(rootIf, rbrace)
+			s.Cmd = rootIf
+			return
+		}
+		curIf.ThenPos = p.followRsrv(curIf.Position, left+" <cond>", "then")
+		curIf.Then, curIf.ThenLast = p.followStmts("then", curIf.ThenPos, "fi", "elif", "else")
+		if p.tok == _LitWord && p.val == "elif" {
+			elf := &IfClause{Position: p.pos}
+			curIf.Last = p.accComs
+			p.accComs = nil
+			p.next()
+			curIf.Else = elf
+			curIf = elf
+			left = "elif"
+			continue
+		}
+		break
 	}
 	if elsePos, ok := p.gotRsrv("else"); ok {
 		curIf.Last = p.accComs
@@ -2429,12 +2544,17 @@ func (p *Parser) ifClause(s *Stmt) {
 	}
 	curIf.Last = p.accComs
 	p.accComs = nil
-	rootIf.FiPos = p.stmtEnd(rootIf, "if", "fi")
-	for els := rootIf.Else; els != nil; els = els.Else {
-		// All the nested IfClauses share the same FiPos.
-		els.FiPos = rootIf.FiPos
-	}
+	p.setIfEnd(rootIf, p.stmtEnd(rootIf, "if", "fi"))
 	s.Cmd = rootIf
+}
+
+// setIfEnd records the position that ends the whole if chain, `fi` or the
+// last brace, on every IfClause of the chain.
+func (p *Parser) setIfEnd(rootIf *IfClause, end Pos) {
+	for cur := rootIf; cur != nil; cur = cur.Else {
+		// All the nested IfClauses share the same FiPos.
+		cur.FiPos = end
+	}
 }
 
 func (p *Parser) whileClause(s *Stmt, until bool) {
@@ -2446,7 +2566,12 @@ func (p *Parser) whileClause(s *Stmt, until bool) {
 		rsrvCond = "until <cond>"
 	}
 	p.next()
-	wc.Cond, wc.CondLast = p.followStmts(rsrv, wc.WhilePos, "do")
+	wc.Cond, wc.CondLast = p.condStmts(rsrv, wc.WhilePos, zshBraceWhile, "do")
+	if lbrace, body, bodyLast, rbrace, ok := p.zshBraceBody(); ok {
+		wc.DoPos, wc.Do, wc.DoLast, wc.DonePos = lbrace, body, bodyLast, rbrace
+		s.Cmd = wc
+		return
+	}
 	wc.DoPos = p.followRsrv(wc.WhilePos, rsrvCond, "do")
 	wc.Do, wc.DoLast = p.followStmts("do", wc.DoPos, "done")
 	wc.DonePos = p.stmtEnd(wc, rsrv, "done")
