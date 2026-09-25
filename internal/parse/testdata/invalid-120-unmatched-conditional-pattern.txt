@@ -1,2 +1,4 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html#Conditional-Expressions
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Glob-Operators
 print before
 [[ $line == ((a|b) ]]

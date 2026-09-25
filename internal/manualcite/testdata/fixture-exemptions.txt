@@ -2,7 +2,6 @@
 # (docs/project/parser-gap-workflow.md, "Classify"). The list only shrinks:
 # add a citation to a fixture, then delete its line here.
 
-parse/testdata/invalid-120-unmatched-conditional-pattern.txt
 parse/testdata/invalid-208-assignment-prefix.txt
 parse/testdata/invalid-208-bare-repeat.txt
 parse/testdata/invalid-208-brace-body-unterminated.txt
