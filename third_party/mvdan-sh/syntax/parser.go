@@ -2772,12 +2772,46 @@ func (p *Parser) caseClause(s *Stmt) {
 	s.Cmd = cc
 }
 
+// zshCasePatternEnd reports whether r, just after the `)` of a case
+// pattern, ends the pattern list; anything else continues the word.
+func zshCasePatternEnd(r rune) bool {
+	switch r {
+	case ' ', '\t', '\r', '\n', ';', '&', '<', '>', runeEOF, escNewl:
+		return true
+	}
+	return false
+}
+
+// zshCaseGroupWord rebuilds the patterns read after an opener at lparen as
+// one glob group word, `(` pats joined by `|` then `)`.
+func zshCaseGroupWord(lparen Pos, pats []*Word, bars []Pos, rparen Pos) *Word {
+	punct := func(pos Pos, val string) *Lit {
+		return &Lit{ValuePos: pos, ValueEnd: posAddCol(pos, 1), Value: val}
+	}
+	parts := []WordPart{punct(lparen, "(")}
+	for i, w := range pats {
+		if i > 0 && i-1 < len(bars) {
+			parts = append(parts, punct(bars[i-1], "|"))
+		}
+		parts = append(parts, w.Parts...)
+	}
+	return &Word{Parts: append(parts, punct(rparen, ")"))}
+}
+
 func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 	p.got(_Newl)
 	for p.tok != _EOF && (p.tok != _LitWord || p.val != stop) {
 		ci := &CaseItem{}
 		ci.Comments, p.accComs = p.accComs, nil
-		p.got(leftParen)
+		lparen := p.pos
+		opened := p.got(leftParen)
+		if !opened && p.tok == dblLeftParen && p.lang.in(LangZsh) {
+			// Zsh: `((x|y)|z)` is the opener, then a glob group that
+			// starts the first pattern (#452).
+			opened = true
+			p.tok, p.pos = leftParen, posAddCol(p.pos, 1)
+		}
+		var bars []Pos
 		for p.tok != _EOF {
 			if w := p.getWord(); w == nil {
 				p.curErr("case patterns must consist of words")
@@ -2785,11 +2819,28 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 				ci.Patterns = append(ci.Patterns, w)
 			}
 			if p.tok == rightParen {
-				break
+				if !opened || !p.lang.in(LangZsh) || zshCasePatternEnd(p.r) {
+					break
+				}
+				// Zsh reads a leading group glued to more pattern text,
+				// as in `(x)y)` or `(x|y))`, as the start of one pattern
+				// word, not as the opener (#452).
+				w := zshCaseGroupWord(lparen, ci.Patterns, bars, p.pos)
+				opened, bars = false, nil
+				p.next()
+				if !p.spaced {
+					w.Parts = p.wordParts(w.Parts)
+				}
+				ci.Patterns = []*Word{w}
+				if p.tok == rightParen {
+					break
+				}
 			}
+			bar := p.pos
 			if !p.got(or) {
 				p.curErr("case patterns must be separated with %#q", or)
 			}
+			bars = append(bars, bar)
 		}
 		old := p.preNested(switchCase)
 		p.next()

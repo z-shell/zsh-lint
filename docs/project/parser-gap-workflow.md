@@ -106,8 +106,9 @@ That defect shipped once: `parseAfterAlternateIf` named exactly two peers, and 4
 
 Composition is permissive across distinct adapters, but it is not unbounded within one.
 Most adapters mask a single occurrence of their feature per pass and rely on re-entering themselves to reach a second occurrence, which is correct.
-An adapter whose repeated masking would widen its own accepted grammar must opt out by handing `retryExcluding(itself)` to its `*WithParser` helper.
-The grouped-case adapter needs this: allowed to recurse, it masked one extra `)` per pass and accepted `case x in (x|y))) : ;; esac`, which native Zsh rejects.
+Re-entry must not widen an adapter's own accepted grammar.
+The grouped-case adapter once did: allowed to recurse, it masked one extra `)` per pass and accepted `case x in (x|y))) : ;; esac`, which native Zsh rejects.
+An adapter with that risk belongs in the parser fork instead, as the grouped-case pattern now is (#452).
 
 Because the survey reports only the first error per file, this class of defect masks real gaps rather than merely reporting false ones.
 Re-run the discovery survey after any adapter change and expect the reported set to shift.

@@ -40,7 +40,6 @@ var adapterSnippets = map[string]adapterSnippet{
 	"lengthOperator":    {attempt: parseLengthOperator, source: "print ${#reply[@]:#skip}"},
 	"tryAlways":         {attempt: parseTryAlways, source: "{ true } always { true }"},
 	"multiNameFor":      {attempt: parseMultiNameFor, source: "for a b in 1 2; do print $a$b; done"},
-	"groupedCase":       {attempt: parseGroupedCasePattern, source: "case x in\n  (x|y)) : ;;\nesac"},
 	"ansiCHeredoc":      {attempt: parseANSICHeredocDelimiter, source: "cat <<$'E\\x4fF'\nbody\nEOF"},
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
 	"multiNameFunction": {attempt: parseMultiNameFunction, source: "a b () { print hi }"},
