@@ -131,6 +131,7 @@ It prints one line per changed file, `FIXED`, `REGRESSED`, `FALSE-ACCEPT`, `REJE
 With `-native` the summary also counts the known disagreements the change leaves in place (valid files failing in both builds, invalid files parsing in both); `-known` lists them.
 For a probe grid, `zsh-lint-probe -bodies <file> -out <dir>` places each variant of the construct in every scanner context (compound-command bodies, command substitutions with and without double quotes, backquotes, and positions after here-documents and odd quotes) for `-compare` to judge ([#428](https://github.com/z-shell/zsh-lint/issues/428)).
 `.github/scripts/mutation.sh [base-ref]` mutates every changed line and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425)).
+It sets gremlins' timeout coefficient explicitly and exits 3 when timeouts outnumber the killed and lived mutants, since a timeout counts as caught and a too-short timeout would otherwise pass every mutant ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
 The parser-gap fix skill (`.github/skills/parser-gap-fix/SKILL.md`) runs these in order.
 
 ### Typed metadata and synthesized nodes
