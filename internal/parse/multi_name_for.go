@@ -501,7 +501,10 @@ func applyForEdits(src []byte, edits []forEdit) ([]byte, forSourceMap) {
 		case editShortForDo:
 			appendSynthetic("do\n", e.start)
 		case editShortForDone:
-			appendSynthetic("\ndone\n", e.start)
+			// No newline after `done`: whatever follows the `}` on its line
+			// (a separator, an operator, a redirect) stays attached to the
+			// loop, where native Zsh reads it (#275).
+			appendSynthetic("\ndone", e.start)
 		case editMaskListNewline:
 			appendOriginal(' ', e.start)
 		}
