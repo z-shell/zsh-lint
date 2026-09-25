@@ -14,6 +14,7 @@ Optional interfaces in the same file extend a rule: `FileRule` for file-level fi
 Read that file rather than a copy here; it is the contract the engine drives.
 
 Register new rules in `internal/rules/rules.go` (`Default()` or a versioned profile) and document them per `docs/project/rule-policy.md`.
+The doc comment's Why section links the released Zsh manual or Plugin Standard section it relies on; `internal/manualcite` fails without one.
 
 ## 2. AST Traversal (The Visitor Pattern)
 
