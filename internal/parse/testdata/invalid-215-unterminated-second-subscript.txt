@@ -1,1 +1,2 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Rules
 print ${a[b][1}

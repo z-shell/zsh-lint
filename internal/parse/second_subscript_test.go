@@ -209,7 +209,7 @@ func TestSecondSubscriptRejectsInvalidSources(t *testing.T) {
 			if err == nil {
 				t.Fatal("Parse() accepted a source native Zsh rejects")
 			}
-			assertSecondSubscriptError(t, err, tt.text, 1, tt.col)
+			assertSecondSubscriptError(t, err, tt.text, 2, tt.col)
 		})
 	}
 }

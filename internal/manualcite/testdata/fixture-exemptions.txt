@@ -2,8 +2,6 @@
 # (docs/project/parser-gap-workflow.md, "Classify"). The list only shrinks:
 # add a citation to a fixture, then delete its line here.
 
-parse/testdata/invalid-215-double-close-before-second-subscript.txt
-parse/testdata/invalid-215-unterminated-second-subscript.txt
 parse/testdata/invalid-216-empty-name-assign-always.txt
 parse/testdata/invalid-216-triple-colon-assign-always.txt
 parse/testdata/invalid-220-newline-if-brace.txt
