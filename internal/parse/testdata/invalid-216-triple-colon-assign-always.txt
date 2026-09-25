@@ -1,1 +1,2 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
 print ${x:::=value}

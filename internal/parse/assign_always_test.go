@@ -170,8 +170,8 @@ func TestParseAssignAlwaysRejectsInvalidSources(t *testing.T) {
 				t.Fatal("Parse() accepted a source native Zsh rejects")
 			}
 			var parseErr syntax.ParseError
-			if !errors.As(err, &parseErr) || parseErr.Pos.Line() != 1 {
-				t.Fatalf("Parse() error = %v, want a parse error on line 1", err)
+			if !errors.As(err, &parseErr) || parseErr.Pos.Line() != 2 {
+				t.Fatalf("Parse() error = %v, want a parse error on line 2", err)
 			}
 		})
 	}
