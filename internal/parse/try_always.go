@@ -142,19 +142,16 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 			}
 		}
 		if arithmeticDepth == 0 && b == '<' && i+1 < len(src) && src[i+1] == '<' {
-			stripTabs := i+2 < len(src) && src[i+2] == '-'
-			delimiterStart := i + 2
-			if stripTabs {
-				delimiterStart++
-			}
-			delimiter, end, ok := parseHeredocDelimiter(src, delimiterStart)
+			heredoc, end, isHeredoc, ok := heredocAt(src, i)
 			if !ok {
 				return nil, false
 			}
-			heredocs = append(heredocs, pendingHeredoc{
-				delimiter: delimiter,
-				stripTabs: stripTabs,
-			})
+			if !isHeredoc {
+				// A here-string `<<<`: its word is ordinary text (#435).
+				i = end - 1
+				continue
+			}
+			heredocs = append(heredocs, heredoc)
 			i = end - 1
 			continue
 		}

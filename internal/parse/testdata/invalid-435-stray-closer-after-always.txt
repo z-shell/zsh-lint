@@ -1,0 +1,8 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Redirection.html#Redirection
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
+{
+  :
+} always {
+cat <<< "'"
+}
+}
