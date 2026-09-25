@@ -67,5 +67,8 @@ Both point at the wiki as the canonical reading surface.
 ## Build & test
 
     go build ./... && go vet ./... && go test ./...
+    golangci-lint run ./...
+
+Go CI runs `golangci-lint` v2.12.2 over the whole module with `.golangci.yml`, so a finding anywhere fails the build, not only on changed lines.
 
 Go 1.26 (`GOTOOLCHAIN=auto` auto-fetches the toolchain; CI pins the same version explicitly). mvdan/sh v3.14 dropped Go 1.25.
