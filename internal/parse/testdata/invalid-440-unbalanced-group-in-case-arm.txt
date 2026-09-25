@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html#Conditional-Expressions
+case x in
+  (x) [[ a == (a|(b|c) ]] ;;
+esac

@@ -75,6 +75,12 @@ type activeCaseContext struct {
 	patternParenDepth int
 	inBracketPattern  bool
 	edits             []patternEdit
+	// patternStarted and leadingParen track whether the pattern's first
+	// byte is `(`. Zsh reads that `(` as the optional opener when its `)`
+	// is followed by a blank, `;` or the end of input (`(x) cmd`), and as a
+	// group when more pattern follows (`(x|y))`, `(x)y)`) (#440).
+	patternStarted bool
+	leadingParen   bool
 }
 
 type groupedCasePatternCandidate struct {
@@ -499,6 +505,8 @@ func scanConditionalPatterns(
 			case activeCaseAwaitingIn:
 				if frame.atWordStart && activeSourceWordAt(src, i, "in") {
 					currentCase.phase = activeCasePattern
+					currentCase.patternStarted = false
+					currentCase.leadingParen = false
 					i += len("in") - 1
 					frame.atWordStart = false
 					frame.atCommandStart = false
@@ -527,6 +535,8 @@ func scanConditionalPatterns(
 					currentCase.phase = activeCasePattern
 					currentCase.patternParenDepth = 0
 					currentCase.inBracketPattern = false
+					currentCase.patternStarted = false
+					currentCase.leadingParen = false
 					i++
 					frame.atWordStart = true
 					frame.atCommandStart = true
@@ -632,6 +642,23 @@ func scanConditionalPatterns(
 				frame.atCommandStart = false
 				continue
 			}
+			leadingOpen := false
+			if !shellSpace(b) {
+				leadingOpen = !currentCase.patternStarted && b == '('
+				currentCase.patternStarted = true
+			}
+			closePattern := func() {
+				if len(currentCase.edits) > 0 {
+					groupedCasePatterns = append(groupedCasePatterns, groupedCasePatternCandidate{
+						edits: append([]patternEdit(nil), currentCase.edits...),
+						seed:  currentCase.start <= seedOffset && seedOffset <= i,
+					})
+				}
+				currentCase.phase = activeCaseBody
+				currentCase.leadingParen = false
+				frame.atWordStart = true
+				frame.atCommandStart = true
+			}
 			switch b {
 			case '[':
 				currentCase.inBracketPattern = true
@@ -639,6 +666,9 @@ func scanConditionalPatterns(
 				frame.atCommandStart = false
 				continue
 			case '(':
+				if leadingOpen {
+					currentCase.leadingParen = true
+				}
 				if currentCase.patternParenDepth > 0 {
 					currentCase.edits = append(currentCase.edits, patternEdit{
 						offset:      i,
@@ -651,6 +681,13 @@ func scanConditionalPatterns(
 				frame.atCommandStart = false
 				continue
 			case ')':
+				if currentCase.patternParenDepth == 1 && currentCase.leadingParen && casePatternOpenerCloses(src, i) {
+					// `(x) cmd`: the leading `(` was the optional opener, so this
+					// `)` ends the pattern and neither is masked.
+					currentCase.patternParenDepth = 0
+					closePattern()
+					continue
+				}
 				if currentCase.patternParenDepth > 0 {
 					currentCase.edits = append(currentCase.edits, patternEdit{
 						offset:      i,
@@ -661,15 +698,7 @@ func scanConditionalPatterns(
 					frame.atWordStart = false
 					frame.atCommandStart = false
 				} else {
-					if len(currentCase.edits) > 0 {
-						groupedCasePatterns = append(groupedCasePatterns, groupedCasePatternCandidate{
-							edits: append([]patternEdit(nil), currentCase.edits...),
-							seed:  currentCase.start <= seedOffset && seedOffset <= i,
-						})
-					}
-					currentCase.phase = activeCaseBody
-					frame.atWordStart = true
-					frame.atCommandStart = true
+					closePattern()
 				}
 				continue
 			}
@@ -1263,6 +1292,14 @@ func activeSourceRootFrameComplete(frame *activeSourceFrame) bool {
 		frame.quote == activeSourceUnquoted && !frame.escaped &&
 		frame.arithmeticDepth == 0 &&
 		len(frame.heredocs) == 0 && len(frame.caseContexts) == 0
+}
+
+// casePatternOpenerCloses reports whether the `)` at i, matching a case
+// pattern's leading `(`, ends the pattern: a blank, `;` or the end of input
+// follows it, so no more pattern can.
+func casePatternOpenerCloses(src []byte, i int) bool {
+	next := i + 1
+	return next >= len(src) || shellSpace(src[next]) || src[next] == ';'
 }
 
 func activeSourceWordAt(src []byte, start int, word string) bool {
