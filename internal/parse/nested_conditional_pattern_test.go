@@ -1318,3 +1318,27 @@ func TestCasePatternOpenerCloses(t *testing.T) {
 		}
 	}
 }
+
+// Inside a backquoted command the parser reports a quote reopened by a quoted
+// `)` at the closing backquote, not at the end of input; the adapter must
+// recognise that error too (#441).
+func TestQuotedCloserInPatternInBackquotes(t *testing.T) {
+	for _, src := range []string{
+		": `\n[[ a == (a|(b|\"${x:-)}\")) ]]\n`\n",
+		": `\n[[ a == (a|(b|\")\")) ]]\n`\n",
+		": `\n[[ a == (a|(b|')')) ]]\n`\n",
+		": `\n[[ a == (a|\"${x:-)}\") ]]\n`\n",
+	} {
+		if _, err := Parse(strings.NewReader(src), "t.zsh"); err != nil {
+			t.Errorf("%q: %v", src, err)
+		}
+	}
+	src, err := os.ReadFile("testdata/invalid-441-unbalanced-group-in-backquotes.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parseErr syntax.ParseError
+	if _, err := Parse(bytes.NewReader(src), "invalid-441.zsh"); !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error = %v, want a parse error", err)
+	}
+}
