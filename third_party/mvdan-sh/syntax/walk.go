@@ -66,6 +66,10 @@ func Walk(node Node, f func(Node) bool) {
 		walkComments(node.CondLast, f)
 		walkList(node.Do, f)
 		walkComments(node.DoLast, f)
+	case *RepeatClause:
+		Walk(node.Count, f)
+		walkList(node.Do, f)
+		walkComments(node.DoLast, f)
 	case *ForClause:
 		Walk(node.Loop, f)
 		walkList(node.Do, f)

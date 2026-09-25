@@ -2327,8 +2327,11 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 		case "if":
 			p.ifClause(s)
 		case "while", "until":
-			// TODO(zsh): "repeat"
 			p.whileClause(s, p.val == "until")
+		case "repeat":
+			if p.lang.in(LangZsh) {
+				p.repeatClause(s)
+			}
 		case "for":
 			p.forClause(s)
 		case "case":
@@ -2916,7 +2919,22 @@ func (p *Parser) zshWordStart() bool {
 // default SHORT_LOOPS, one sublist without its terminator, so a following
 // `&` applies to the loop (#459). A brace body sits on its braces and a
 // sublist body on its own extent, as `do` and `done` would.
+// zshLoop is the body of a Zsh `for`, `select` or `repeat` loop.
+type zshLoop struct {
+	doPos, donePos, end Pos
+	do                  []*Stmt
+	doLast              []Comment
+}
+
 func (p *Parser) zshLoopBody(s *Stmt, fc *ForClause, rsrv string) {
+	b := p.zshLoopBodyOf(s, fc, rsrv)
+	fc.DoPos, fc.DonePos, fc.ZshEnd, fc.Do, fc.DoLast = b.doPos, b.donePos, b.end, b.do, b.doLast
+}
+
+// zshLoopBodyOf reads a loop body for the loop node n: after any `;` and
+// newlines, `do list done`, `{ list }`, or one sublist (SHORT_LOOPS). end is
+// set only for the forms without `done`.
+func (p *Parser) zshLoopBodyOf(s *Stmt, n Node, rsrv string) (b zshLoop) {
 	for p.got(semicolon) || p.got(_Newl) {
 	}
 	// Comments before `do` or `{` go with the loop, as upstream keeps them;
@@ -2926,22 +2944,38 @@ func (p *Parser) zshLoopBody(s *Stmt, fc *ForClause, rsrv string) {
 		p.accComs = nil
 	}
 	if pos, ok := p.gotRsrv("do"); ok {
-		fc.DoPos = pos
-		fc.Do, fc.DoLast = p.followStmts("do", fc.DoPos, "done")
-		fc.DonePos = p.stmtEnd(fc, rsrv, "done")
-		return
+		b.doPos = pos
+		b.do, b.doLast = p.followStmts("do", b.doPos, "done")
+		b.donePos = p.stmtEnd(n, rsrv, "done")
+		return b
 	}
 	if lbrace, body, bodyLast, rbrace, ok := p.zshBraceBody(); ok {
-		fc.DoPos, fc.Do, fc.DoLast, fc.DonePos = lbrace, body, bodyLast, rbrace
-		fc.ZshEnd = posAddCol(rbrace, 1)
-		return
+		b.doPos, b.do, b.doLast, b.donePos = lbrace, body, bodyLast, rbrace
+		b.end = posAddCol(rbrace, 1)
+		return b
 	}
 	var body *Stmt
-	fc.DoPos, fc.DonePos, body = p.zshShortBody(rsrv + " loop")
+	b.doPos, b.donePos, body = p.zshShortBody(rsrv + " loop")
 	if body != nil {
-		fc.Do = []*Stmt{body}
+		b.do = []*Stmt{body}
 	}
-	fc.ZshEnd = fc.DonePos
+	b.end = b.donePos
+	return b
+}
+
+// repeatClause reads a Zsh `repeat count` loop, as par_repeat in zsh's
+// parse.c does: one count word, then the body of a `for` loop (zsh-lint
+// #281).
+func (p *Parser) repeatClause(s *Stmt) {
+	rc := &RepeatClause{RepeatPos: p.pos}
+	p.next()
+	if rc.Count = p.getWord(); rc.Count == nil {
+		p.followErr(rc.RepeatPos, "repeat", noQuote("a count word"))
+		return
+	}
+	b := p.zshLoopBodyOf(s, rc, "repeat")
+	rc.DoPos, rc.DonePos, rc.ZshEnd, rc.Do, rc.DoLast = b.doPos, b.donePos, b.end, b.do, b.doLast
+	s.Cmd = rc
 }
 
 // zshShortBody reads the one-sublist body of a Zsh short form, without its

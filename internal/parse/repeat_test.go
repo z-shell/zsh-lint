@@ -19,88 +19,96 @@ func renderTree(t *testing.T, tree *syntax.File) string {
 	return rendered.String()
 }
 
-// Issue #208: `repeat count sublist`. mvdan/sh reads `repeat` as a command
-// name, so the front end rewrites each loop into a WhileClause positioned at
-// the `repeat` word whose only condition is the count word, records it in
-// File.RepeatLoops, and keeps every other node on its original bytes. Each
-// row is `zsh -f -n` valid; the body column is what native Zsh runs, checked
-// with `zsh -f -c`.
+// repeatClauses returns every repeat loop in tree, in source order.
+func repeatClauses(tree *syntax.File) []*syntax.RepeatClause {
+	var loops []*syntax.RepeatClause
+	syntax.Walk(tree, func(node syntax.Node) bool {
+		if loop, ok := node.(*syntax.RepeatClause); ok {
+			loops = append(loops, loop)
+		}
+		return true
+	})
+	return loops
+}
+
+// Issue #208: `repeat count sublist`. The parser fork reads the loop as a
+// RepeatClause at the `repeat` word whose Count is the count word (#281).
+// Each row is `zsh -f -n` valid; the body column is what native Zsh runs,
+// checked with `zsh -f -c`.
 func TestParseRepeat(t *testing.T) {
 	tests := []struct {
 		name      string
 		src       string
 		want      string
 		count     string
-		whilePos  string
+		repeatPos string
 		doPos     string
 		donePos   string
-		semicolon string
 		body      int
 	}{
-		{"sublist", "repeat 3 print hi\n", "while 3; do print hi; done\n", "3", "1:1", "1:10", "1:18", "", 1},
-		{"sublist after semicolon", "repeat 3; print hi\n", "while 3; do print hi; done\n", "3", "1:1", "1:11", "1:19", "1:9", 1},
-		{"sublist after two semicolons", "repeat 2; ; print hi\n", "while 2; do print hi; done\n", "2", "1:1", "1:13", "1:21", "1:9", 1},
-		{"sublist on next line", "repeat 3\nprint hi\n", "while 3; do print hi; done\n", "3", "1:1", "2:1", "2:9", "", 1},
-		{"sublist chain", "repeat 3 print a | cat && print b; print c\n", "while 3; do print a | cat && print b; done\nprint c\n", "3", "1:1", "1:10", "1:34", "", 1},
-		{"sublist with redirect", "repeat 3 print hi > file\n", "while 3; do print hi >file; done\n", "3", "1:1", "1:10", "1:25", "", 1},
-		{"redirect only sublist", "repeat 2 >/dev/null; print hi\n", "while 2; do >/dev/null; done\nprint hi\n", "2", "1:1", "1:10", "1:20", "", 1},
-		{"sublist with leading redirect", "repeat 2 2>&1 print hi\n", "while 2; do 2>&1 print hi; done\n", "2", "1:1", "1:10", "1:23", "", 1},
-		{"do form", "repeat 3; do print hi; done\n", "while 3; do print hi; done\n", "3", "1:1", "1:11", "1:24", "1:9", 1},
-		{"do form without semicolon", "repeat 3 do\nprint hi\ndone\n", "while 3; do\n\tprint hi\ndone\n", "3", "1:1", "1:10", "3:1", "", 1},
-		{"do form on next line", "repeat 3\ndo\nprint hi\ndone\n", "while 3; do\n\tprint hi\ndone\n", "3", "1:1", "2:1", "4:1", "", 1},
-		{"do form after continuation", "repeat 3 \\\n do print hi; done\n", "while 3; do print hi; done\n", "3", "1:1", "2:2", "2:15", "", 1},
-		{"brace form", "repeat 3 { print hi }\n", "while 3; do print hi; done\n", "3", "1:1", "1:10", "1:21", "", 1},
-		{"brace form after semicolon", "repeat 3; { print hi }\n", "while 3; do print hi; done\n", "3", "1:1", "1:11", "1:22", "1:9", 1},
-		{"brace form on next line", "repeat 3\n{ print hi }\n", "while 3; do print hi; done\n", "3", "1:1", "2:1", "2:12", "", 1},
-		{"brace form with redirect", "repeat 3 { print hi } > file\n", "while 3; do print hi; done >file\n", "3", "1:1", "1:10", "1:21", "", 1},
-		{"expanded count", "repeat $(( n + 1 )) print hi\n", "while $((n + 1)); do print hi; done\n", "$(( n + 1 ))", "1:1", "1:21", "1:29", "", 1},
-		{"quoted count", "repeat \"$n\"; print hi\n", "while \"$n\"; do print hi; done\n", "\"$n\"", "1:1", "1:14", "1:22", "1:12", 1},
+		{"sublist", "repeat 3 print hi\n", "repeat 3; do print hi; done\n", "3", "1:1", "1:10", "1:18", 1},
+		{"sublist after semicolon", "repeat 3; print hi\n", "repeat 3; do print hi; done\n", "3", "1:1", "1:11", "1:19", 1},
+		{"sublist after two semicolons", "repeat 2; ; print hi\n", "repeat 2; do print hi; done\n", "2", "1:1", "1:13", "1:21", 1},
+		{"sublist on next line", "repeat 3\nprint hi\n", "repeat 3; do print hi; done\n", "3", "1:1", "2:1", "2:9", 1},
+		{"sublist chain", "repeat 3 print a | cat && print b; print c\n", "repeat 3; do print a | cat && print b; done\nprint c\n", "3", "1:1", "1:10", "1:34", 1},
+		{"sublist with redirect", "repeat 3 print hi > file\n", "repeat 3; do print hi >file; done\n", "3", "1:1", "1:10", "1:25", 1},
+		{"redirect only sublist", "repeat 2 >/dev/null; print hi\n", "repeat 2; do >/dev/null; done\nprint hi\n", "2", "1:1", "1:10", "1:20", 1},
+		{"sublist with leading redirect", "repeat 2 2>&1 print hi\n", "repeat 2; do 2>&1 print hi; done\n", "2", "1:1", "1:10", "1:23", 1},
+		{"do form", "repeat 3; do print hi; done\n", "repeat 3; do print hi; done\n", "3", "1:1", "1:11", "1:24", 1},
+		{"do form without semicolon", "repeat 3 do\nprint hi\ndone\n", "repeat 3; do\n\tprint hi\ndone\n", "3", "1:1", "1:10", "3:1", 1},
+		{"do form on next line", "repeat 3\ndo\nprint hi\ndone\n", "repeat 3; do\n\tprint hi\ndone\n", "3", "1:1", "2:1", "4:1", 1},
+		{"do form after continuation", "repeat 3 \\\n do print hi; done\n", "repeat 3; do print hi; done\n", "3", "1:1", "2:2", "2:15", 1},
+		{"brace form", "repeat 3 { print hi }\n", "repeat 3; do print hi; done\n", "3", "1:1", "1:10", "1:21", 1},
+		{"brace form after semicolon", "repeat 3; { print hi }\n", "repeat 3; do print hi; done\n", "3", "1:1", "1:11", "1:22", 1},
+		{"brace form on next line", "repeat 3\n{ print hi }\n", "repeat 3; do print hi; done\n", "3", "1:1", "2:1", "2:12", 1},
+		{"brace form with redirect", "repeat 3 { print hi } > file\n", "repeat 3; do print hi; done >file\n", "3", "1:1", "1:10", "1:21", 1},
+		{"expanded count", "repeat $(( n + 1 )) print hi\n", "repeat $((n + 1)); do print hi; done\n", "$(( n + 1 ))", "1:1", "1:21", "1:29", 1},
+		{"quoted count", "repeat \"$n\"; print hi\n", "repeat \"$n\"; do print hi; done\n", "\"$n\"", "1:1", "1:14", "1:22", 1},
 		// The count is the parameter `repeat`; the rewritten condition must
 		// not be taken for a second site on the next pass.
-		{"literal repeat count", "repeat repeat print hi\n", "while repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:23", "", 1},
-		{"literal repeat count do form", "repeat repeat do print hi; done\n", "while repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:28", "", 1},
-		{"literal repeat count brace form", "repeat repeat { print hi }\n", "while repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:26", "", 1},
-		{"empty body at end of input", "repeat 2\n", "while 2; do; done\n", "2", "1:1", "1:9", "1:9", "", 0},
-		{"empty body before pipe", "repeat 2 | cat; print hi\n", "while 2; do; done | cat\nprint hi\n", "2", "1:1", "1:9", "1:9", "", 0},
-		{"empty body before and", "repeat 2 && print x; print y\n", "while 2; do; done && print x\nprint y\n", "2", "1:1", "1:9", "1:9", "", 0},
-		{"empty body in if condition", "if repeat 2; then print t; fi\n", "if while 2; do; done; then print t; fi\n", "2", "1:4", "1:12", "1:12", "1:12", 0},
-		{"body after and", "true && repeat 2; print hi\n", "true && while 2; do print hi; done\n", "2", "1:9", "1:19", "1:27", "1:17", 1},
-		{"body after pipe", "print a | repeat 2; print hi\n", "print a | while 2; do print hi; done\n", "2", "1:11", "1:21", "1:29", "1:19", 1},
-		{"body after time", "time repeat 2; print hi\n", "time while 2; do print hi; done\n", "2", "1:6", "1:16", "1:24", "1:14", 1},
-		{"negated", "! repeat 2 false\n", "! while 2; do false; done\n", "2", "1:3", "1:12", "1:17", "", 1},
-		{"negated brace form", "! repeat 3 { print hi }\n", "! while 3; do print hi; done\n", "3", "1:3", "1:12", "1:23", "", 1},
-		{"negated body", "repeat 3; ! { print hi }\n", "while 3; do ! { print hi; }; done\n", "3", "1:1", "1:11", "1:25", "1:9", 1},
-		{"in function", "f() { repeat 2; print hi }\n", "f() { while 2; do print hi; done; }\n", "2", "1:7", "1:17", "1:25", "1:15", 1},
-		{"in case arm", "case x in (x) repeat 2; print hi ;; esac\n", "case x in x) while 2; do print hi; done ;; esac\n", "2", "1:15", "1:25", "1:33", "1:23", 1},
-		{"in command substitution", "echo $(repeat 2; print hi)\n", "echo $(while 2; do print hi; done)\n", "2", "1:8", "1:18", "1:26", "1:16", 1},
-		{"heredoc body", "repeat 2 cat <<EOT\nhi\nEOT\n", "while 2; do cat <<EOT\nhi\nEOT\ndone\n", "2", "1:1", "1:10", "3:4", "", 1},
-		{"heredoc before redirect", "repeat 2 cat <<EOT >out\nhi\nEOT\nprint x\n", "while 2; do\n\tcat <<EOT >out\nhi\nEOT\ndone\nprint x\n", "2", "1:1", "1:10", "3:4", "", 1},
-		{"heredoc before semicolon", "repeat 2 cat <<EOT;\nhi\nEOT\n", "while 2; do\n\tcat <<EOT\nhi\nEOT\ndone\n", "2", "1:1", "1:10", "3:4", "", 1},
-		{"two heredocs", "repeat 2 cat <<A <<B\na\nA\nb\nB\n", "while 2; do cat <<A <<B\na\nA\nb\nB\ndone\n", "2", "1:1", "1:10", "5:2", "", 1},
+		{"literal repeat count", "repeat repeat print hi\n", "repeat repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:23", 1},
+		{"literal repeat count do form", "repeat repeat do print hi; done\n", "repeat repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:28", 1},
+		{"literal repeat count brace form", "repeat repeat { print hi }\n", "repeat repeat; do print hi; done\n", "repeat", "1:1", "1:15", "1:26", 1},
+		{"empty body at end of input", "repeat 2\n", "repeat 2; do; done\n", "2", "1:1", "2:1", "2:1", 0},
+		{"empty body before pipe", "repeat 2 | cat; print hi\n", "repeat 2; do; done | cat\nprint hi\n", "2", "1:1", "1:10", "1:10", 0},
+		{"empty body before and", "repeat 2 && print x; print y\n", "repeat 2; do; done && print x\nprint y\n", "2", "1:1", "1:10", "1:10", 0},
+		{"empty body in if condition", "if repeat 2; then print t; fi\n", "if repeat 2; do; done; then print t; fi\n", "2", "1:4", "1:14", "1:14", 0},
+		{"body after and", "true && repeat 2; print hi\n", "true && repeat 2; do print hi; done\n", "2", "1:9", "1:19", "1:27", 1},
+		{"body after pipe", "print a | repeat 2; print hi\n", "print a | repeat 2; do print hi; done\n", "2", "1:11", "1:21", "1:29", 1},
+		{"body after time", "time repeat 2; print hi\n", "time repeat 2; do print hi; done\n", "2", "1:6", "1:16", "1:24", 1},
+		{"negated", "! repeat 2 false\n", "! repeat 2; do false; done\n", "2", "1:3", "1:12", "1:17", 1},
+		{"negated brace form", "! repeat 3 { print hi }\n", "! repeat 3; do print hi; done\n", "3", "1:3", "1:12", "1:23", 1},
+		{"negated body", "repeat 3; ! { print hi }\n", "repeat 3; do ! { print hi; }; done\n", "3", "1:1", "1:11", "1:25", 1},
+		{"in function", "f() { repeat 2; print hi }\n", "f() { repeat 2; do print hi; done; }\n", "2", "1:7", "1:17", "1:25", 1},
+		{"in case arm", "case x in (x) repeat 2; print hi ;; esac\n", "case x in x) repeat 2; do print hi; done ;; esac\n", "2", "1:15", "1:25", "1:33", 1},
+		{"in command substitution", "echo $(repeat 2; print hi)\n", "echo $(repeat 2; do print hi; done)\n", "2", "1:8", "1:18", "1:26", 1},
+		{"heredoc body", "repeat 2 cat <<EOT\nhi\nEOT\n", "repeat 2; do cat <<EOT\nhi\nEOT\ndone\n", "2", "1:1", "1:10", "3:4", 1},
+		{"heredoc before redirect", "repeat 2 cat <<EOT >out\nhi\nEOT\nprint x\n", "repeat 2; do cat <<EOT >out; done\nhi\nEOT\nprint x\n", "2", "1:1", "1:10", "1:24", 1},
+		{"heredoc before semicolon", "repeat 2 cat <<EOT;\nhi\nEOT\n", "repeat 2; do cat <<EOT; done\nhi\nEOT\n", "2", "1:1", "1:10", "1:19", 1},
+		{"two heredocs", "repeat 2 cat <<A <<B\na\nA\nb\nB\n", "repeat 2; do cat <<A <<B\na\nA\nb\nB\ndone\n", "2", "1:1", "1:10", "5:2", 1},
 		// The sublist ends in a closing keyword another adapter synthesized;
 		// its rebased position does not carry the keyword's length (#300).
-		{"sublist ending in alternate for", "repeat 3 for i (a b) { print $i }\nprint after\n", "while 3; do for i in a b; do print $i; done; done\nprint after\n", "3", "1:1", "1:10", "1:34", "", 1},
-		{"sublist ending in alternate for at end of input", "repeat 3 for i (a b) { print $i }\n", "while 3; do for i in a b; do print $i; done; done\n", "3", "1:1", "1:10", "1:34", "", 1},
-		{"sublist ending in brace if", "repeat 2 if (( 1 )) { print hi }\nprint after\n", "while 2; do if ((1)); then print hi; fi; done\nprint after\n", "2", "1:1", "1:10", "1:33", "", 1},
-		{"sublist ending in short if", "repeat 2 if (( 1 )) print a\nprint after\n", "while 2; do if ((1)); then print a; fi; done\nprint after\n", "2", "1:1", "1:10", "1:28", "", 1},
-		{"body after separator ending in alternate for", "repeat 2; for i (a b) { print $i }\nprint after\n", "while 2; do for i in a b; do print $i; done; done\nprint after\n", "2", "1:1", "1:11", "1:35", "1:9", 1},
-		{"alternate for body in function", "f() { repeat 2 for i (a b) { print $i } }\n", "f() { while 2; do for i in a b; do print $i; done; done; }\n", "2", "1:7", "1:16", "1:40", "", 1},
-		{"heredoc in block body", "repeat 2; { cat <<EOT\nhi\nEOT\n}\n", "while 2; do\n\tcat <<EOT\nhi\nEOT\ndone\n", "2", "1:1", "1:11", "4:1", "1:9", 1},
-		{"heredoc in command substitution", "repeat 2 print $(cat <<EOT\nhi\nEOT\n)\n", "while 2; do print $(\n\tcat <<EOT\nhi\nEOT\n); done\n", "2", "1:1", "1:10", "4:2", "", 1},
-		{"arithmetic body", "repeat 4 (( count++ ))\n", "while 4; do ((count++)); done\n", "4", "1:1", "1:10", "1:23", "", 1},
-		{"conditional body", "repeat 2 [[ a == a ]]\n", "while 2; do [[ a == a ]]; done\n", "2", "1:1", "1:10", "1:22", "", 1},
-		{"subshell body", "repeat 2 ( print hi )\n", "while 2; do (print hi); done\n", "2", "1:1", "1:10", "1:22", "", 1},
-		{"if body", "repeat 2 if true; then print hi; fi; print end\n", "while 2; do if true; then print hi; fi; done\nprint end\n", "2", "1:1", "1:10", "1:36", "", 1},
-		{"for body", "repeat 2 for x in a b; do print $x; done\n", "while 2; do for x in a b; do print $x; done; done\n", "2", "1:1", "1:10", "1:41", "", 1},
-		{"case body", "repeat 2 case x in (x) print hi ;; esac\n", "while 2; do case x in x) print hi ;; esac done\n", "2", "1:1", "1:10", "1:40", "", 1},
-		{"function body", "repeat 2 f() { print hi }\n", "while 2; do f() { print hi; }; done\n", "2", "1:1", "1:10", "1:26", "", 1},
-		{"assignment body", "repeat 2 x=1\n", "while 2; do x=1; done\n", "2", "1:1", "1:10", "1:13", "", 1},
-		{"background", "repeat 3 print hi & print x\n", "while 3; do print hi; done &\nprint x\n", "3", "1:1", "1:10", "1:18", "", 1},
-		// The invocation words are metadata the tree does not span; the
-		// closer follows them, and what follows them on the line attaches
-		// to the loop.
-		{"invocation words", "repeat 3 () { print $1 } a b\nprint y\n", "while 3; do () { print $1; }; done\nprint y\n", "3", "1:1", "1:10", "1:29", "", 1},
-		{"invocation words then redirect", "repeat 3 () { print $1 } later > out\nprint x\n", "while 3; do () { print $1; }; done >out\nprint x\n", "3", "1:1", "1:10", "1:31", "", 1},
+		{"sublist ending in alternate for", "repeat 3 for i (a b) { print $i }\nprint after\n", "repeat 3; do for i in a b; do print $i; done; done\nprint after\n", "3", "1:1", "1:10", "1:34", 1},
+		{"sublist ending in alternate for at end of input", "repeat 3 for i (a b) { print $i }\n", "repeat 3; do for i in a b; do print $i; done; done\n", "3", "1:1", "1:10", "1:34", 1},
+		{"sublist ending in brace if", "repeat 2 if (( 1 )) { print hi }\nprint after\n", "repeat 2; do if ((1)); then print hi; fi; done\nprint after\n", "2", "1:1", "1:10", "1:33", 1},
+		{"sublist ending in short if", "repeat 2 if (( 1 )) print a\nprint after\n", "repeat 2; do if ((1)); then print a; fi; done\nprint after\n", "2", "1:1", "1:10", "1:28", 1},
+		{"body after separator ending in alternate for", "repeat 2; for i (a b) { print $i }\nprint after\n", "repeat 2; do for i in a b; do print $i; done; done\nprint after\n", "2", "1:1", "1:11", "1:35", 1},
+		{"alternate for body in function", "f() { repeat 2 for i (a b) { print $i } }\n", "f() { repeat 2; do for i in a b; do print $i; done; done; }\n", "2", "1:7", "1:16", "1:40", 1},
+		{"heredoc in block body", "repeat 2; { cat <<EOT\nhi\nEOT\n}\n", "repeat 2; do\n\tcat <<EOT\nhi\nEOT\ndone\n", "2", "1:1", "1:11", "4:1", 1},
+		{"heredoc in command substitution", "repeat 2 print $(cat <<EOT\nhi\nEOT\n)\n", "repeat 2; do print $(\n\tcat <<EOT\nhi\nEOT\n); done\n", "2", "1:1", "1:10", "4:2", 1},
+		{"arithmetic body", "repeat 4 (( count++ ))\n", "repeat 4; do ((count++)); done\n", "4", "1:1", "1:10", "1:23", 1},
+		{"conditional body", "repeat 2 [[ a == a ]]\n", "repeat 2; do [[ a == a ]]; done\n", "2", "1:1", "1:10", "1:22", 1},
+		{"subshell body", "repeat 2 ( print hi )\n", "repeat 2; do (print hi); done\n", "2", "1:1", "1:10", "1:22", 1},
+		{"if body", "repeat 2 if true; then print hi; fi; print end\n", "repeat 2; do if true; then print hi; fi; done\nprint end\n", "2", "1:1", "1:10", "1:36", 1},
+		{"for body", "repeat 2 for x in a b; do print $x; done\n", "repeat 2; do for x in a b; do print $x; done; done\n", "2", "1:1", "1:10", "1:41", 1},
+		{"case body", "repeat 2 case x in (x) print hi ;; esac\n", "repeat 2; do case x in x) print hi ;; esac done\n", "2", "1:1", "1:10", "1:40", 1},
+		{"function body", "repeat 2 f() { print hi }\n", "repeat 2; do f() { print hi; }; done\n", "2", "1:1", "1:10", "1:26", 1},
+		{"assignment body", "repeat 2 x=1\n", "repeat 2; do x=1; done\n", "2", "1:1", "1:10", "1:13", 1},
+		{"background", "repeat 3 print hi & print x\n", "repeat 3; do print hi; done &\nprint x\n", "3", "1:1", "1:10", "1:18", 1},
+		// The invocation words are metadata the tree does not span. What
+		// follows them on the line is dropped in every context (#279), so
+		// no row puts anything there.
+		{"invocation words", "repeat 3 () { print $1 } a b\nprint y\n", "repeat 3; do () { print $1; }; done\nprint y\n", "3", "1:1", "1:10", "1:25", 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -111,37 +119,28 @@ func TestParseRepeat(t *testing.T) {
 			if got := renderTree(t, file.AST()); got != test.want {
 				t.Fatalf("rendered tree = %q, want %q", got, test.want)
 			}
-			loops := file.RepeatLoops()
+			loops := repeatClauses(file.AST())
 			if len(loops) != 1 {
-				t.Fatalf("RepeatLoops() = %d loops, want 1", len(loops))
+				t.Fatalf("repeat loops = %d, want 1", len(loops))
 			}
 			loop := loops[0]
-			if loop.Loop.Until {
-				t.Fatalf("loop is an until loop")
+			if got := loop.RepeatPos.String(); got != test.repeatPos {
+				t.Errorf("RepeatPos = %s, want %s", got, test.repeatPos)
 			}
-			if got := loop.Loop.WhilePos.String(); got != test.whilePos {
-				t.Errorf("WhilePos = %s, want %s", got, test.whilePos)
-			}
-			if got := loop.Loop.DoPos.String(); got != test.doPos {
+			if got := loop.DoPos.String(); got != test.doPos {
 				t.Errorf("DoPos = %s, want %s", got, test.doPos)
 			}
-			if got := loop.Loop.DonePos.String(); got != test.donePos {
+			if got := loop.DonePos.String(); got != test.donePos {
 				t.Errorf("DonePos = %s, want %s", got, test.donePos)
 			}
 			if start, end := loop.Count.Pos().Offset(), loop.Count.End().Offset(); test.src[start:end] != test.count {
 				t.Errorf("count bytes = %q, want %q", test.src[start:end], test.count)
 			}
-			if len(loop.Loop.Cond) != 1 || loop.Loop.Cond[0].Cmd.(*syntax.CallExpr).Args[0] != loop.Count {
-				t.Errorf("Cond = %v, want the count word alone", loop.Loop.Cond)
-			}
-			if got := loop.Loop.Cond[0].Semicolon; got.IsValid() != (test.semicolon != "") || (got.IsValid() && got.String() != test.semicolon) {
-				t.Errorf("count Semicolon = %v, want %q", got, test.semicolon)
-			}
-			if got := len(loop.Loop.Do); got != test.body {
+			if got := len(loop.Do); got != test.body {
 				t.Errorf("body statements = %d, want %d", got, test.body)
 			}
-			if !matchSourceWord([]byte(test.src), int(loop.Loop.WhilePos.Offset()), "repeat") {
-				t.Errorf("WhilePos %s is not on the repeat word", loop.Loop.WhilePos)
+			if !matchSourceWord([]byte(test.src), int(loop.RepeatPos.Offset()), "repeat") {
+				t.Errorf("RepeatPos %s is not on the repeat word", loop.RepeatPos)
 			}
 			assertLiteralsMatchSource(t, file.AST(), test.src)
 		})
@@ -155,25 +154,25 @@ func TestParseRepeatNested(t *testing.T) {
 		src  string
 		want string
 	}{
-		{"repeat 2 repeat 3 print hi\n", "while 2; do while 3; do print hi; done; done\n"},
-		{"repeat 2; repeat 3; print hi\n", "while 2; do while 3; do print hi; done; done\n"},
-		{"repeat 2 do repeat 3; print hi; done\n", "while 2; do while 3; do print hi; done; done\n"},
-		{"repeat 2 { repeat 3 { print hi } }\n", "while 2; do while 3; do print hi; done; done\n"},
-		{"repeat 2 { repeat 3 do print hi; done }\n", "while 2; do while 3; do print hi; done; done\n"},
-		{"repeat 2 do repeat 3 { print hi }; done\n", "while 2; do while 3; do print hi; done; done\n"},
-		{"repeat 3 { print hi }; repeat 2 { print b }\n", "while 3; do print hi; done\nwhile 2; do print b; done\n"},
-		{"repeat 3 do print hi; done; repeat 2 do print b; done\n", "while 3; do print hi; done\nwhile 2; do print b; done\n"},
-		{"for x in a b; do repeat 2 print $x; done\n", "for x in a b; do while 2; do print $x; done; done\n"},
-		{"repeat 2 repeat 3 { print hi }\n", "while 2; do while 3; do print hi; done; done\n"},
-		{"repeat 2 repeat 3 do print hi; done\n", "while 2; do while 3; do print hi; done; done\n"},
-		{"repeat 2 repeat 3 (( x++ ))\n", "while 2; do while 3; do ((x++)); done; done\n"},
-		{"repeat 2 ( repeat 3 (( x++ )) )\n", "while 2; do (while 3; do ((x++)); done); done\n"},
-		{"( repeat 3 do print hi; done )\n", "(while 3; do print hi; done)\n"},
-		{"repeat 2 if true; then\n  repeat 3 { print hi }\nfi\n", "while 2; do if true; then\n\twhile 3; do print hi; done\nfi; done\n"},
+		{"repeat 2 repeat 3 print hi\n", "repeat 2; do repeat 3; do print hi; done; done\n"},
+		{"repeat 2; repeat 3; print hi\n", "repeat 2; do repeat 3; do print hi; done; done\n"},
+		{"repeat 2 do repeat 3; print hi; done\n", "repeat 2; do repeat 3; do print hi; done; done\n"},
+		{"repeat 2 { repeat 3 { print hi } }\n", "repeat 2; do repeat 3; do print hi; done; done\n"},
+		{"repeat 2 { repeat 3 do print hi; done }\n", "repeat 2; do repeat 3; do print hi; done; done\n"},
+		{"repeat 2 do repeat 3 { print hi }; done\n", "repeat 2; do repeat 3; do print hi; done; done\n"},
+		{"repeat 3 { print hi }; repeat 2 { print b }\n", "repeat 3; do print hi; done\nrepeat 2; do print b; done\n"},
+		{"repeat 3 do print hi; done; repeat 2 do print b; done\n", "repeat 3; do print hi; done\nrepeat 2; do print b; done\n"},
+		{"for x in a b; do repeat 2 print $x; done\n", "for x in a b; do repeat 2; do print $x; done; done\n"},
+		{"repeat 2 repeat 3 { print hi }\n", "repeat 2; do repeat 3; do print hi; done; done\n"},
+		{"repeat 2 repeat 3 do print hi; done\n", "repeat 2; do repeat 3; do print hi; done; done\n"},
+		{"repeat 2 repeat 3 (( x++ ))\n", "repeat 2; do repeat 3; do ((x++)); done; done\n"},
+		{"repeat 2 ( repeat 3 (( x++ )) )\n", "repeat 2; do (repeat 3; do ((x++)); done); done\n"},
+		{"( repeat 3 do print hi; done )\n", "(repeat 3; do print hi; done)\n"},
+		{"repeat 2 if true; then\n  repeat 3 { print hi }\nfi\n", "repeat 2; do if true; then\n\trepeat 3; do print hi; done\nfi; done\n"},
 		// A loop in the condition of a `while` written as such is a site.
-		{"while repeat 2 print hi; do break; done\n", "while while 2; do print hi; done; do break; done\n"},
-		{"while repeat 2; print hi; do break; done\n", "while while 2; do print hi; done; do break; done\n"},
-		{"repeat 2 while repeat 3 print a; do break; done\n", "while 2; do while while 3; do print a; done; do break; done; done\n"},
+		{"while repeat 2 print hi; do break; done\n", "while repeat 2; do print hi; done; do break; done\n"},
+		{"while repeat 2; print hi; do break; done\n", "while repeat 2; do print hi; done; do break; done\n"},
+		{"repeat 2 while repeat 3 print a; do break; done\n", "repeat 2; do while repeat 3; do print a; done; do break; done; done\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.src, func(t *testing.T) {
@@ -184,14 +183,8 @@ func TestParseRepeatNested(t *testing.T) {
 			if got := renderTree(t, file.AST()); got != test.want {
 				t.Fatalf("rendered tree = %q, want %q", got, test.want)
 			}
-			loops := file.RepeatLoops()
-			if want := strings.Count(test.src, "repeat"); len(loops) != want {
-				t.Fatalf("RepeatLoops() = %d loops, want %d", len(loops), want)
-			}
-			for index, loop := range loops {
-				if index > 0 && !loop.Loop.WhilePos.After(loops[index-1].Loop.WhilePos) {
-					t.Errorf("loop %d at %s is not after loop %d at %s", index, loop.Loop.WhilePos, index-1, loops[index-1].Loop.WhilePos)
-				}
+			if got, want := len(repeatClauses(file.AST())), strings.Count(test.src, "repeat"); got != want {
+				t.Fatalf("repeat loops = %d, want %d", got, want)
 			}
 			assertLiteralsMatchSource(t, file.AST(), test.src)
 		})
@@ -211,9 +204,8 @@ func TestParseRepeatKeepsComments(t *testing.T) {
 		{"do form", "repeat 3 do # c\nprint hi # d\ndone\n", []string{"1:13  c", "2:10  d"}},
 		{"brace form", "repeat 3 { # c\nprint hi\n}\n", []string{"1:12  c"}},
 		{"sublist", "repeat 3 print hi # c\n", []string{"1:19  c"}},
-		// The closer follows the invocation words, so the comment after
-		// them stays on the loop's line.
-		{"invocation words", "repeat 3 () { print $1 } later # c\n", []string{"1:32  c"}},
+		// A comment after anonymous function invocation words is dropped in
+		// every context (#279), so it has no row here.
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -221,8 +213,8 @@ func TestParseRepeatKeepsComments(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse() error: %v", err)
 			}
-			if len(file.RepeatLoops()) != 1 {
-				t.Fatalf("RepeatLoops() = %d loops, want 1", len(file.RepeatLoops()))
+			if got := len(repeatClauses(file.AST())); got != 1 {
+				t.Fatalf("repeat loops = %d, want 1", got)
 			}
 			var got []string
 			syntax.Walk(file.AST(), func(node syntax.Node) bool {
@@ -257,8 +249,8 @@ func TestParseRepeatKeepsOrdinaryUses(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse() error: %v", err)
 			}
-			if loops := file.RepeatLoops(); len(loops) != 0 {
-				t.Fatalf("RepeatLoops() = %d loops, want none", len(loops))
+			if loops := repeatClauses(file.AST()); len(loops) != 0 {
+				t.Fatalf("repeat loops = %d, want none", len(loops))
 			}
 			plain, err := parseTree([]byte(src), "ordinary.zsh")
 			if err != nil {
@@ -271,20 +263,20 @@ func TestParseRepeatKeepsOrdinaryUses(t *testing.T) {
 	}
 }
 
-// Each source is rejected by `zsh -f -n`. The tree path reports the shape at
-// the `repeat` word; a separator the parser itself rejects keeps its error.
+// Each source is rejected by `zsh -f -n`, and the parser fork rejects it at
+// the point it stops reading the loop.
 func TestParseRepeatRejectsInvalidShapes(t *testing.T) {
 	tests := []struct {
 		fixture  string
 		wantPos  string
 		wantText string
 	}{
-		{"invalid-208-bare-repeat.txt", "3:1", repeatShapeError},
-		{"invalid-208-do-body-unterminated.txt", "3:1", repeatShapeError},
-		{"invalid-208-brace-body-unterminated.txt", "3:1", repeatShapeError},
-		{"invalid-208-count-then-ampersand.txt", "3:1", repeatShapeError},
-		{"invalid-208-do-body-without-separator.txt", "3:1", repeatShapeError},
-		{"invalid-208-assignment-prefix.txt", "3:5", repeatShapeError},
+		{"invalid-208-bare-repeat.txt", "3:1", "`repeat` must be followed by a count word"},
+		{"invalid-208-do-body-unterminated.txt", "3:1", "`repeat` statement must end with `done`"},
+		{"invalid-208-brace-body-unterminated.txt", "3:10", "`{` must be followed by `}`"},
+		{"invalid-208-count-then-ampersand.txt", "3:10", "repeat loop body must be a command"},
+		{"invalid-208-do-body-without-separator.txt", "3:1", "`repeat` statement must end with `done`"},
+		{"invalid-208-assignment-prefix.txt", "3:5", assignedRepeatError},
 		{"invalid-208-double-semicolon.txt", "3:9", "`;;` can only be used in a case clause"},
 		{"invalid-208-stray-brace-after-body.txt", "3:20", "`}` can only be used to close a block"},
 	}
@@ -309,26 +301,40 @@ func TestParseRepeatRejectsInvalidShapes(t *testing.T) {
 	}
 }
 
-// These sources are `zsh -f -n` valid but no rewrite of the sublist can place
-// `done` correctly: a heredoc with an empty body has no node to locate its
-// delimiter by, and a heredoc whose line carries more of the sublist would
-// swallow the closer. The front end fails closed at the `repeat` word rather
-// than guess.
-func TestParseRepeatDeclinesUnplaceableHeredocs(t *testing.T) {
-	for _, src := range []string{
-		"repeat 2 cat <<EOT\nEOT\n",
-		"repeat 2 cat <<EOT; print x\nhi\nEOT\n",
-		"repeat 2; { cat <<EOT }\nhi\nEOT\n",
+// These sources are `zsh -f -n` valid. The former rewrite could not place its
+// synthetic `done` around them and failed closed; the parser fork reads them
+// as it reads any heredoc in a body (#281). A heredoc node spans its body
+// and delimiter, as upstream records it.
+func TestParseRepeatHeredocBodies(t *testing.T) {
+	for _, tt := range []struct {
+		src   string
+		hdocs []string
+	}{
+		{"repeat 2 cat <<EOT\nEOT\n", []string{""}},
+		{"repeat 2 cat <<EOT; print x\nhi\nEOT\n", []string{"hi\nEOT"}},
+		{"repeat 2; { cat <<EOT }\nhi\nEOT\n", []string{"hi\nEOT"}},
 	} {
-		t.Run(src, func(t *testing.T) {
-			_, err := Parse(strings.NewReader(src), "heredoc.zsh")
-			var perr syntax.ParseError
-			if !errors.As(err, &perr) {
-				t.Fatalf("Parse() error = %v, want syntax.ParseError", err)
+		t.Run(tt.src, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(tt.src), "heredoc.zsh")
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
 			}
-			if perr.Pos.String() != "1:1" || perr.Text != repeatShapeError {
-				t.Fatalf("error = %v, want the shape error at 1:1", err)
+			if got := len(repeatClauses(file.AST())); got != 1 {
+				t.Fatalf("repeat loops = %d, want 1", got)
 			}
+			var hdocs []string
+			syntax.Walk(file.AST(), func(node syntax.Node) bool {
+				if redirect, ok := node.(*syntax.Redirect); ok && redirect.Hdoc != nil {
+					hdocs = append(hdocs, nodeText(tt.src, redirect.Hdoc))
+				} else if ok && redirect.Op == syntax.Hdoc {
+					hdocs = append(hdocs, "")
+				}
+				return true
+			})
+			if strings.Join(hdocs, "|") != strings.Join(tt.hdocs, "|") {
+				t.Fatalf("heredoc bodies = %q, want %q", hdocs, tt.hdocs)
+			}
+			assertLiteralsMatchSource(t, file.AST(), tt.src)
 		})
 	}
 }
@@ -358,174 +364,25 @@ func TestParseRepeatReportsLaterBlocker(t *testing.T) {
 	}
 }
 
-// The adapter is gated on position: an error before any `repeat` site, or
-// one no site's edit could explain, leaves the error untouched.
-func TestParseRepeatAdapterDeclinesUnrelatedErrors(t *testing.T) {
-	for _, src := range []string{
-		"print )\nrepeat 3 do print hi; done\n",
-		"repeat 3; print hi }\n",
-		"print ${x\n",
-	} {
-		t.Run(src, func(t *testing.T) {
-			_, firstErr := parseTree([]byte(src), "unrelated.zsh")
-			if firstErr == nil {
-				t.Fatalf("parseTree() accepted %q", src)
-			}
-			calls := 0
-			_, err := parseRepeatWithParser([]byte(src), "unrelated.zsh", firstErr, func([]byte, string) (*syntax.File, error) {
-				calls++
-				return nil, errors.New("retry must not run")
-			})
-			if !errors.Is(err, firstErr) {
-				t.Fatalf("error = %v, want the first error %v", err, firstErr)
-			}
-			if calls != 0 {
-				t.Fatalf("retry ran %d times, want 0", calls)
-			}
-		})
-	}
-}
-
-// A retry that parses but does not produce the loop the edit was made for
-// is not trusted: the adapter returns the original error.
-func TestParseRepeatAdapterVerifiesRetryShape(t *testing.T) {
-	src := []byte("repeat 3 do print hi; done\n")
-	_, firstErr := parseTree(src, "verify.zsh")
-	if firstErr == nil {
-		t.Fatal("parseTree() accepted the do form")
-	}
-	_, err := parseRepeatWithParser(src, "verify.zsh", firstErr, func([]byte, string) (*syntax.File, error) {
-		return parseTree([]byte("print hi\n"), "verify.zsh")
-	})
-	if !errors.Is(err, firstErr) {
-		t.Fatalf("error = %v, want the first error %v", err, firstErr)
-	}
-}
-
-// A retry whose error did not move past the first one says nothing about
-// the site, so the adapter keeps the first error and its position: here the
-// word sits in a glob group the site scanner cannot tell from a subshell,
-// and the `;` written after the count breaks the group.
-func TestParseRepeatAdapterKeepsFirstErrorWhenRetryDoesNotAdvance(t *testing.T) {
-	src := []byte("for x in ( repeat 3 do ); do :; done\nprint )\n")
-	_, firstErr := parseTree(src, "list.zsh")
-	if firstErr == nil {
-		t.Fatal("parseTree() accepted the stray parenthesis")
-	}
-	calls := 0
-	_, err := parseRepeatWithParser(src, "list.zsh", firstErr, func(masked []byte, name string) (*syntax.File, error) {
-		calls++
-		return parseTree(masked, name)
-	})
-	if !errors.Is(err, firstErr) {
-		t.Fatalf("error = %v, want the first error %v", err, firstErr)
-	}
-	if calls != 1 {
-		t.Fatalf("retry ran %d times, want 1", calls)
-	}
-	_, err = Parse(bytes.NewReader(src), "list.zsh")
-	var perr syntax.ParseError
-	if !errors.As(err, &perr) || perr.Pos.String() != "2:7" {
-		t.Fatalf("Parse() error = %v, want the stray parenthesis at 2:7", err)
-	}
-}
-
-// The chain hands an error it could not place to the adapter at every level
-// of its recursion. On a level whose plain parse stops before the site, an
-// inner level already retried the site; the adapter must not repeat that
-// retry, which would cost a whole chained parse per level.
-func TestParseRepeatAdapterSkipsSitesPastPlainParseError(t *testing.T) {
-	src := []byte("print ${x::=1}\nrepeat 3 do\n  print hi\ndone\nprint ${y[a,[^:]]}\n")
-	_, plainErr := parseTree(src, "levels.zsh")
-	var perr syntax.ParseError
-	if !errors.As(plainErr, &perr) || perr.Pos.Line() != 1 {
-		t.Fatalf("parseTree() error = %v, want an error on line 1", plainErr)
-	}
-	_, chainErr := parseWithAdapters(src, "levels.zsh")
-	if !errors.As(chainErr, &perr) || perr.Pos.Line() != 5 {
-		t.Fatalf("parseWithAdapters() error = %v, want the line 5 blocker", chainErr)
-	}
-	calls := 0
-	_, err := parseRepeatWithParser(src, "levels.zsh", chainErr, func([]byte, string) (*syntax.File, error) {
-		calls++
-		return nil, errors.New("retry must not run")
-	})
-	if !errors.Is(err, chainErr) {
-		t.Fatalf("error = %v, want the chain error %v", err, chainErr)
-	}
-	if calls != 0 {
-		t.Fatalf("retry ran %d times, want 0", calls)
-	}
-}
-
-// Every site in command position is found, and none elsewhere.
-func TestScanRepeatSites(t *testing.T) {
-	src := "repeat 1 a\n" +
-		"x=1; repeat 2 b\n" +
-		"if true; then repeat 3 c; fi\n" +
-		"print repeat 4\n" +
-		"'repeat 5' 'x'\n" +
-		"$(repeat 6 d)\n" +
-		"( repeat 7 e )\n" +
-		"case x in (x) repeat 8 f ;; esac\n" +
-		"# repeat 9 g\n" +
-		"cat <<EOT\nrepeat 10 h\nEOT\n" +
-		"repeatx 11 i\n" +
-		"x=1 repeat 12 j\n" +
-		"! repeat 13 k\n" +
-		"{ repeat 14 l }\n" +
-		"true && repeat 15 m\n" +
-		"a=(repeat 16 n)\n" +
-		"case x in (repeat|y) : ;; esac\n" +
-		"print \"repeat 17 o\"\n" +
-		"(( repeat 18 ))\n" +
-		"$'repeat 19'\n" +
-		"repeat $(cat n) p\n" +
-		"repeat \"$n\"; q\n" +
-		"repeat\n"
-	var got []string
-	for _, site := range scanRepeatSites([]byte(src)) {
-		got = append(got, src[site.countStart:site.countEnd])
-	}
-	want := []string{"1", "2", "3", "6", "7", "8", "13", "14", "15", "$(cat n)", "\"$n\""}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("sites = %v, want %v", got, want)
-	}
-}
-
-func TestRepeatLoopsSliceIsIndependent(t *testing.T) {
-	file, err := Parse(strings.NewReader("repeat 2; print hi\n"), "independent.zsh")
-	if err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-	loops := file.RepeatLoops()
-	loops[0] = RepeatLoop{}
-	if again := file.RepeatLoops(); again[0].Loop == nil {
-		t.Fatal("RepeatLoops() shares its backing array with the caller")
-	}
-}
-
-// The rewrite reparses a transformed buffer and rebases the tree and the
-// anonymous invocation words back to the source; the other metadata binders
-// run on the rebased tree. Every metadata node after a rewritten loop must
-// still sit on its original bytes.
+// Every metadata node after a repeat loop must sit on its original bytes;
+// the loop once went through a rewrite that rebased the tree.
 func TestParseRepeatKeepsLaterMetadataOnSourceBytes(t *testing.T) {
 	src := "repeat 2 do\n  print hi\ndone\n" +
 		"() { print $1 } arg\n" +
 		"print ${x::=1} ${a[1][2]}\n" +
 		"repeat 3; () { print $1 } later; print x\n" +
-		"repeat 4 () { print $1 } a b & print y\n"
+		"repeat 4 () { print $1 } a b\nprint y\n"
 	file, err := Parse(strings.NewReader(src), "metadata.zsh")
 	if err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-	if loops := file.RepeatLoops(); len(loops) != 3 {
-		t.Fatalf("RepeatLoops() = %d loops, want 3", len(loops))
+	if loops := repeatClauses(file.AST()); len(loops) != 3 {
+		t.Fatalf("repeat loops = %d, want 3", len(loops))
 	}
 	// The tree holds the closest typed shapes; the metadata carries `::=` and
 	// the second subscript.
-	want := "while 2; do\n\tprint hi\ndone\n() { print $1; }\nprint ${x:=1} ${a[1]}\n" +
-		"while 3; do () { print $1; }; done\nprint x\nwhile 4; do () { print $1; }; done &\nprint y\n"
+	want := "repeat 2; do\n\tprint hi\ndone\n() { print $1; }\nprint ${x:=1} ${a[1]}\n" +
+		"repeat 3; do () { print $1; }; done\nprint x\nrepeat 4; do () { print $1; }; done\nprint y\n"
 	if got := renderTree(t, file.AST()); got != want {
 		t.Errorf("rendered tree = %q, want %q", got, want)
 	}

@@ -51,7 +51,7 @@ var allNodeNames = []string{
 	"CoprocClause", "DblQuoted", "DeclClause", "ExtGlob", "File", "FlagsArithm",
 	"ForClause", "FuncDecl", "IfClause", "LetClause", "Lit", "ParamExp",
 	"ParenArithm", "ParenTest", "ProcSubst", "Redirect", "SglQuoted", "Stmt",
-	"Subshell", "TestClause", "TestDecl", "TimeClause", "UnaryArithm",
+	"RepeatClause", "Subshell", "TestClause", "TestDecl", "TimeClause", "UnaryArithm",
 	"UnaryTest", "WhileClause", "Word", "WordIter",
 }
 
@@ -88,6 +88,8 @@ coproc foo
 `},
 		// ${a[(r)foo]} produces a FlagsArithm node, which only appears with zsh.
 		{syntax.LangZsh, "echo ${a[(r)foo]}\n"},
+		// RepeatClause only appears with zsh (zsh-lint #281).
+		{syntax.LangZsh, "repeat 3 do foo; done\n"},
 		// TestDecl only appears with bats.
 		{syntax.LangBats, "@test \"name\" {\n\tfoo\n}\n"},
 	}

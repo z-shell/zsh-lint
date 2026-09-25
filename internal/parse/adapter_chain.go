@@ -49,7 +49,6 @@ func adapterChain() []adapterAttempt {
 		parseDeclarationBraceClose,
 		parseDoLeadingSeparator,
 		parseThenLeadingSeparator,
-		parseRepeat,
 		parseMathFunctionCall,
 		parseNestedArithmetic,
 		parseRedundantSeparator,

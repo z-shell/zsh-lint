@@ -1252,6 +1252,12 @@ func (p *Printer) command(cmd Command, redirs []*Redirect) (startRedirs int) {
 		p.semiOrNewl("do", cmd.DoPos)
 		p.nestedStmts(cmd.Do, cmd.DoLast, cmd.DonePos)
 		p.semiRsrv("done", cmd.DonePos)
+	case *RepeatClause:
+		p.w.WriteString("repeat ")
+		p.word(cmd.Count)
+		p.semiOrNewl("do", cmd.DoPos)
+		p.nestedStmts(cmd.Do, cmd.DoLast, cmd.DonePos)
+		p.semiRsrv("done", cmd.DonePos)
 	case *ForClause:
 		if cmd.Select {
 			p.w.WriteString("select ")

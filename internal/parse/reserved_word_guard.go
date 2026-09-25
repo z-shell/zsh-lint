@@ -9,11 +9,14 @@ import (
 // names, so `foreach x (a b)` becomes a call named foreach. A silent tree of
 // the wrong shape is worse than a parse error for every rule that reasons
 // about loop bodies, so the front end fails closed until the constructs are
-// supported. `repeat` left this list when resolveRepeatLoops (repeat.go)
-// started rewriting the loop.
+// supported. `repeat` left this list when the front end started reading the
+// loop (#208); the parser fork reads it itself since #281.
 var unsupportedLoopWords = map[string]string{
 	"foreach": "`foreach ... end` loops are not supported yet (z-shell/zsh-lint#214)",
 }
+
+// assignedRepeatError is reported for an assignment prefix before `repeat`.
+const assignedRepeatError = "`repeat` cannot follow an assignment"
 
 // rejectUnsupportedLoopWords returns a parse error positioned at the first
 // call whose command name is an unsupported reserved word.
@@ -32,6 +35,12 @@ func rejectUnsupportedLoopWords(tree *syntax.File, name string) error {
 			return true
 		}
 		text, unsupported := unsupportedLoopWords[lit.Value]
+		// The parser fork reads `repeat` in command position as the loop
+		// (#281); after an assignment prefix it is still the reserved word,
+		// which native Zsh rejects there, so the call it became is an error.
+		if lit.Value == "repeat" && len(call.Assigns) > 0 {
+			text, unsupported = assignedRepeatError, true
+		}
 		if !unsupported {
 			return true
 		}
