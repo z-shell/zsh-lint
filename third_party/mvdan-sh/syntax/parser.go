@@ -512,6 +512,11 @@ type Parser struct {
 	// a statement with no separator, zshBraceWhile after any statement.
 	zshBraceStop zshBraceMode
 
+	// zshDquoteParam reports that the parameter expansion being lexed sits
+	// inside a double-quoted string, where Zsh reads a `'` in its word as an
+	// ordinary character (zsh-lint #400).
+	zshDquoteParam bool
+
 	recoveredErrors  int
 	recoverErrorsMax int
 
@@ -1471,6 +1476,11 @@ func (p *Parser) dblQuoted() *DblQuoted {
 // as a literal.
 func (p *Parser) paramExp() *ParamExp {
 	old := p.quote
+	oldDquoteParam := p.zshDquoteParam
+	if p.lang.in(LangZsh) {
+		p.zshDquoteParam = old == dblQuotes || (old&allParamExp != 0 && oldDquoteParam)
+	}
+	defer func() { p.zshDquoteParam = oldDquoteParam }()
 	p.quote = runeByRune
 	// [ParamExp.Short] means we are parsing $exp rather than ${exp}.
 	pe := &ParamExp{

@@ -11,6 +11,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | Change | Files | Issue |
 | --- | --- | --- |
 | Brace-form `if`/`elif`/`else` and `while`/`until` bodies (Alternate Forms For Complex Commands) | `syntax/parser.go` | [#446](https://github.com/z-shell/zsh-lint/issues/446) |
+| A `'` in the word of a double-quoted `${...}` is text, not a single-quote opener | `syntax/parser.go`, `syntax/lexer.go` | [#400](https://github.com/z-shell/zsh-lint/issues/400) |
 
 ## Taking an upstream release
 
