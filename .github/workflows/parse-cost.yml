@@ -1,0 +1,88 @@
+---
+name: Parse Cost
+
+# Observed, not gated (z-shell/.github ADR-0024, #414): this workflow reports
+# how many whole-source parses the adapter chain spends per file and flags a
+# rise of more than 10 percent against the pull request's base. It never
+# fails a run; a flag is a notice for the reviewer.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/parse-cost.yml"
+      - "cmd/zsh-lint-survey/**"
+      - "go.mod"
+      - "go.sum"
+      - "internal/parse/**"
+      - "internal/survey/**"
+  pull_request:
+    paths:
+      - ".github/workflows/parse-cost.yml"
+      - "cmd/zsh-lint-survey/**"
+      - "go.mod"
+      - "go.sum"
+      - "internal/parse/**"
+      - "internal/survey/**"
+  schedule:
+    - cron: "37 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # z-shell/zi holds zi.zsh, the file #357 and #366 measured. Pull request
+  # and push runs use this revision so a zi change cannot move the numbers;
+  # the weekly schedule and a manual dispatch track main.
+  ZI_REVISION: 67fbb057fe05bc5664c0e558185a18b34a81defb
+
+jobs:
+  parse-cost:
+    name: Parse Cost
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: ⤵️ Check out zsh-lint
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: zsh-lint
+          persist-credentials: false
+
+      - name: ⤵️ Check out the pull request base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: zsh-lint-base
+          persist-credentials: false
+
+      - name: ⤵️ Check out zi
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/zi
+          ref: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'main' || env.ZI_REVISION }}
+          path: corpus/zi
+          persist-credentials: false
+
+      - name: ⎔ Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache-dependency-path: zsh-lint/go.sum
+
+      - name: 🏗 Build survey binaries
+        run: |
+          (cd zsh-lint && go build -o "$RUNNER_TEMP/survey-head" ./cmd/zsh-lint-survey)
+          if [[ -d zsh-lint-base ]]; then
+            (cd zsh-lint-base && go build -o "$RUNNER_TEMP/survey-base" ./cmd/zsh-lint-survey)
+          fi
+
+      - name: 📏 Report parse cost
+        env:
+          FLAG_PERCENT: "10"
+        run: bash zsh-lint/.github/scripts/parse-cost.sh
