@@ -1,8 +1,6 @@
 package parse
 
 import (
-	"reflect"
-
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -49,7 +47,6 @@ func adapterChain() []adapterAttempt {
 		parseMultiNameFor,
 		parseForShortForm,
 		parseTryAlways,
-		parseGroupedCasePattern,
 		parseANSICHeredocDelimiter,
 		parseFunctionSemicolonBody,
 		parseMultiNameFunction,
@@ -78,11 +75,10 @@ func adapterChain() []adapterAttempt {
 //
 // Most adapters mask one occurrence of their feature per pass and rely on
 // re-entering themselves to handle a second occurrence in the same file, so
-// self-recursion is allowed by default. An adapter whose masking would
-// otherwise widen its own accepted grammar must opt out with retryExcluding.
-// The grouped-case adapter is the current example: left to recurse, it masked
-// one extra `)` per pass and accepted `case x in (x|y))) : ;; esac`, which
-// native Zsh rejects.
+// self-recursion is allowed. Re-entry must not widen an adapter's own accepted
+// grammar: the grouped-case adapter once masked one extra `)` per pass and
+// accepted `case x in (x|y))) : ;; esac`, which native Zsh rejects. The parser
+// fork now reads that pattern itself (#452).
 func parseWithAdapters(src []byte, name string) (*syntax.File, error) {
 	return parseWithAdaptersExcept(src, name, -1)
 }
@@ -106,22 +102,4 @@ func parseWithAdaptersExcept(src []byte, name string, skip int) (*syntax.File, e
 		err = attemptErr
 	}
 	return nil, err
-}
-
-// retryExcluding returns the retry parser an adapter must hand to its
-// *WithParser helper: the full chain minus the caller itself. Adapters look
-// themselves up by function identity so the chain order stays the single
-// source of truth.
-func retryExcluding(self adapterAttempt) func([]byte, string) (*syntax.File, error) {
-	skip := -1
-	selfPtr := reflect.ValueOf(self).Pointer()
-	for index, attempt := range adapterChain() {
-		if reflect.ValueOf(attempt).Pointer() == selfPtr {
-			skip = index
-			break
-		}
-	}
-	return func(src []byte, name string) (*syntax.File, error) {
-		return parseWithAdaptersExcept(src, name, skip)
-	}
 }

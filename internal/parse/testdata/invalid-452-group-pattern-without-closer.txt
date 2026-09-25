@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Glob-Operators
+case xy in
+  (x)y print hit ;;
+esac

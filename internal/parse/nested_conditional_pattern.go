@@ -79,18 +79,12 @@ type activeCaseContext struct {
 	start             int
 	patternParenDepth int
 	inBracketPattern  bool
-	edits             []patternEdit
 	// patternStarted and leadingParen track whether the pattern's first
 	// byte is `(`. Zsh reads that `(` as the optional opener when its `)`
 	// is followed by a blank, `;` or the end of input (`(x) cmd`), and as a
 	// group when more pattern follows (`(x|y))`, `(x)y)`) (#440).
 	patternStarted bool
 	leadingParen   bool
-}
-
-type groupedCasePatternCandidate struct {
-	edits []patternEdit
-	seed  bool
 }
 
 type pendingHeredoc struct {
@@ -138,10 +132,9 @@ type conditionalPatternFinding struct {
 }
 
 type conditionalPatternScan struct {
-	candidates          []patternCandidate
-	groupedCasePatterns []groupedCasePatternCandidate
-	backtickIslands     []legacyBacktickIsland
-	finding             *conditionalPatternFinding
+	candidates      []patternCandidate
+	backtickIslands []legacyBacktickIsland
+	finding         *conditionalPatternFinding
 }
 
 type activeConditionalContext struct {
@@ -310,7 +303,6 @@ func scanConditionalPatterns(
 	legacyLookupProbes ...activeLegacyLookupProbe,
 ) (conditionalPatternScan, bool) {
 	var candidates []patternCandidate
-	var groupedCasePatterns []groupedCasePatternCandidate
 	var backtickRoots []*legacyBacktickSpan
 	var finding *conditionalPatternFinding
 	var inspectLegacyLookup activeLegacyLookupProbe
@@ -653,12 +645,6 @@ func scanConditionalPatterns(
 				currentCase.patternStarted = true
 			}
 			closePattern := func() {
-				if len(currentCase.edits) > 0 {
-					groupedCasePatterns = append(groupedCasePatterns, groupedCasePatternCandidate{
-						edits: append([]patternEdit(nil), currentCase.edits...),
-						seed:  currentCase.start <= seedOffset && seedOffset <= i,
-					})
-				}
 				currentCase.phase = activeCaseBody
 				currentCase.leadingParen = false
 				frame.atWordStart = true
@@ -674,13 +660,6 @@ func scanConditionalPatterns(
 				if leadingOpen {
 					currentCase.leadingParen = true
 				}
-				if currentCase.patternParenDepth > 0 {
-					currentCase.edits = append(currentCase.edits, patternEdit{
-						offset:      i,
-						original:    '(',
-						replacement: nestedPatternMask,
-					})
-				}
 				currentCase.patternParenDepth++
 				frame.atWordStart = false
 				frame.atCommandStart = false
@@ -694,11 +673,6 @@ func scanConditionalPatterns(
 					continue
 				}
 				if currentCase.patternParenDepth > 0 {
-					currentCase.edits = append(currentCase.edits, patternEdit{
-						offset:      i,
-						original:    ')',
-						replacement: nestedPatternMask,
-					})
 					currentCase.patternParenDepth--
 					frame.atWordStart = false
 					frame.atCommandStart = false
@@ -816,10 +790,9 @@ func scanConditionalPatterns(
 		return abandonedConditionalPatternScan(finding)
 	}
 	return conditionalPatternScan{
-		candidates:          candidates,
-		groupedCasePatterns: groupedCasePatterns,
-		backtickIslands:     islands,
-		finding:             finding,
+		candidates:      candidates,
+		backtickIslands: islands,
+		finding:         finding,
 	}, true
 }
 

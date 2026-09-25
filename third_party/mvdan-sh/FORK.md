@@ -13,6 +13,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | Brace-form `if`/`elif`/`else` and `while`/`until` bodies (Alternate Forms For Complex Commands) | `syntax/parser.go` | [#446](https://github.com/z-shell/zsh-lint/issues/446) |
 | A `'` in the word of a double-quoted `${...}` is text, not a single-quote opener | `syntax/parser.go`, `syntax/lexer.go` | [#400](https://github.com/z-shell/zsh-lint/issues/400) |
 | In a glob group or glob qualifier, a quoted `)` and the `)` closing a command substitution do not end the group | `syntax/parser.go` | [#439](https://github.com/z-shell/zsh-lint/issues/439) |
+| A case pattern whose leading group is glued to more pattern text, `(x)y)`, and a leading `((`, as in `((x\|y)\|z)` | `syntax/parser.go` | [#452](https://github.com/z-shell/zsh-lint/issues/452) |
 
 ## Taking an upstream release
 
