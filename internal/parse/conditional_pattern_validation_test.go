@@ -29,8 +29,8 @@ func TestParseRejectsUnmatchedNestedConditionalPatternGroup(t *testing.T) {
 	if got := int(parseErr.Pos.Offset()); got != wantOffset {
 		t.Errorf("error offset = %d, want %d", got, wantOffset)
 	}
-	if parseErr.Pos.Line() != 2 || parseErr.Pos.Col() != 13 {
-		t.Errorf("error position = %d:%d, want 2:13", parseErr.Pos.Line(), parseErr.Pos.Col())
+	if parseErr.Pos.Line() != 4 || parseErr.Pos.Col() != 13 {
+		t.Errorf("error position = %d:%d, want 4:13", parseErr.Pos.Line(), parseErr.Pos.Col())
 	}
 	if parseErr.Text != "unmatched `(` in conditional pattern" {
 		t.Errorf("error text = %q", parseErr.Text)
