@@ -1229,6 +1229,79 @@ func (p *Parser) ensureNoNested(pos Pos) {
 	}
 }
 
+// zshGroupRune tracks the quoting and substitution nesting of p.r inside
+// a Zsh glob group, so that only an unnested `)` ends the group. The stack
+// holds a quote byte for a quote or backquote, `$` for a command
+// substitution, `(` for a parenthesis inside one, and `{` for a parameter
+// expansion (`}` when it sits in double quotes, where `'` is text).
+func (p *Parser) zshGroupRune(nest []byte) []byte {
+	var top byte
+	if len(nest) > 0 {
+		top = nest[len(nest)-1]
+	}
+	pop := nest
+	if len(nest) > 0 {
+		pop = nest[:len(nest)-1]
+	}
+	switch top {
+	case '\'':
+		if p.r == '\'' {
+			return pop
+		}
+		return nest
+	case '`':
+		switch p.r {
+		case '\\':
+			p.rune()
+		case '`':
+			return pop
+		}
+		return nest
+	}
+	switch p.r {
+	case '\\':
+		p.rune()
+	case '$':
+		switch p.peek() {
+		case '(':
+			p.rune()
+			return append(nest, '$')
+		case '{':
+			p.rune()
+			if top == '"' || top == '}' {
+				return append(nest, '}')
+			}
+			return append(nest, '{')
+		}
+	case '`':
+		if p.openBquotes == 0 {
+			return append(nest, '`')
+		}
+	case '"':
+		if top == '"' {
+			return pop
+		}
+		return append(nest, '"')
+	case '\'':
+		if top != '"' && top != '}' {
+			return append(nest, '\'')
+		}
+	case '(':
+		if top == '$' || top == '(' || top == '{' || top == '}' {
+			return append(nest, '(')
+		}
+	case ')':
+		if top == '$' || top == '(' {
+			return pop
+		}
+	case '}':
+		if top == '{' || top == '}' {
+			return pop
+		}
+	}
+	return nest
+}
+
 func (p *Parser) wordPart() WordPart {
 	switch p.tok {
 	case _Lit, _LitWord, _LitRedir:
@@ -1393,7 +1466,11 @@ func (p *Parser) wordPart() WordPart {
 			// for a function declaration, which the parser handles earlier.
 			pos := p.pos
 			p.pos = p.nextPos()
-			for p.newLit(p.r); p.r != runeEOF && p.r != ')'; p.rune() {
+			// A `)` that is quoted, or that closes a command substitution,
+			// does not end the group (#439).
+			var nest []byte
+			for p.newLit(p.r); p.r != runeEOF && (p.r != ')' || len(nest) > 0); p.rune() {
+				nest = p.zshGroupRune(nest)
 			}
 			if p.r != ')' {
 				p.tok = _EOF // we can only get here due to EOF

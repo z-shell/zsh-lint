@@ -1218,30 +1218,30 @@ func TestNestedConditionalAlternationGroupQuotedClose(t *testing.T) {
 		firstErr string
 		want     []string
 	}{
-		{"double quoted close", "[[ $b = (x\")\"y) ]]\n", unclosedDoubleQuote, []string{"(x\")\"y)"}},
-		{"single quoted close", "[[ $b = (x')'y) ]]\n", unclosedSingleQuote, []string{"(x')'y)"}},
-		{"ansi-c quoted close", "[[ $b = (x$')'y) ]]\n", unclosedSingleQuote, []string{"(x$')'y)"}},
-		{"escaped close", "[[ $b = (x\\)y) ]]\n", unmatchedConditionalClose, []string{"(x\\)y)"}},
-		{"escaped close in bracket expression", "[[ $b = ([\\)]) ]]\n", unmatchedConditionalClose, []string{"([\\)])"}},
-		{"double quoted close in bracket expression", "[[ $b = ([\")\"]) ]]\n", unclosedDoubleQuote, []string{"([\")\"])"}},
-		{"double quoted escaped close", "[[ $b = (x\"\\)\"y) ]]\n", unclosedDoubleQuote, []string{"(x\"\\)\"y)"}},
-		{"double quoted close inside longer string", "[[ $b = (x\"a)b\"y) ]]\n", unclosedDoubleQuote, []string{"(x\"a)b\"y)"}},
-		{"group holding only the quoted close", "[[ $b = (\")\") ]]\n", unclosedDoubleQuote, []string{"(\")\")"}},
-		{"nested group", "[[ $b = (a|(x\")\"y)) ]]\n", unclosedDoubleQuote, []string{"(a|(x\")\"y))"}},
-		{"trailing bytes after the group", "[[ $b = (x\")\"y)z ]]\n", unclosedDoubleQuote, []string{"(x\")\"y)z"}},
-		{"negated match with list continuation", "[[ $b != (x')'y) ]] && b=1\n", unclosedSingleQuote, []string{"(x')'y)"}},
-		{"classic if", "if [[ $b == (x\")\"y) ]]; then b=1; fi\n", unclosedDoubleQuote, []string{"(x\")\"y)"}},
+		{"double quoted close", "[[ $b = (x\")\"y) ]]\n", "", []string{"(x\")\"y)"}},
+		{"single quoted close", "[[ $b = (x')'y) ]]\n", "", []string{"(x')'y)"}},
+		{"ansi-c quoted close", "[[ $b = (x$')'y) ]]\n", "", []string{"(x$')'y)"}},
+		{"escaped close", "[[ $b = (x\\)y) ]]\n", "", []string{"(x\\)y)"}},
+		{"escaped close in bracket expression", "[[ $b = ([\\)]) ]]\n", "", []string{"([\\)])"}},
+		{"double quoted close in bracket expression", "[[ $b = ([\")\"]) ]]\n", "", []string{"([\")\"])"}},
+		{"double quoted escaped close", "[[ $b = (x\"\\)\"y) ]]\n", "", []string{"(x\"\\)\"y)"}},
+		{"double quoted close inside longer string", "[[ $b = (x\"a)b\"y) ]]\n", "", []string{"(x\"a)b\"y)"}},
+		{"group holding only the quoted close", "[[ $b = (\")\") ]]\n", "", []string{"(\")\")"}},
+		{"nested group", "[[ $b = (a|(x\")\"y)) ]]\n", unmatchedConditionalClose, []string{"(a|(x\")\"y))"}},
+		{"trailing bytes after the group", "[[ $b = (x\")\"y)z ]]\n", "", []string{"(x\")\"y)z"}},
+		{"negated match with list continuation", "[[ $b != (x')'y) ]] && b=1\n", "", []string{"(x')'y)"}},
+		{"classic if", "if [[ $b == (x\")\"y) ]]; then b=1; fi\n", "", []string{"(x\")\"y)"}},
 		{"brace-form if with nested alternation", "if [[ $b == ((a|b)|(x\")\"y)) ]] { b=1 } else { b=2 }\n", invalidAlternationOperator, []string{"((a|b)|(x\")\"y))"}},
 		{
 			"F-Sy-H highlight.zsh:752 originating shape",
 			"            [[ $__arg = (#b)*=(\\()*(\\))* || $__arg = (#b)*=(\\()* ]] && {\n  :\n}\n",
-			unmatchedConditionalClose,
+			"",
 			[]string{"(#b)*=(\\()*(\\))*", "(#b)*=(\\()*"},
 		},
 		{
 			"F-Sy-H string-highlight.zsh:20 originating shape",
 			"  while [[ $_mybuf = (#b)([^\"{}()[]\\\\\\\"'\"]#)(([\"({[]})\\\"'\"])|[\\\\](*))(*) ]]; do :; done\n",
-			unclosedDoubleQuote,
+			invalidAlternationOperator,
 			[]string{"(#b)([^\"{}()[]\\\\\\\"'\"]#)(([\"({[]})\\\"'\"])|[\\\\](*))(*)"},
 		},
 		{
@@ -1254,9 +1254,12 @@ func TestNestedConditionalAlternationGroupQuotedClose(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			// An empty firstErr marks a shape the parser fork reads without
+			// the adapter, since a quoted `)` no longer ends a group (#439).
 			_, firstErr := parseTree([]byte(tc.src), "group-quoted-close.zsh")
 			var parseErr syntax.ParseError
-			if !errors.As(firstErr, &parseErr) || parseErr.Text != tc.firstErr {
+			if tc.firstErr == "" && firstErr != nil ||
+				tc.firstErr != "" && (!errors.As(firstErr, &parseErr) || parseErr.Text != tc.firstErr) {
 				t.Fatalf("parseTree(%q) error = %v, want %q", tc.src, firstErr, tc.firstErr)
 			}
 			file, err := Parse(strings.NewReader(tc.src), "group-quoted-close.zsh")
