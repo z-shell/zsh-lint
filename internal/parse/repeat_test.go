@@ -279,14 +279,14 @@ func TestParseRepeatRejectsInvalidShapes(t *testing.T) {
 		wantPos  string
 		wantText string
 	}{
-		{"invalid-208-bare-repeat.txt", "1:1", repeatShapeError},
-		{"invalid-208-do-body-unterminated.txt", "1:1", repeatShapeError},
-		{"invalid-208-brace-body-unterminated.txt", "1:1", repeatShapeError},
-		{"invalid-208-count-then-ampersand.txt", "1:1", repeatShapeError},
-		{"invalid-208-do-body-without-separator.txt", "1:1", repeatShapeError},
-		{"invalid-208-assignment-prefix.txt", "1:5", repeatShapeError},
-		{"invalid-208-double-semicolon.txt", "1:9", "`;;` can only be used in a case clause"},
-		{"invalid-208-stray-brace-after-body.txt", "1:20", "`}` can only be used to close a block"},
+		{"invalid-208-bare-repeat.txt", "3:1", repeatShapeError},
+		{"invalid-208-do-body-unterminated.txt", "3:1", repeatShapeError},
+		{"invalid-208-brace-body-unterminated.txt", "3:1", repeatShapeError},
+		{"invalid-208-count-then-ampersand.txt", "3:1", repeatShapeError},
+		{"invalid-208-do-body-without-separator.txt", "3:1", repeatShapeError},
+		{"invalid-208-assignment-prefix.txt", "3:5", repeatShapeError},
+		{"invalid-208-double-semicolon.txt", "3:9", "`;;` can only be used in a case clause"},
+		{"invalid-208-stray-brace-after-body.txt", "3:20", "`}` can only be used to close a block"},
 	}
 	for _, test := range tests {
 		t.Run(test.fixture, func(t *testing.T) {

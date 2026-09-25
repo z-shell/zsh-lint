@@ -70,7 +70,7 @@ var (
 
 // exemptionCeiling is the most entries fixture-exemptions.txt may hold. Lower
 // it when fixtures gain citations; never raise it.
-const exemptionCeiling = 163
+const exemptionCeiling = 155
 
 // isPluginStandardURL reports whether raw links the Plugin Standard page.
 func isPluginStandardURL(raw string) bool {
