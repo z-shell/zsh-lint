@@ -62,7 +62,7 @@ func TestParseSelectShortForm(t *testing.T) {
 		{"in command substitution", "x=$(select o in a b; break)\n", "x=$(select o in a b; do break; done)\n", "1:5", "1:22", "1:27", 1, false},
 		{"in case arm", "case x in (x) select o in a b; break ;; esac\n", "case x in x) select o in a b; do break; done ;; esac\n", "1:15", "1:32", "1:37", 1, false},
 		{"in if body", "if true; then select o in a b; break; fi\n", "if true; then select o in a b; do break; done; fi\n", "1:15", "1:32", "1:37", 1, false},
-		{"trailing comment stays with the body", "select o in a b c; break # tail\nprint after\n", "select o in a b c; do break # tail\ndone\nprint after\n", "1:1", "1:20", "1:32", 1, false},
+		{"trailing comment stays with the body", "select o in a b c; break # tail\nprint after\n", "select o in a b c; do break # tail\ndone\nprint after\n", "1:1", "1:20", "1:25", 1, false},
 		// The body ends in a closing keyword another adapter synthesized; the
 		// end is scanned back from the source, so `done` follows the real `}`.
 		{"body ending in brace if", "select o in a b c; if (( 1 )) { break }\nprint after\n", "select o in a b c; do if ((1)); then break; fi; done\nprint after\n", "1:1", "1:20", "1:40", 1, false},
@@ -225,8 +225,10 @@ func TestParseSelectShortFormAnonymousInvocationBody(t *testing.T) {
 	if got := invocations[0].Words[0].Pos().String(); got != "1:36" {
 		t.Errorf("invocation word at %s, want 1:36", got)
 	}
-	if got := selectLoops(file.AST())[0].DonePos.String(); got != "1:38" {
-		t.Errorf("DonePos = %s, want 1:38 (after the invocation words)", got)
+	// The parser fork ends the body where the function ends; the invocation
+	// words are metadata outside the tree (#459).
+	if got := selectLoops(file.AST())[0].DonePos.String(); got != "1:35" {
+		t.Errorf("DonePos = %s, want 1:35 (the end of the function)", got)
 	}
 }
 
@@ -281,16 +283,16 @@ func TestParseSelectShortFormRejectsInvalidShapes(t *testing.T) {
 		wantPos  string
 		wantText string
 	}{
-		{"invalid-212-double-semicolon-after-list.txt", "3:1", "`select foo [in words]` must be followed by `do`"},
-		{"invalid-212-list-ended-by-ampersand.txt", "3:1", "`select foo [in words]` must be followed by `do`"},
-		{"invalid-212-list-without-term.txt", "3:1", "`select foo [in words]` must be followed by `do`"},
-		{"invalid-212-then-body.txt", "3:20", "`then` can only be used in an `if`"},
+		{"invalid-212-double-semicolon-after-list.txt", "3:10", "`select foo in words` must be followed by `;` or a newline"},
+		{"invalid-212-list-ended-by-ampersand.txt", "3:10", "`select foo in words` must be followed by `;` or a newline"},
+		{"invalid-212-list-without-term.txt", "3:10", "`select foo in words` must be followed by `;` or a newline"},
+		{"invalid-212-then-body.txt", "3:20", "statements must be separated by &, ; or a newline"},
 		{"invalid-212-brace-close-body.txt", "3:20", "`}` can only be used to close a block"},
 		{"invalid-212-brace-close-in-body.txt", "3:26", "`}` can only be used to close a block"},
-		{"invalid-302-double-semicolon-after-header.txt", "1:1", "`select foo [in words]` must be followed by `do`"},
+		{"invalid-302-double-semicolon-after-header.txt", "1:10", "`select foo in words` must be followed by `;` or a newline"},
 		{"invalid-302-double-semicolon-after-separator.txt", "1:20", "`;;` can only be used in a case clause"},
-		{"invalid-302-ampersand-opening-body.txt", "1:20", "`&` can only immediately follow a statement"},
-		{"invalid-302-unterminated-function.txt", "1:7", "`select foo [in words]` must be followed by `do`"},
+		{"invalid-302-ampersand-opening-body.txt", "1:20", "select loop body must be a command"},
+		{"invalid-302-unterminated-function.txt", "1:5", "reached EOF without matching `{` with `}`"},
 	}
 	for _, test := range tests {
 		t.Run(test.fixture, func(t *testing.T) {
@@ -308,56 +310,6 @@ func TestParseSelectShortFormRejectsInvalidShapes(t *testing.T) {
 			}
 			if perr.Text != test.wantText {
 				t.Errorf("text = %q, want %q", perr.Text, test.wantText)
-			}
-		})
-	}
-}
-
-// The adapter only acts on the parser's select errors at a `select` word.
-func TestParseSelectShortFormAdapterDeclinesUnrelatedErrors(t *testing.T) {
-	src := []byte("select o in a b c; break\n")
-	other := syntax.ParseError{Filename: "x.zsh", Pos: syntax.NewPos(0, 1, 1), Text: "`for foo [in words]` must be followed by `do`"}
-	if _, err := parseSelectShortFormWithParser(src, "x.zsh", other, parseWithAdapters); !errors.Is(err, other) {
-		t.Errorf("unrelated text: error = %v, want the incoming error", err)
-	}
-	elsewhere := syntax.ParseError{Filename: "x.zsh", Pos: syntax.NewPos(7, 1, 8), Text: "`select foo [in words]` must be followed by `do`"}
-	if _, err := parseSelectShortFormWithParser(src, "x.zsh", elsewhere, parseWithAdapters); !errors.Is(err, elsewhere) {
-		t.Errorf("position off the word: error = %v, want the incoming error", err)
-	}
-}
-
-// scanSelectSites finds headers in command position only and reads the
-// list with the word lexer.
-func TestScanSelectSites(t *testing.T) {
-	tests := []struct {
-		name string
-		src  string
-		want []int
-	}{
-		{"top level", "select o in a b; break\n", []int{0}},
-		{"do form is not a site", "select o in a b; do break; done\n", nil},
-		{"after separator and in function", "x; select o in a b; break\nf() { select p; break }\n", []int{3, 32}},
-		{"argument position", "print select o in a b\n", nil},
-		{"quoted", "print 'select o in a; b'\n", nil},
-		{"comment", "# select o in a; b\n", nil},
-		{"list word", "select o in select; break\n", []int{0}},
-		{"parenthesized list", "select o (a b) break\n", nil},
-		{"list ended by pipe", "select o in a | cat\n", nil},
-		{"nested", "select o in a; select p in b; break\n", []int{0, 15}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var got []int
-			for _, site := range scanSelectSites([]byte(test.src)) {
-				got = append(got, site.start)
-			}
-			if len(got) != len(test.want) {
-				t.Fatalf("sites = %v, want %v", got, test.want)
-			}
-			for i := range got {
-				if got[i] != test.want[i] {
-					t.Fatalf("sites = %v, want %v", got, test.want)
-				}
 			}
 		})
 	}

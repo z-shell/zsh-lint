@@ -14,6 +14,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | A `'` in the word of a double-quoted `${...}` is text, not a single-quote opener | `syntax/parser.go`, `syntax/lexer.go` | [#400](https://github.com/z-shell/zsh-lint/issues/400) |
 | In a glob group or glob qualifier, a quoted `)` and the `)` closing a command substitution do not end the group | `syntax/parser.go` | [#439](https://github.com/z-shell/zsh-lint/issues/439) |
 | A case pattern whose leading group is glued to more pattern text, `(x)y)`, and a leading `((`, as in `((x\|y)\|z)` | `syntax/parser.go` | [#452](https://github.com/z-shell/zsh-lint/issues/452) |
+| The alternate and short forms of `for` and `select` (several names, a `( word ... )` list, a `{ list }` or one-sublist body, an empty body), the short forms of `if`, `while` and `until`, `else` reserved in command position, and a `ZshEnd` position on `ForClause`, `IfClause` and `WhileClause` so `End()` is exact for those forms | `syntax/parser.go`, `syntax/nodes.go`, `syntax/parser_test.go` | [#459](https://github.com/z-shell/zsh-lint/issues/459) |
 
 ## Taking an upstream release
 

@@ -145,15 +145,13 @@ That skip covers only the shared walk; a rule that traverses the tree itself fro
 
 Each construct's mechanism is documented where it is implemented:
 
-| Construct                           | Issue        | Tree                                                            | Mechanism                                                        |
-| ----------------------------------- | ------------ | --------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Anonymous function invocation words | release #165 | `File.AnonymousInvocations`                                     | `parse.go` (`AnonymousInvocation`), `anonymous_function_args.go` |
-| `${name::=word}`                    | #216         | `:=` operator plus `File.AssignAlwaysExpansions`                | `assign_always.go`                                               |
-| `${name[a][b]}`                     | #215         | first subscript in `Index`, the rest in `File.SecondSubscripts` | `second_subscript.go`                                            |
-| `${name[(r)pattern,expr]}`          | #277         | standard tree                                                   | `subscript_pattern_after_comma.go`                               |
-| `select name ... sublist`           | #212         | standard `ForClause` with `Select`                              | `select_short_form.go`                                           |
-| `for (( ... )) sublist`             | #241         | standard `ForClause` with a `CStyleLoop`                        | `arith_for_sublist.go`                                           |
-| `repeat count sublist`              | #208         | synthesized `WhileClause` plus `File.RepeatLoops`               | `repeat.go` (`resolveRepeatLoops`)                               |
-| `for`, `while`, `until` short forms | #211         | standard `ForClause` and `WhileClause`                          | `for_short_form.go`, `while_short_form.go`                       |
-| `${$(( expr ))}`                    | #361         | standard `ArithmExp`                                            | `nested_arithmetic.go` (`resolveNestedArithmetic`)               |
-| Brace-form `if` and `while` bodies  | #446         | standard `IfClause` and `WhileClause`                           | parser fork, `third_party/mvdan-sh/FORK.md`                      |
+| Construct                                                | Issue        | Tree                                                            | Mechanism                                                        |
+| -------------------------------------------------------- | ------------ | --------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Anonymous function invocation words                      | release #165 | `File.AnonymousInvocations`                                     | `parse.go` (`AnonymousInvocation`), `anonymous_function_args.go` |
+| `${name::=word}`                                         | #216         | `:=` operator plus `File.AssignAlwaysExpansions`                | `assign_always.go`                                               |
+| `${name[a][b]}`                                          | #215         | first subscript in `Index`, the rest in `File.SecondSubscripts` | `second_subscript.go`                                            |
+| `${name[(r)pattern,expr]}`                               | #277         | standard tree                                                   | `subscript_pattern_after_comma.go`                               |
+| `repeat count sublist`                                   | #208         | synthesized `WhileClause` plus `File.RepeatLoops`               | `repeat.go` (`resolveRepeatLoops`)                               |
+| `for`, `select`, `if`, `while` short and alternate forms | #211, #459   | standard `ForClause`, `IfClause` and `WhileClause`              | parser fork, `third_party/mvdan-sh/FORK.md`                      |
+| `${$(( expr ))}`                                         | #361         | standard `ArithmExp`                                            | `nested_arithmetic.go` (`resolveNestedArithmetic`)               |
+| Brace-form `if` and `while` bodies                       | #446         | standard `IfClause` and `WhileClause`                           | parser fork, `third_party/mvdan-sh/FORK.md`                      |

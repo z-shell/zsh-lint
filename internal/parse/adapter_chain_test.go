@@ -32,14 +32,12 @@ type adapterSnippet struct {
 
 var adapterSnippets = map[string]adapterSnippet{
 	"nestedConditional": {attempt: parseNestedConditionalAlternation, source: "[[ $line == ((a|b)|(x\")\"y)) ]]"},
-	"ifShortForm":       {attempt: parseIfShortForm, source: "if (( 1 )) x=1"},
 	"assocSubscript":    {attempt: parseAssociativeSubscript, source: "print ${functions[.foo]}"},
 	"secondSubscript":   {attempt: parseSecondSubscript, source: "print ${a[b][1,50]}"},
 	"flagBracket":       {attempt: parseSubscriptFlagBracketPattern, source: "print ${line[(i)[a]]}"},
 	"patternAfterComma": {attempt: parseSubscriptPatternAfterComma, source: "print ${line[(r)a,--[^:]##]}"},
 	"lengthOperator":    {attempt: parseLengthOperator, source: "print ${#reply[@]:#skip}"},
 	"tryAlways":         {attempt: parseTryAlways, source: "{ true } always { true }"},
-	"multiNameFor":      {attempt: parseMultiNameFor, source: "for a b in 1 2; do print $a$b; done"},
 	"ansiCHeredoc":      {attempt: parseANSICHeredocDelimiter, source: "cat <<$'E\\x4fF'\nbody\nEOF"},
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
 	"multiNameFunction": {attempt: parseMultiNameFunction, source: "a b () { print hi }"},
@@ -48,11 +46,6 @@ var adapterSnippets = map[string]adapterSnippet{
 	"doSeparator":       {attempt: parseDoLeadingSeparator, source: "while (( $# )); do; shift; done"},
 	"thenSeparator":     {attempt: parseThenLeadingSeparator, source: "if true; then; print x; fi"},
 	"repeat":            {attempt: parseRepeat, source: "repeat 3; do print hi; done"},
-	"selectShortForm":   {attempt: parseSelectShortForm, source: "select o in a b c; break"},
-	"selectParenList":   {attempt: parseSelectParenList, source: "select o (a b c) break"},
-	"whileShortForm":    {attempt: parseWhileShortForm, source: "while (( i < 3 )) (( i++ ))"},
-	"forShortForm":      {attempt: parseForShortForm, source: "for t in 1 2 3; print $t"},
-	"arithForSublist":   {attempt: parseArithForSublist, source: "for (( i = 1; i < 3; i++ )) print $i"},
 	"mathFunctionCall":  {attempt: parseMathFunctionCall, source: "print $(( sqrt(4) ))"},
 	"nestedArithmetic":  {attempt: parseNestedArithmetic, source: "print \"${(l:5:)$(( a[1] ))}\""},
 	// A redundant `;` needs a statement before it so the snippet composes
@@ -62,8 +55,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	// The dangling operator must be closed by a brace inside the snippet.
 	// Snippets are concatenated, so a trailing `&&` at the end of the source
 	// would take the next snippet as its right operand and never be dangling.
-	"danglingAndOr":  {attempt: parseDanglingAndOr, source: "c() { print composed &&\n}"},
-	"whileEmptyBody": {attempt: parseWhileEmptyBody, source: "{ while (( i < 3 )) }"},
+	"danglingAndOr": {attempt: parseDanglingAndOr, source: "c() { print composed &&\n}"},
 }
 
 func parseString(t *testing.T, src string) error {

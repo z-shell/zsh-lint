@@ -51,7 +51,7 @@ func TestParseForShortForm(t *testing.T) {
 		{"in function", "f() { for i in a b; print $i }\n", "f() { for i in a b; do print $i; done; }\n", "1:7", "1:21", "1:29", 1, false},
 		{"in if body", "if true; then for i in a b; print $i; fi\n", "if true; then for i in a b; do print $i; done; fi\n", "1:15", "1:29", "1:37", 1, false},
 		{"in case body", "case x in (x) for i in a b; print $i ;; esac\n", "case x in x) for i in a b; do print $i; done ;; esac\n", "1:15", "1:29", "1:37", 1, false},
-		{"trailing comment stays with the body", "for i in a b; print $i # note\nprint after\n", "for i in a b; do print $i # note\ndone\nprint after\n", "1:1", "1:15", "1:30", 1, false},
+		{"trailing comment stays with the body", "for i in a b; print $i # note\nprint after\n", "for i in a b; do print $i # note\ndone\nprint after\n", "1:1", "1:15", "1:23", 1, false},
 		{"heredoc body", "for i in a b; cat <<EOT\n$i\nEOT\nprint after\n", "for i in a b; do cat <<EOT\n$i\nEOT\ndone\nprint after\n", "1:1", "1:15", "3:4", 1, false},
 		{"nested sites", "for i in a b; for j in c d; print $i$j\n", "for i in a b; do for j in c d; do print $i$j; done; done\n", "1:1", "1:15", "1:39", 1, false},
 	}
@@ -183,7 +183,7 @@ func TestParseForShortFormRejectsInvalidShapes(t *testing.T) {
 		wantPos  string
 		wantText string
 	}{
-		{"invalid-211-for-without-term.txt", "2:1", "`for foo` must be followed by `in`, `do`, `;`, or a newline"},
+		{"invalid-211-for-without-term.txt", "2:13", "for loop names must be literal names"},
 	}
 	for _, test := range tests {
 		t.Run(test.fixture, func(t *testing.T) {
@@ -201,55 +201,6 @@ func TestParseForShortFormRejectsInvalidShapes(t *testing.T) {
 			}
 			if perr.Text != test.wantText {
 				t.Errorf("text = %q, want %q", perr.Text, test.wantText)
-			}
-		})
-	}
-}
-
-// The adapter only acts on the parser's for errors at a `for` word.
-func TestParseForShortFormAdapterDeclinesUnrelatedErrors(t *testing.T) {
-	src := []byte("for i in a b c; break\n")
-	other := syntax.ParseError{Filename: "x.zsh", Pos: syntax.NewPos(0, 1, 1), Text: "`select foo [in words]` must be followed by `do`"}
-	if _, err := parseForShortFormWithParser(src, "x.zsh", other, parseWithAdapters); !errors.Is(err, other) {
-		t.Errorf("unrelated text: error = %v, want the incoming error", err)
-	}
-	elsewhere := syntax.ParseError{Filename: "x.zsh", Pos: syntax.NewPos(5, 1, 6), Text: "`for foo [in words]` must be followed by `do`"}
-	if _, err := parseForShortFormWithParser(src, "x.zsh", elsewhere, parseWithAdapters); !errors.Is(err, elsewhere) {
-		t.Errorf("position off the word: error = %v, want the incoming error", err)
-	}
-}
-
-// scanForSites finds headers in command position only and ignores do and brace forms.
-func TestScanForSites(t *testing.T) {
-	tests := []struct {
-		name string
-		src  string
-		want []int
-	}{
-		{"top level in", "for i in a b; break\n", []int{0}},
-		{"top level paren", "for i (a b) break\n", []int{0}},
-		{"positional with semicolon", "for i; break\n", []int{0}},
-		{"positional without separator", "for i break\n", nil},
-		{"do form is not a site", "for i in a b; do break; done\n", nil},
-		{"brace form is not a site", "for i (a b) { print $i }\n", nil},
-		{"argument position", "print for i in a b\n", nil},
-		{"quoted", "print 'for i in a; b'\n", nil},
-		{"comment", "# for i in a; b\n", nil},
-		{"nested", "for i in a; for j in b; break\n", []int{0, 12}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var got []int
-			for _, site := range scanForSites([]byte(test.src)) {
-				got = append(got, site.start)
-			}
-			if len(got) != len(test.want) {
-				t.Fatalf("sites = %v, want %v", got, test.want)
-			}
-			for i := range got {
-				if got[i] != test.want[i] {
-					t.Fatalf("sites = %v, want %v", got, test.want)
-				}
 			}
 		})
 	}

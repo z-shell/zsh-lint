@@ -24,6 +24,7 @@ const unmatchedBraceClose = "without matching `{` with `}`"
 var keywordInsideBlockErrors = map[string]bool{
 	"`then` can only be used in an `if`":      true,
 	"`elif` can only be used in an `if`":      true,
+	"`else` can only be used in an `if`":      true,
 	"`fi` can only be used to end an `if`":    true,
 	"`do` can only be used in a loop":         true,
 	"`done` can only be used to end a loop":   true,

@@ -224,28 +224,6 @@ func TestWhileEmptyBodyRejectsInvalidSources(t *testing.T) {
 	}
 }
 
-// The adapter gate only acts on errors it owns; unrelated parser errors
-// are returned unchanged without invoking the parser retry.
-func TestWhileEmptyBodyDeclinesUnrelatedErrors(t *testing.T) {
-	src := []byte("while true\n")
-	unrelated := syntax.ParseError{
-		Filename: "unrelated.zsh",
-		Pos:      syntax.NewPos(0, 1, 1),
-		Text:     "`[` must be followed by an expression",
-	}
-	calls := 0
-	_, err := parseWhileEmptyBodyWithParser(src, "unrelated.zsh", unrelated, func([]byte, string) (*syntax.File, error) {
-		calls++
-		return nil, nil
-	})
-	if !errors.Is(err, unrelated) {
-		t.Fatalf("error = %v, want incoming error %v", err, unrelated)
-	}
-	if calls != 0 {
-		t.Fatalf("parser called %d times, want 0", calls)
-	}
-}
-
 // Regression guards: standard loop forms and the issue #211 delimited short form
 // must remain unaffected by the empty body adapter.
 func TestWhileEmptyBodyExistingForms(t *testing.T) {
@@ -281,25 +259,6 @@ func TestWhileEmptyBodyExistingForms(t *testing.T) {
 		src := "for i in a b; do :; done\n"
 		if _, err := Parse(strings.NewReader(src), "for.zsh"); err != nil {
 			t.Fatalf("Parse() error = %v", err)
-		}
-	})
-}
-
-// scanWhileDoForms identifies loops whose body is already a do...done list
-// so their keywords are not blanked in the probe.
-func TestWhileEmptyBodyScanWhileDoForms(t *testing.T) {
-	t.Run("reports keyword for do form", func(t *testing.T) {
-		src := []byte("while true; do :; done\n")
-		forms := scanWhileDoForms(src)
-		if !forms[0] {
-			t.Fatalf("scanWhileDoForms() did not report keyword offset 0, got %v", forms)
-		}
-	})
-	t.Run("does not report keyword for empty body form", func(t *testing.T) {
-		src := []byte("while true\n")
-		forms := scanWhileDoForms(src)
-		if forms[0] {
-			t.Fatalf("scanWhileDoForms() unexpectedly reported keyword offset 0, got %v", forms)
 		}
 	})
 }

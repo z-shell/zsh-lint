@@ -28,9 +28,9 @@ func TestParseRejectsCloseBraceWords(t *testing.T) {
 		{"invalid-314-array-value.txt", closeBraceWordError, 1, 7},
 		{"invalid-314-case-word.txt", closeBraceWordError, 1, 6},
 		{"invalid-314-paren-for-list.txt", closeBraceWordError, 1, 10},
-		{"invalid-314-select-list.txt", "`select foo [in words]` must be followed by `do`", 1, 1},
-		{"invalid-314-select-list-braces.txt", "`select foo [in words]` must be followed by `do`", 1, 1},
-		{"invalid-314-select-brace-without-term.txt", "`select foo [in words]` must be followed by `do`", 1, 1},
+		{"invalid-314-select-list.txt", "`}` can only be used to close a block", 1, 15},
+		{"invalid-314-select-list-braces.txt", "`}` can only be used to close a block", 1, 19},
+		{"invalid-314-select-brace-without-term.txt", "`}` can only be used to close a block", 1, 27},
 		{"invalid-316-trailing-brace-argument.txt", closeBraceWordError, 1, 8},
 		{"invalid-316-trailing-brace-after-expansion.txt", closeBraceWordError, 1, 9},
 		{"invalid-316-trailing-brace-after-quoted.txt", closeBraceWordError, 1, 11},
@@ -120,18 +120,5 @@ func TestParseKeepsBraceWords(t *testing.T) {
 		if _, err := Parse(strings.NewReader(row), "brace.zsh"); err != nil {
 			t.Errorf("Parse(%q) error: %v", row, err)
 		}
-	}
-}
-
-// A select list that holds a bare `}` reports no site, so the adapter does
-// not probe or retry for it.
-func TestScanSelectWordListStopsAtBareCloseBrace(t *testing.T) {
-	for _, src := range []string{"select o in a }; break\n", "select o in a b c { break }\n"} {
-		if term, ok := scanSelectWordList([]byte(src), len("select o in")); ok {
-			t.Errorf("scanSelectWordList(%q) = %d, true; want no site", src, term)
-		}
-	}
-	if _, ok := scanSelectWordList([]byte("select o in '}' {; break\n"), len("select o in")); !ok {
-		t.Error("a quoted `}` and a bare `{` are words; want a site")
 	}
 }

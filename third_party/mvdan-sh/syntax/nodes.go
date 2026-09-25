@@ -416,10 +416,19 @@ type IfClause struct {
 	Else *IfClause // if non-nil, an "elif" or an "else"
 
 	Last []Comment // comments on the first "elif", "else", or "fi"
+
+	// ZshEnd is where a Zsh brace or short form ends, which has no "fi"
+	// (zsh-lint #459).
+	ZshEnd Pos
 }
 
 func (c *IfClause) Pos() Pos { return c.Position }
-func (c *IfClause) End() Pos { return posAddCol(c.FiPos, 2) }
+func (c *IfClause) End() Pos {
+	if c.ZshEnd.IsValid() {
+		return c.ZshEnd
+	}
+	return posAddCol(c.FiPos, 2)
+}
 
 // WhileClause represents a while or an until clause.
 type WhileClause struct {
@@ -430,10 +439,19 @@ type WhileClause struct {
 	CondLast []Comment
 	Do       []*Stmt
 	DoLast   []Comment
+
+	// ZshEnd is where a Zsh brace or short form ends, which has no "done"
+	// (zsh-lint #459).
+	ZshEnd Pos
 }
 
 func (w *WhileClause) Pos() Pos { return w.WhilePos }
-func (w *WhileClause) End() Pos { return posAddCol(w.DonePos, 4) }
+func (w *WhileClause) End() Pos {
+	if w.ZshEnd.IsValid() {
+		return w.ZshEnd
+	}
+	return posAddCol(w.DonePos, 4)
+}
 
 // ForClause represents a for or a select clause. The latter is only present in
 // Bash.
@@ -445,10 +463,17 @@ type ForClause struct {
 
 	Do     []*Stmt
 	DoLast []Comment
+
+	// ZshEnd is where a Zsh brace or short form ends, which has no "done"
+	// (zsh-lint #459).
+	ZshEnd Pos
 }
 
 func (f *ForClause) Pos() Pos { return f.ForPos }
 func (f *ForClause) End() Pos {
+	if f.ZshEnd.IsValid() {
+		return f.ZshEnd
+	}
 	if f.Braces {
 		return posAddCol(f.DonePos, len("}"))
 	}

@@ -945,10 +945,12 @@ var errorCases = []errorCase{
 		"while",
 		langErr("1:1: `while` must be followed by a statement list"),
 		langErr("1:1: `while <cond>` must be followed by `do`", LangZsh|LangMirBSDKorn),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"while true;",
 		langErr("1:1: `while <cond>` must be followed by `do`"),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"while true; do bar",
@@ -962,10 +964,12 @@ var errorCases = []errorCase{
 		"until",
 		langErr("1:1: `until` must be followed by a statement list"),
 		langErr("1:1: `until <cond>` must be followed by `do`", LangZsh|LangMirBSDKorn),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"until true;",
 		langErr("1:1: `until <cond>` must be followed by `do`"),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"until true; do bar",
@@ -982,18 +986,22 @@ var errorCases = []errorCase{
 	errCase(
 		"for i",
 		langErr("1:1: `for foo` must be followed by `in`, `do`, `;`, or a newline"),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"for i in;",
 		langErr("1:1: `for foo [in words]` must be followed by `do`"),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"for i in 1 2 3;",
 		langErr("1:1: `for foo [in words]` must be followed by `do`"),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"for i in 1 2 &",
 		langErr("1:1: `for foo [in words]` must be followed by `do`"),
+		langErr("1:7: `for foo in words` must be followed by `;` or a newline", LangZsh),
 	),
 	errCase(
 		"for i in 1 2 (",
@@ -1007,6 +1015,7 @@ var errorCases = []errorCase{
 	errCase(
 		"for i in 1 2 3; echo $i;",
 		langErr("1:1: `for foo [in words]` must be followed by `do`"),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"for 'i' in 1 2 3; do echo $i; done",
@@ -1015,6 +1024,7 @@ var errorCases = []errorCase{
 	errCase(
 		"for in 1 2 3; do echo $i; done",
 		langErr("1:1: `for foo` must be followed by `in`, `do`, `;`, or a newline"),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"select",
@@ -1023,14 +1033,17 @@ var errorCases = []errorCase{
 	errCase(
 		"select i",
 		langErr("1:1: `select foo` must be followed by `in`, `do`, `;`, or a newline", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"select i in;",
 		langErr("1:1: `select foo [in words]` must be followed by `do`", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"select i in 1 2 3;",
 		langErr("1:1: `select foo [in words]` must be followed by `do`", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"select i in 1 2 3; do echo $i;",
@@ -1039,6 +1052,7 @@ var errorCases = []errorCase{
 	errCase(
 		"select i in 1 2 3; echo $i;",
 		langErr("1:1: `select foo [in words]` must be followed by `do`", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"select 'i' in 1 2 3; do echo $i; done",
@@ -1047,6 +1061,7 @@ var errorCases = []errorCase{
 	errCase(
 		"select in 1 2 3; do echo $i; done",
 		langErr("1:1: `select foo` must be followed by `in`, `do`, `;`, or a newline", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("1:18: `do` can only be used in a loop", LangZsh),
 	),
 	errCase(
 		"echo foo &\n;",
