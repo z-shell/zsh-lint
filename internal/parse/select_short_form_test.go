@@ -281,12 +281,12 @@ func TestParseSelectShortFormRejectsInvalidShapes(t *testing.T) {
 		wantPos  string
 		wantText string
 	}{
-		{"invalid-212-double-semicolon-after-list.txt", "1:1", "`select foo [in words]` must be followed by `do`"},
-		{"invalid-212-list-ended-by-ampersand.txt", "1:1", "`select foo [in words]` must be followed by `do`"},
-		{"invalid-212-list-without-term.txt", "1:1", "`select foo [in words]` must be followed by `do`"},
-		{"invalid-212-then-body.txt", "1:20", "`then` can only be used in an `if`"},
-		{"invalid-212-brace-close-body.txt", "1:20", "`}` can only be used to close a block"},
-		{"invalid-212-brace-close-in-body.txt", "1:26", "`}` can only be used to close a block"},
+		{"invalid-212-double-semicolon-after-list.txt", "3:1", "`select foo [in words]` must be followed by `do`"},
+		{"invalid-212-list-ended-by-ampersand.txt", "3:1", "`select foo [in words]` must be followed by `do`"},
+		{"invalid-212-list-without-term.txt", "3:1", "`select foo [in words]` must be followed by `do`"},
+		{"invalid-212-then-body.txt", "3:20", "`then` can only be used in an `if`"},
+		{"invalid-212-brace-close-body.txt", "3:20", "`}` can only be used to close a block"},
+		{"invalid-212-brace-close-in-body.txt", "3:26", "`}` can only be used to close a block"},
 		{"invalid-302-double-semicolon-after-header.txt", "1:1", "`select foo [in words]` must be followed by `do`"},
 		{"invalid-302-double-semicolon-after-separator.txt", "1:20", "`;;` can only be used in a case clause"},
 		{"invalid-302-ampersand-opening-body.txt", "1:20", "`&` can only immediately follow a statement"},
