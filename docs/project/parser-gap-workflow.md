@@ -107,6 +107,7 @@ Re-run the discovery survey after any adapter change and expect the reported set
 Every masked retry parses the whole file again, so an adapter that resolves one site per pass costs a parse per site ([#366](https://github.com/z-shell/zsh-lint/issues/366)).
 Measure that cost with `go run ./cmd/zsh-lint-survey -trace-parses <file>`, which writes each file's whole-source parse count and deepest adapter retry nesting to standard error ([#408](https://github.com/z-shell/zsh-lint/issues/408)).
 State the before and after numbers in a pull request that changes them on a corpus file.
+The `Parse Cost` workflow does this on every pull request that touches the parser: it compares the base and the candidate over `z-shell/zi` and the corpus fixtures, writes the table to the job summary, and adds a notice for each file whose parse count rose by more than 10 percent; it never fails ([#414](https://github.com/z-shell/zsh-lint/issues/414)).
 
 Produce a change's verdict table with `zsh-lint-survey -compare <base-binary> -native <files>`, where the base binary is `zsh-lint-survey` built from the pull request's base ([#412](https://github.com/z-shell/zsh-lint/issues/412)).
 It prints one line per changed file, `FIXED`, `REGRESSED`, `FALSE-ACCEPT`, `REJECTED`, or `MOVED` (still failing at a different first error), judged by `zsh -f -n`, and exits 1 when anything regressed or a false accept was introduced.
