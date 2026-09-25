@@ -26,16 +26,16 @@ func TestStatsCountTreeParsesAndAdapterDepth(t *testing.T) {
 			stats: Stats{TreeParses: 1, MaxAdapterDepth: 0},
 		},
 		{
-			name:  "a second repeat loop nests a second retry",
-			src:   "repeat 3 do print a; done\nrepeat 2 do print b; done\n",
-			stats: Stats{TreeParses: 5, MaxAdapterDepth: 2},
+			name:  "a second site nests a second retry",
+			src:   "print ${x::=value}\nprint ${y::=value}\n",
+			stats: Stats{TreeParses: 3, MaxAdapterDepth: 2},
 		},
 		{
-			// The parser fork reads the brace-form if and the alternate for
-			// (#446, #459), so only the repeat loop retries.
-			name:  "one adapter after a native brace-form if and alternate for",
-			src:   "if [[ -n $x ]] { print a }\nfor x (a b) print $x\nrepeat 3 do print a; done\n",
-			stats: Stats{TreeParses: 3, MaxAdapterDepth: 1},
+			// The parser fork reads the brace-form if, the alternate for and
+			// repeat (#446, #459, #281), so only the `::=` site retries.
+			name:  "one adapter after native loop forms",
+			src:   "if [[ -n $x ]] { print a }\nfor x (a b) print $x\nrepeat 3 do print a; done\nprint ${x::=1}\n",
+			stats: Stats{TreeParses: 2, MaxAdapterDepth: 1},
 		},
 	}
 	for _, tt := range tests {
@@ -52,7 +52,7 @@ func TestStatsCountTreeParsesAndAdapterDepth(t *testing.T) {
 }
 
 func TestResetStatsZeroesCounters(t *testing.T) {
-	if _, err := Parse(strings.NewReader("repeat 3 do print a; done\n"), "stats.zsh"); err != nil {
+	if _, err := Parse(strings.NewReader("print ${x::=value}\n"), "stats.zsh"); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 	ResetStats()

@@ -34,6 +34,13 @@ func TestRepeatedExternalCommand(t *testing.T) {
 			context: configuredSource(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, ""),
 		},
 		{
+			// The parser fork reads `repeat` as its own loop (#281).
+			name:    "external command in completion repeat loop",
+			source:  "repeat 3 git status --short\nrepeat 2 { grep x file }\n",
+			context: configuredSource(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, projectconfig.RoleCompletion),
+			want:    2,
+		},
+		{
 			name:   "unconfigured source is outside opt-in profile",
 			source: "while true; do grep pattern file; done\n",
 		},

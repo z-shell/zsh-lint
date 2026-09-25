@@ -27,7 +27,6 @@ type File struct {
 	anonymousInvocations []AnonymousInvocation
 	assignAlways         []*syntax.ParamExp
 	secondSubscripts     []SecondSubscript
-	repeatLoops          []RepeatLoop
 	mathFunctionCalls    []MathFunctionCall
 }
 
@@ -92,16 +91,6 @@ func (f *File) MathFunctionCalls() []MathFunctionCall {
 	return f.mathFunctionCalls
 }
 
-// RepeatLoops returns every `repeat count sublist` loop in source order.
-// mvdan/sh (through v3.14.1) has no node for the loop, so the compatibility
-// front end rewrites each one into a WhileClause positioned at the `repeat`
-// word whose single condition statement is the count word; consumers that
-// must tell the two loops apart inspect this metadata. The returned slice is
-// independent; its nodes are shared with the immutable parse result.
-func (f *File) RepeatLoops() []RepeatLoop {
-	return append([]RepeatLoop(nil), f.repeatLoops...)
-}
-
 func parseTree(src []byte, name string) (*syntax.File, error) {
 	treeParses.Add(1)
 	parser := syntax.NewParser(
@@ -119,10 +108,6 @@ func Parse(r io.Reader, name string) (*File, error) {
 		return nil, err
 	}
 	tree, anonymousInvocations, err := parseFull(src, name)
-	if err != nil {
-		return nil, err
-	}
-	tree, anonymousInvocations, err = resolveRepeatLoops(src, name, tree, anonymousInvocations)
 	if err != nil {
 		return nil, err
 	}
@@ -144,10 +129,6 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err := rejectFlagPatternCuts(src, tree, name); err != nil {
 		return nil, err
 	}
-	repeatLoops, err := bindRepeatLoops(tree, src, name)
-	if err != nil {
-		return nil, err
-	}
 	text := strings.TrimSuffix(string(src), "\n")
 	return &File{
 		tree:                 tree,
@@ -155,14 +136,12 @@ func Parse(r io.Reader, name string) (*File, error) {
 		anonymousInvocations: anonymousInvocations,
 		assignAlways:         bindAssignAlwaysExpansions(tree, src),
 		secondSubscripts:     bindSecondSubscripts(tree, src),
-		repeatLoops:          repeatLoops,
 		mathFunctionCalls:    bindMathFunctionCalls(tree, src),
 	}, nil
 }
 
 // parseFull runs the adapter chain and, when it still fails, the anonymous
-// function invocation retry, which is the whole front end short of the
-// `repeat` rewrite that reparses through it.
+// function invocation retry.
 func parseFull(src []byte, name string) (*syntax.File, []AnonymousInvocation, error) {
 	tree, err := parseWithAdapters(src, name)
 	if err == nil {

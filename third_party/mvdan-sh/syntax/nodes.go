@@ -262,7 +262,8 @@ func (s *Stmt) End() Pos {
 //
 // These are [*CallExpr], [*IfClause], [*WhileClause], [*ForClause], [*CaseClause],
 // [*Block], [*Subshell], [*BinaryCmd], [*FuncDecl], [*ArithmCmd], [*TestClause],
-// [*DeclClause], [*LetClause], [*TimeClause], and [*CoprocClause].
+// [*DeclClause], [*LetClause], [*TimeClause], [*CoprocClause], and the Zsh
+// [*RepeatClause].
 type Command interface {
 	Node
 	commandNode()
@@ -271,6 +272,7 @@ type Command interface {
 func (*CallExpr) commandNode()     {}
 func (*IfClause) commandNode()     {}
 func (*WhileClause) commandNode()  {}
+func (*RepeatClause) commandNode() {}
 func (*ForClause) commandNode()    {}
 func (*CaseClause) commandNode()   {}
 func (*Block) commandNode()        {}
@@ -451,6 +453,27 @@ func (w *WhileClause) End() Pos {
 		return w.ZshEnd
 	}
 	return posAddCol(w.DonePos, 4)
+}
+
+// RepeatClause represents a Zsh repeat loop: `repeat count do list done`,
+// `repeat count { list }` or `repeat count sublist` (zsh-lint #281).
+type RepeatClause struct {
+	RepeatPos, DoPos, DonePos Pos
+	Count                     *Word
+
+	Do     []*Stmt
+	DoLast []Comment
+
+	// ZshEnd is where a brace or short form ends, which has no "done".
+	ZshEnd Pos
+}
+
+func (r *RepeatClause) Pos() Pos { return r.RepeatPos }
+func (r *RepeatClause) End() Pos {
+	if r.ZshEnd.IsValid() {
+		return r.ZshEnd
+	}
+	return posAddCol(r.DonePos, len("done"))
 }
 
 // ForClause represents a for or a select clause. The latter is only present in

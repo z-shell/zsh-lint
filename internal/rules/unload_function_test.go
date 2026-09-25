@@ -23,6 +23,12 @@ func TestUnloadFunction(t *testing.T) {
 		{name: "unload function with indiscriminate function wipe", src: "my_plugin_unload() {\n  unfunction ${(k)functions}\n  unfunction my_plugin_unload\n}\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Warning},
 		{name: "compliant hook and unload function", src: "add-zsh-hook precmd _my_precmd\nmy_plugin_unload() {\n  add-zsh-hook -d precmd _my_precmd\n  unfunction _my_precmd my_plugin_unload\n}\n", path: "my-plugin.plugin.zsh"},
 		{name: "file inside functions directory", src: "add-zsh-hook precmd _my_precmd\n", path: "functions/.handler"},
+		// The count of a repeat loop is a word, not a command (#281): a count
+		// spelled like a hook command is not a registration, and a
+		// registration in the body still is.
+		{name: "repeat count spelled add-zsh-hook", src: "repeat add-zsh-hook print hi\n", path: "my-plugin.plugin.zsh"},
+		{name: "repeat count spelled add-zle-hook-widget", src: "repeat add-zle-hook-widget print hi\n", path: "my-plugin.plugin.zsh"},
+		{name: "hook registered in a repeat body", src: "repeat 2 add-zsh-hook precmd _my_precmd\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
 		{name: "suppressed hook finding", src: "# zsh-lint disable=plugin/unload-function -- static plugin\nadd-zsh-hook precmd _my_precmd\n", path: "my-plugin.plugin.zsh"},
 	}
 	for _, test := range tests {

@@ -388,7 +388,7 @@ func TestParseDeclarationBraceCloseInsideBody(t *testing.T) {
 		{"select body", "select i in 1; do { local x }; done\n", "`done` can only be used to end a loop", []string{"1:29"}},
 		// The bare parser reads `repeat` as a command and fails on the `}`;
 		// the keyword error appears inside the repeat adapter's retry.
-		{"repeat body", "repeat 2 do { local x }; done\n", "`}` can only be used to close a block", []string{"1:23"}},
+		{"repeat body", "repeat 2 do { local x }; done\n", "`done` can only be used to end a loop", []string{"1:23"}},
 		{"elif body", "if true; then :; elif true; then { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:44"}},
 		{"else body", "if true; then :; else { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:33"}},
 		{"then body before elif", "if true; then { local x }; elif true; then :; fi\n", "`elif` can only be used in an `if`", []string{"1:25"}},

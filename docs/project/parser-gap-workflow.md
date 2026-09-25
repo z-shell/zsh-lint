@@ -85,7 +85,7 @@ A narrowly scoped adapter in `internal/parse` may close a proven valid-Zsh gap w
 
 - the released Zsh manual and `zsh -f -n` establish the construct's validity;
 - the adapter activates for one language construct and, by default, one exact parser error.
-  A construct the parser reads as an ordinary command until its body fails (`repeat count do ...` fails on `do`, `then`, `}` or whatever the body's first reserved token is) has no exact error to gate on; such an adapter may gate on the error position instead, at or after a site of the construct found by scanning the source, provided the retry is verified: the tree the retry produced must contain the construct's expected node at the site, or the adapter returns the parser error;
+  A construct the parser reads as an ordinary command until its body fails (as `repeat count do ...` did before the parser fork read it, #208, #281) has no exact error to gate on; such an adapter may gate on the error position instead, at or after a site of the construct found by scanning the source, provided the retry is verified: the tree the retry produced must contain the construct's expected node at the site, or the adapter returns the parser error;
 - the full-file retry maps every byte back to the original source, either by keeping the original byte length or through a source map;
 - every transformed byte is restored in the typed AST before analysis;
 - no mask swallows a byte that produces a `*syntax.Comment` node: the parser runs with `KeepComments(true)` and `internal/suppress` reads those nodes for directives, so a shape whose comment would have to be masked keeps the parser error;
@@ -139,9 +139,8 @@ When an upstream AST has no field for a native construct, the parser result may 
 This exception requires the adapter gate and byte-preserving retry above, plus a stable association with the owning AST node.
 Consumers must inspect the typed metadata rather than recover masked source text.
 
-A construct with no upstream node at all may instead be synthesized as the closest upstream shape, with its own metadata so a consumer can tell it apart.
-A synthesized statement is not a command the script runs: the analyzer's shared walk feeds neither it nor its `CallExpr` to any rule (`synthesizedStatements`, `internal/analyzer/analyzer.go`) while still walking the expansions inside it.
-That skip covers only the shared walk; a rule that traverses the tree itself from the `File` node still sees it.
+A construct with no upstream node at all gets its own node in the parser fork rather than a synthesized upstream shape.
+`repeat` was once synthesized as a `WhileClause` whose condition statement was the count, and a rule that walked the tree itself read that count as a command (#281); the fork's `RepeatClause` holds the count as a word.
 
 Each construct's mechanism is documented where it is implemented:
 
@@ -151,7 +150,7 @@ Each construct's mechanism is documented where it is implemented:
 | `${name::=word}`                                         | #216         | `:=` operator plus `File.AssignAlwaysExpansions`                | `assign_always.go`                                               |
 | `${name[a][b]}`                                          | #215         | first subscript in `Index`, the rest in `File.SecondSubscripts` | `second_subscript.go`                                            |
 | `${name[(r)pattern,expr]}`                               | #277         | standard tree                                                   | `subscript_pattern_after_comma.go`                               |
-| `repeat count sublist`                                   | #208         | synthesized `WhileClause` plus `File.RepeatLoops`               | `repeat.go` (`resolveRepeatLoops`)                               |
+| `repeat count sublist`                                   | #208, #281   | fork `RepeatClause`                                             | parser fork, `third_party/mvdan-sh/FORK.md`                      |
 | `for`, `select`, `if`, `while` short and alternate forms | #211, #459   | standard `ForClause`, `IfClause` and `WhileClause`              | parser fork, `third_party/mvdan-sh/FORK.md`                      |
 | `${$(( expr ))}`                                         | #361         | standard `ArithmExp`                                            | `nested_arithmetic.go` (`resolveNestedArithmetic`)               |
 | Brace-form `if` and `while` bodies                       | #446         | standard `IfClause` and `WhileClause`                           | parser fork, `third_party/mvdan-sh/FORK.md`                      |

@@ -52,6 +52,8 @@ func (rule RepeatedExternalCommand) Analyze(ctx *analyzer.Context, node syntax.N
 			rule.reportLoopCalls(ctx, loop.Do, seen)
 		case *syntax.WhileClause:
 			rule.reportLoopCalls(ctx, loop.Do, seen)
+		case *syntax.RepeatClause:
+			rule.reportLoopCalls(ctx, loop.Do, seen)
 		}
 		return true
 	})

@@ -5726,6 +5726,8 @@ func (c sanityChecker) visit(node Node) bool {
 			c.checkPos(node, node.Position, "else")
 		}
 		c.checkPos(node, node.FiPos, "fi")
+	case *RepeatClause:
+		c.checkPos(node, node.RepeatPos, "repeat")
 	case *WhileClause:
 		rsrv := "while"
 		if node.Until {

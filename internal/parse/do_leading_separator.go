@@ -17,6 +17,7 @@ var doEmptyBodyErrors = []string{
 	"`until` statement must end with `done`",
 	"`for` statement must end with `done`",
 	"`select` statement must end with `done`",
+	"`repeat` statement must end with `done`",
 	"`;` can only immediately follow a statement",
 }
 
@@ -166,6 +167,8 @@ func hasLoopDo(tree *syntax.File, do int) bool {
 			found = int(loop.DoPos.Offset()) == do
 		case *syntax.ForClause:
 			found = !loop.Braces && int(loop.DoPos.Offset()) == do
+		case *syntax.RepeatClause:
+			found = int(loop.DoPos.Offset()) == do
 		}
 		return !found
 	})

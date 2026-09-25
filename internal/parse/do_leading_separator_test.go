@@ -39,6 +39,8 @@ func doLoops(tree *syntax.File) []string {
 			if !loop.Braces {
 				describe(kind, loop.DoPos, loop.Do)
 			}
+		case *syntax.RepeatClause:
+			describe("repeat", loop.DoPos, loop.Do)
 		}
 		return true
 	})
@@ -61,6 +63,11 @@ func TestParseDoLeadingSeparator(t *testing.T) {
 		{"until", "until (( $# )); do; shift; done\n", []string{"until 1:17:1:21/1"}},
 		{"select", "select o in a b c; do; print $o; break; done\n", []string{"select 1:20:1:24/2"}},
 		{"c-style for", "for ((i = 0; i < 2; i++)); do; print $i; done\n", []string{"for 1:28:1:32/1"}},
+		// The parser fork reads repeat (#281); the scanner skips its count so
+		// the `do` after it is a site.
+		{"repeat", "repeat 2 do; print x; done\n", []string{"repeat 1:10:1:14/1"}},
+		{"repeat after separator", "repeat 2; do; print x; done\n", []string{"repeat 1:11:1:15/1"}},
+		{"repeat with an expanded count", "repeat $(cat n) do; print x; done\n", []string{"repeat 1:17:1:21/1"}},
 		{"corpus site", "freload() { while (( $# )); do; unfunction $1; autoload -U $1; shift; done }\n", []string{"while 1:29:1:33/3"}},
 		{"glued to statement", "while true; do;break; done\n", []string{"while 1:13:1:16/1"}},
 		{"blank before separator", "while true; do ; break; done\n", []string{"while 1:13:1:18/1"}},

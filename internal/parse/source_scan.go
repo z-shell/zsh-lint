@@ -1,14 +1,5 @@
 package parse
 
-import (
-	"errors"
-	"fmt"
-	"reflect"
-	"sort"
-
-	"mvdan.cc/sh/v3/syntax"
-)
-
 // Source scanning helpers the compatibility adapters share. They read raw
 // source bytes to find a construct's sites before the parser sees them.
 
@@ -26,22 +17,6 @@ func matchSourceWord(src []byte, i int, word string) bool {
 		}
 	}
 	return true
-}
-
-// skipInlineSpaces skips spaces, tabs, and line continuations, stopping at a
-// newline, comment, or any other byte.
-func skipInlineSpaces(src []byte, i int) int {
-	for i < len(src) {
-		switch {
-		case src[i] == ' ' || src[i] == '\t':
-			i++
-		case src[i] == '\\' && i+1 < len(src) && src[i+1] == '\n':
-			i += 2
-		default:
-			return i
-		}
-	}
-	return i
 }
 
 func skipSpacesAndComments(src []byte, i int) int {
@@ -62,209 +37,275 @@ func skipSpacesAndComments(src []byte, i int) int {
 	return i
 }
 
-// forSourceMap maps each byte of a source an adapter rewrote with synthetic
-// text back to the original offset it stands for. The `for` adapter that
-// introduced it moved into the parser fork (#459); the repeat adapter still
-// maps its synthetic `do` and `done` through it.
-type forSourceMap struct {
-	origByTransformed []int
-}
-
 func isIdentByte(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
 }
 
-func rebaseForPositions(value reflect.Value, sm forSourceMap, lineStarts []int) error {
-	if !value.IsValid() {
-		return nil
-	}
-	if value.Type() == syntaxPosType {
-		if !value.CanSet() {
-			return nil
-		}
-		position := value.Interface().(syntax.Pos)
-		if !position.IsValid() {
-			return nil
-		}
-		transformedOffset := int(position.Offset())
-		if transformedOffset < 0 || transformedOffset >= len(sm.origByTransformed) {
-			return fmt.Errorf("transformed position %d is outside source map", transformedOffset)
-		}
-		origOffset := sm.origByTransformed[transformedOffset]
-		if origOffset < 0 {
-			origOffset = 0
-		}
-		lineIndex := sort.Search(len(lineStarts), func(index int) bool {
-			return lineStarts[index] > origOffset
-		}) - 1
-		if lineIndex < 0 {
-			lineIndex = 0
-		}
-		line := lineIndex + 1
-		col := origOffset - lineStarts[lineIndex] + 1
-		value.Set(reflect.ValueOf(syntax.NewPos(uint(origOffset), uint(line), uint(col))))
-		return nil
-	}
+// scanCommandWords calls visit for every identifier word in command position
+// in syntactically active source. Native Zsh recognises a reserved word at
+// the start of a command: after a separator, an opening `(` or `{`, a case
+// pattern's `)`, a `!`, or a reserved word that itself precedes a command.
+// Quoted text, comments, heredoc bodies and arithmetic never hold one. A
+// visit that consumes the word's operands returns the offset to resume at
+// and true; the next word is then in command position again. Otherwise the
+// word is treated by its own meaning: a reserved word that precedes a
+// command keeps command position, any other word ends it.
+func scanCommandWords(src []byte, visit func(start, end int, word string) (int, bool)) {
+	inSingleQuote := false
+	inDoubleQuote := false
+	inANSICQuote := false
+	escaped := false
+	inComment := false
+	inBacktick := false
+	var heredocs []pendingHeredoc
+	arithmeticDepth := 0
+	// parens records, for each open `(`, whether it opened a subshell or a
+	// command substitution, whose `)` ends a command, rather than a case
+	// pattern, an array value or a glob group, whose `)` may precede one.
+	var parens []bool
+	atCommandStart := true
+	// repeatCount tracks the count word after a `repeat` in command
+	// position: 1 before it starts, 2 inside it. The count is not a command,
+	// but the word after it is (`repeat 2 do`), as native par_repeat reads.
+	repeatCount, repeatParens := 0, 0
 
-	switch value.Kind() {
-	case reflect.Pointer, reflect.Interface:
-		if value.IsNil() {
-			return nil
-		}
-		return rebaseForPositions(value.Elem(), sm, lineStarts)
-	case reflect.Struct:
-		for i := 0; i < value.NumField(); i++ {
-			field := value.Field(i)
-			if field.CanSet() {
-				if err := rebaseForPositions(field, sm, lineStarts); err != nil {
-					return err
-				}
-			}
-		}
-	case reflect.Slice, reflect.Array:
-		for i := 0; i < value.Len(); i++ {
-			if err := rebaseForPositions(value.Index(i), sm, lineStarts); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// rebaseForError rewrites the position of a parser error raised on the
-// transformed source so it points into the original file. The synthetic text
-// otherwise shifts every later line number, and the retry error is the useful
-// one: it names the gap that remains after the rewritten construct was
-// accepted. An error the mapping cannot place is returned unchanged rather
-// than dropped.
-func rebaseForError(err error, sm forSourceMap, lineStarts []int) error {
-	var parseErr syntax.ParseError
-	if errors.As(err, &parseErr) && parseErr.Pos.IsValid() {
-		if rebased, mapErr := rebaseForPos(parseErr.Pos, sm, lineStarts); mapErr == nil {
-			parseErr.Pos = rebased
-			return parseErr
-		}
-		return err
-	}
-	var langErr syntax.LangError
-	if errors.As(err, &langErr) && langErr.Pos.IsValid() {
-		if rebased, mapErr := rebaseForPos(langErr.Pos, sm, lineStarts); mapErr == nil {
-			langErr.Pos = rebased
-			return langErr
-		}
-	}
-	return err
-}
-
-// rebaseForPos maps one transformed position back to the original source.
-func rebaseForPos(position syntax.Pos, sm forSourceMap, lineStarts []int) (syntax.Pos, error) {
-	transformedOffset := int(position.Offset())
-	if transformedOffset < 0 || transformedOffset >= len(sm.origByTransformed) {
-		return syntax.Pos{}, fmt.Errorf("transformed position %d is outside source map", transformedOffset)
-	}
-	origOffset := sm.origByTransformed[transformedOffset]
-	if origOffset < 0 {
-		origOffset = 0
-	}
-	lineIndex := sort.Search(len(lineStarts), func(index int) bool {
-		return lineStarts[index] > origOffset
-	}) - 1
-	if lineIndex < 0 {
-		lineIndex = 0
-	}
-	line := lineIndex + 1
-	col := origOffset - lineStarts[lineIndex] + 1
-	return syntax.NewPos(uint(origOffset), uint(line), uint(col)), nil
-}
-
-// ifShortFormAnchor returns the offset of the first byte after the sublist
-// statement that belongs to something else: the next statement of the list
-// that holds it, or the token that closes that list. The parent's positions
-// may themselves be the source-mapped result of another adapter, which is
-// fine: the anchor only bounds the backward scan for the sublist's last
-// byte.
-func ifShortFormAnchor(src []byte, parents map[syntax.Node]syntax.Node, stmt *syntax.Stmt) int {
-	parent := parents[stmt]
-	if next := followingStmt(parent, stmt); next != nil {
-		return int(next.Pos().Offset())
-	}
-	inList := func(list []*syntax.Stmt) bool {
-		for _, candidate := range list {
-			if candidate == stmt {
-				return true
-			}
-		}
-		return false
-	}
-	switch parent := parent.(type) {
-	case *syntax.File:
-		return len(src)
-	case *syntax.Block:
-		return int(parent.Rbrace.Offset())
-	case *syntax.Subshell:
-		return int(parent.Rparen.Offset())
-	case *syntax.CmdSubst:
-		return int(parent.Right.Offset())
-	case *syntax.ProcSubst:
-		return int(parent.Rparen.Offset())
-	case *syntax.CaseItem:
-		if parent.OpPos.IsValid() {
-			return int(parent.OpPos.Offset())
-		}
-		if clause, ok := parents[parent].(*syntax.CaseClause); ok {
-			return int(clause.Esac.Offset())
-		}
-	case *syntax.IfClause:
-		if inList(parent.Cond) {
-			return int(parent.ThenPos.Offset())
-		}
-		if parent.Else != nil {
-			return int(parent.Else.Position.Offset())
-		}
-		return int(parent.FiPos.Offset())
-	case *syntax.WhileClause:
-		if inList(parent.Cond) {
-			return int(parent.DoPos.Offset())
-		}
-		return int(parent.DonePos.Offset())
-	case *syntax.ForClause:
-		return int(parent.DonePos.Offset())
-	}
-	return -1
-}
-
-// ifShortFormCloser returns the offset after the last byte of the sublist
-// statement starting at start and bounded by anchor: blanks, newlines,
-// separators and whole comments before the anchor are not part of it, but a
-// comment on the same line as the last byte is kept, so it stays attached
-// to the statement it trails.
-func ifShortFormCloser(src []byte, start, anchor int, comments []*syntax.Comment) int {
-	end := anchor
-scan:
-	for end > start {
-		switch src[end-1] {
-		case ' ', '\t', '\n', '\r', ';', '&':
-			end--
+	for i := 0; i < len(src); i++ {
+		b := src[i]
+		if escaped {
+			escaped = false
 			continue
 		}
-		for _, comment := range comments {
-			if at := int(comment.Pos().Offset()); at < end && end <= int(comment.End().Offset()) && at >= start {
-				end = at
-				continue scan
+		if inSingleQuote {
+			if b == '\'' {
+				inSingleQuote = false
 			}
+			continue
 		}
-		break
-	}
-	trailing := end
-	for trailing < anchor && (src[trailing] == ' ' || src[trailing] == '\t') {
-		trailing++
-	}
-	if trailing < anchor && src[trailing] == '#' {
-		for _, comment := range comments {
-			if int(comment.Pos().Offset()) == trailing {
-				return int(comment.End().Offset())
+		if inDoubleQuote {
+			switch b {
+			case '\\':
+				escaped = true
+			case '"':
+				inDoubleQuote = false
 			}
+			continue
+		}
+		if inANSICQuote {
+			switch b {
+			case '\\':
+				escaped = true
+			case '\'':
+				inANSICQuote = false
+			}
+			continue
+		}
+		if inComment {
+			if b == '\n' {
+				inComment = false
+				atCommandStart = true
+			}
+			continue
+		}
+		if b == '\n' && len(heredocs) > 0 {
+			next, ok := consumeHeredocBodies(src, i+1, heredocs)
+			if !ok {
+				return
+			}
+			heredocs = nil
+			i = next - 1
+			atCommandStart = true
+			continue
+		}
+		if b == '(' && i+1 < len(src) && src[i+1] == '(' {
+			arithmeticDepth++
+			i++
+			continue
+		}
+		if arithmeticDepth > 0 {
+			if b == ')' && i+1 < len(src) && src[i+1] == ')' {
+				arithmeticDepth--
+				i++
+			}
+			continue
+		}
+
+		if repeatCount == 1 && b != ' ' && b != '\t' {
+			repeatCount, repeatParens = 2, len(parens)
+		}
+		switch b {
+		case '\\':
+			escaped = true
+			if i+1 >= len(src) || src[i+1] != '\n' {
+				atCommandStart = false
+			}
+			continue
+		case '\'':
+			inSingleQuote = true
+			atCommandStart = false
+			continue
+		case '"':
+			atCommandStart = false
+			if end, ok := skipDoubleQuotedString(src, i); ok {
+				i = end
+				continue
+			}
+			inDoubleQuote = true
+			continue
+		case '#':
+			if i == 0 || isCommandWordBoundary(src[i-1]) {
+				inComment = true
+			} else {
+				atCommandStart = false
+			}
+			continue
+		case '$':
+			if i+1 < len(src) {
+				switch src[i+1] {
+				case '\'':
+					inANSICQuote = true
+					i++
+					atCommandStart = false
+					continue
+				case '{':
+					i++
+					atCommandStart = false
+					continue
+				case '(':
+					if i+2 < len(src) && src[i+2] == '(' {
+						arithmeticDepth++
+						i += 2
+						continue
+					}
+					parens = append(parens, true)
+					i++
+					atCommandStart = true
+					continue
+				}
+			}
+			atCommandStart = false
+			continue
+		case ' ', '\t':
+			if repeatCount == 2 && len(parens) == repeatParens {
+				repeatCount = 0
+				atCommandStart = true
+			}
+			continue
+		case '\n', ';', '&', '|', '{':
+			repeatCount = 0
+			atCommandStart = true
+			continue
+		case '}':
+			atCommandStart = false
+			continue
+		case '(':
+			// An array value `name=(...)` holds words, not commands; any
+			// other `(` may open a subshell, so its first word is a site.
+			if i > 0 && src[i-1] == '=' {
+				parens = append(parens, false)
+				atCommandStart = false
+				continue
+			}
+			parens = append(parens, atCommandStart)
+			atCommandStart = true
+			continue
+		case ')':
+			endsCommand := false
+			if len(parens) > 0 {
+				endsCommand = parens[len(parens)-1]
+				parens = parens[:len(parens)-1]
+			}
+			atCommandStart = !endsCommand
+			continue
+		case '`':
+			inBacktick = !inBacktick
+			atCommandStart = inBacktick
+			continue
+		case '!':
+			if i+1 >= len(src) || (src[i+1] != ' ' && src[i+1] != '\t') {
+				atCommandStart = false
+			}
+			continue
+		case '<', '>':
+			if b == '<' && i+1 < len(src) && src[i+1] == '<' {
+				heredoc, end, isHeredoc, ok := heredocAt(src, i)
+				if !ok {
+					return
+				}
+				if !isHeredoc {
+					i += 2
+					atCommandStart = false
+					continue
+				}
+				heredocs = append(heredocs, heredoc)
+				i = end - 1
+				atCommandStart = false
+				continue
+			}
+			if i+1 < len(src) && src[i+1] == '&' {
+				i++
+			}
+			atCommandStart = false
+			continue
+		}
+		if !isIdentByte(b) {
+			atCommandStart = false
+			continue
+		}
+		start := i
+		for i+1 < len(src) && isIdentByte(src[i+1]) {
+			i++
+		}
+		word := string(src[start : i+1])
+		glued := start > 0 && !isCommandWordBoundary(src[start-1])
+		followed := i+1 < len(src) && !isCommandWordEnd(src[i+1])
+		switch {
+		case glued || followed:
+			atCommandStart = false
+		case atCommandStart:
+			if resume, ok := visit(start, i+1, word); ok {
+				i = resume - 1
+				continue
+			}
+			if word == "repeat" {
+				repeatCount = 1
+			}
+			if !commandPrefixWords[word] {
+				atCommandStart = false
+			}
+		default:
+			atCommandStart = false
 		}
 	}
-	return end
+}
+
+// isCommandWordBoundary reports whether b separates words and leaves the
+// next one in a position where a reserved word is recognised.
+func isCommandWordBoundary(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', ';', '&', '|', '(', '`':
+		return true
+	}
+	return false
+}
+
+// isCommandWordEnd reports whether b ends a command word.
+func isCommandWordEnd(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', ';', '&', '|', ')', '(', '`', '<', '>':
+		return true
+	}
+	return false
+}
+
+// commandPrefixWords are the reserved words after which the next word
+// is still in command position, so a reserved word there is recognised.
+var commandPrefixWords = map[string]bool{
+	"then":  true,
+	"else":  true,
+	"do":    true,
+	"if":    true,
+	"elif":  true,
+	"while": true,
+	"until": true,
+	"time":  true,
 }

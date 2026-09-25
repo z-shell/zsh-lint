@@ -45,7 +45,6 @@ var adapterSnippets = map[string]adapterSnippet{
 	"declBraceClose":    {attempt: parseDeclarationBraceClose, source: "{ typeset -g C=1 }"},
 	"doSeparator":       {attempt: parseDoLeadingSeparator, source: "while (( $# )); do; shift; done"},
 	"thenSeparator":     {attempt: parseThenLeadingSeparator, source: "if true; then; print x; fi"},
-	"repeat":            {attempt: parseRepeat, source: "repeat 3; do print hi; done"},
 	"mathFunctionCall":  {attempt: parseMathFunctionCall, source: "print $(( sqrt(4) ))"},
 	"nestedArithmetic":  {attempt: parseNestedArithmetic, source: "print \"${(l:5:)$(( a[1] ))}\""},
 	// A redundant `;` needs a statement before it so the snippet composes

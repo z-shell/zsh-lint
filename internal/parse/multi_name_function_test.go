@@ -383,7 +383,6 @@ func TestParseMultiNameFunctionLeavesUnrecognisedSitesUntouched(t *testing.T) {
 		"redirect in names":  "a >x b () { : }\n",
 		"reserved word only": "then b () { : }\n",
 		"repeat count only":  "repeat 3 () { print $1 } a b\n",
-		"repeat one name":    "repeat 2 f() { : }\n",
 	}
 	for name, src := range sources {
 		t.Run(name, func(t *testing.T) {

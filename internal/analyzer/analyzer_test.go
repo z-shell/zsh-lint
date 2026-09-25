@@ -100,18 +100,25 @@ func TestAnalyzer(t *testing.T) {
 	}
 }
 
-// The count of a repeat loop is carried as the condition statement of a
-// WhileClause (parse.File.RepeatLoops). It is not a command, so no rule is
-// fed that statement or its CallExpr; the expansions inside the count are
-// still walked, and the body is analyzed once like any loop body.
-func TestAnalyzerSkipsRepeatCountStatement(t *testing.T) {
+// The count of a repeat loop is the RepeatClause's Count word, not a
+// command (#281), so no rule sees a CallExpr for it; the expansions inside
+// the count are still walked, and the body is analyzed once like any loop
+// body.
+func TestAnalyzerDoesNotReadRepeatCountAsCommand(t *testing.T) {
 	code := "repeat badcmd print hi\nrepeat $n badcmd fail\nrepeat ${count} { badcmd $x }\n"
 	file, err := parse.Parse(strings.NewReader(code), "test.zsh")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
-	if got := len(file.RepeatLoops()); got != 3 {
-		t.Fatalf("expected 3 repeat loops, got %d", got)
+	loops := 0
+	syntax.Walk(file.AST(), func(node syntax.Node) bool {
+		if _, ok := node.(*syntax.RepeatClause); ok {
+			loops++
+		}
+		return true
+	})
+	if loops != 3 {
+		t.Fatalf("expected 3 repeat loops, got %d", loops)
 	}
 
 	diags := analyzer.New(&dummyRule{}, &expansionRule{}).Analyze(file, "test.zsh")
