@@ -46,6 +46,10 @@ jobs:
         run: go vet ./...
       - name: 🏗 Build
         run: go build ./...
+      # The native oracle test and the workflow behavior tests skip without
+      # zsh; installing it makes them run here.
+      - name: ⚡ Set up Zsh
+        uses: z-shell/.github/actions/setup-zsh@4403e5a200c63596f641966dfb64e08a7a655ffa # main
       - name: 🧪 Test
         run: go test ./...
       - name: 🔍 Lint
