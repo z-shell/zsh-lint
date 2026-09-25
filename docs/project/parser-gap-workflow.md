@@ -37,7 +37,8 @@ Add the minimized script as `internal/survey/testdata/corpus/gap-<issue>-<slug>.
 `TestFixturesCiteManual` (`internal/manualcite`) requires that line on every `gap-`, `ok-` and `invalid-` fixture and checks that the URL names a page of the released manual.
 Fixtures that predate the requirement are listed in `internal/manualcite/testdata/fixture-exemptions.txt`; the list only shrinks, so a fixture that gains a citation leaves it in the same change.
 `TestMinimizedCorpus` (`internal/survey/corpus_test.go`) discovers fixtures by scanning the corpus directory and enforces the naming contract: `gap-<issue>-<slug>.zsh` must fail to parse, `ok-<slug>.zsh` must parse, and any other name is rejected.
-There is no fixture count assertion — adding fixtures never requires test edits ([#14](https://github.com/z-shell/zsh-lint/issues/14)); only the small `requiredFixtures` baseline list is asserted by name.
+There is no fixture count assertion: adding fixtures never requires test edits ([#14](https://github.com/z-shell/zsh-lint/issues/14)).
+The `requiredFixtures` list in that test is a frozen baseline against accidental deletion of the corpus; never add a new fixture to it ([#406](https://github.com/z-shell/zsh-lint/issues/406)).
 
 ### Native-invalid regression sources
 
@@ -54,7 +55,7 @@ Do not add exceptions to the native Zsh syntax gate for ordinary `.zsh` files.
 ## 5. Close the loop
 
 When a front-end change (or a front-end swap, [#17](https://github.com/z-shell/zsh-lint/issues/17)) makes a `gap-*` fixture parse, the test fails loudly.
-Rename the fixture to `ok-<slug>.zsh` so it becomes permanent regression coverage, update `requiredFixtures`, and close the issue with a link to the survey run confirming the originating real file now parses.
+Rename the fixture to `ok-<slug>.zsh` so it becomes permanent regression coverage, and close the issue with a link to the survey run confirming the originating real file now parses.
 If the old name is in `internal/manualcite/testdata/fixture-exemptions.txt`, the renamed fixture gains its `# Manual: <url>` line and the old entry leaves the list in the same change; `TestFixturesCiteManual` fails otherwise.
 
 ### Front-end strategy
@@ -108,6 +109,10 @@ The grouped-case adapter needs this: allowed to recurse, it masked one extra `)`
 Because the survey reports only the first error per file, this class of defect masks real gaps rather than merely reporting false ones.
 Fixing it immediately exposed a further genuine gap in the same file.
 Re-run the discovery survey after any adapter change and expect the reported set to shift.
+
+Every masked retry parses the whole file again, so an adapter that resolves one site per pass costs a parse per site ([#366](https://github.com/z-shell/zsh-lint/issues/366)).
+Measure that cost with `go run ./cmd/zsh-lint-survey -trace-parses <file>`, which writes each file's whole-source parse count and deepest adapter retry nesting to standard error ([#408](https://github.com/z-shell/zsh-lint/issues/408)).
+State the before and after numbers in a pull request that changes them on a corpus file.
 
 `internal/parse/adapter_chain_test.go` enforces all of this: every ordered pair of adapter features and all features together must parse; original text must be restored; invalid Zsh must still be rejected; self-recursion must not widen the grammar; and every snippet must genuinely require its adapter, so a snippet the base parser already accepts cannot make its cases vacuously pass.
 Adding an adapter to the chain extends that matrix automatically.

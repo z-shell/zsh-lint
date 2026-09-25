@@ -171,6 +171,7 @@ It is used for corpus validation and upstream syntax compatibility tracking.
 
 ```bash
 zsh-lint-survey path/to/*.zsh
+zsh-lint-survey -trace-parses path/to/file.zsh   # also report parse count and adapter depth on stderr
 ```
 
 </details>

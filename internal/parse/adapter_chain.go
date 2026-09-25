@@ -91,6 +91,7 @@ func parseWithAdapters(src []byte, name string) (*syntax.File, error) {
 // parseWithAdaptersExcept is parseWithAdapters with the adapter at index skip
 // disabled for the whole nested retry, preventing self-recursion.
 func parseWithAdaptersExcept(src []byte, name string, skip int) (*syntax.File, error) {
+	defer enterAdapterChain()()
 	tree, err := parseTree(src, name)
 	if err == nil {
 		return tree, nil
