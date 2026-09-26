@@ -18,6 +18,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | The alternate and short forms of `for` and `select` (several names, a `( word ... )` list, a `{ list }` or one-sublist body, an empty body), the short forms of `if`, `while` and `until`, `else` reserved in command position, and a `ZshEnd` position on `ForClause`, `IfClause` and `WhileClause` so `End()` is exact for those forms | `syntax/parser.go`, `syntax/nodes.go`, `syntax/parser_test.go` | [#459](https://github.com/z-shell/zsh-lint/issues/459) |
 | The csh-style `foreach ... end` loop (one or more names, `( word ... )` or `in word ...`, `list end`, `{ list }` or `do list done`), and `end` reserved in command position | `syntax/parser.go`, `syntax/nodes.go`, `syntax/parser_test.go` | [#214](https://github.com/z-shell/zsh-lint/issues/214) |
 | A `RepeatClause` node for `repeat count` loops (`do list done`, `{ list }` or one sublist, as `for` reads its body), with walk, printer and `typedjson` support | `syntax/nodes.go`, `syntax/parser.go`, `syntax/walk.go`, `syntax/printer.go`, `syntax/typedjson/json.go` | [#281](https://github.com/z-shell/zsh-lint/issues/281) |
+| Function definitions whose name is any word, holding a parameter expansion, quote or command substitution (`word()` and `function word ...`), and a name ending in a `}` that closes no `{` of the name rejected as zsh does | `syntax/parser.go`, `syntax/parser_test.go` | [#234](https://github.com/z-shell/zsh-lint/issues/234) |
 
 ## Taking an upstream release
 

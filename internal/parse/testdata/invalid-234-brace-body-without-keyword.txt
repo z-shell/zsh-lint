@@ -1,0 +1,3 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Functions.html
+# Issue #234: a parameter expansion before a brace body without function keyword or () is invalid Zsh
+${x} { :; }
