@@ -49,7 +49,9 @@ jobs:
           persist-credentials: false
 
       - name: ⚡ Set up Zsh
-        uses: z-shell/.github/actions/setup-zsh@4403e5a200c63596f641966dfb64e08a7a655ffa # main
+        uses: z-shell/.github/actions/setup-zsh@aeae5bb865e3e4e00093573b102dec5ffe03e187 # main
+        with:
+          version: "5.9.2"
 
       - name: ⚡ Prepare Zsh environment
         run: touch ~/.zshrc

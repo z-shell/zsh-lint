@@ -62,7 +62,9 @@ The five extra false accepts are files that 5.9 rejects and 5.9.2 accepts. This 
 | `Unix/Type/_ctags_tags`     | `:5: no such file or directory: tags`                             |
 | `Unix/Type/_sys_calls`      | `:15: no such file or directory:`                                 |
 
-Each holds a `$(< file)` substitution in a command argument or an array element, which 5.9's `-n` evaluates, so the missing file is reported and `-n` exits 1. Minimal rows show the split: `x=( $(</nonexistent/a) )`, `x=( ${(f)"$(</nonexistent/a)"} )`, `print "$(</nonexistent/a)"` and `print ${(f)"$(</nonexistent/a)"}` exit 1 under 5.9 and 0 under 5.9.2, while the scalar assignments `x=$(</nonexistent/a)` and `x="$(</nonexistent/a)"` exit 0 under both. This is the class of the native-gate artifact #287, `-n` evaluating a word rather than checking syntax, not a parser defect. They are known on both builds, so they do not fail the job, but a pull request that changes one of them is judged against 5.9.
+Each holds a `$(< file)` substitution in a command argument or an array element, which 5.9's `-n` evaluates, so the missing file is reported and `-n` exits 1. Minimal rows show the split: `x=( $(</nonexistent/a) )`, `x=( ${(f)"$(</nonexistent/a)"} )`, `print "$(</nonexistent/a)"` and `print ${(f)"$(</nonexistent/a)"}` exit 1 under 5.9 and 0 under 5.9.2, while the scalar assignments `x=$(</nonexistent/a)` and `x="$(</nonexistent/a)"` exit 0 under both. This is the class of the native-gate artifact #287, `-n` evaluating a word rather than checking syntax, not a parser defect. They are known on both builds, so they did not fail the job, but a pull request that changed one of them was judged against 5.9.
+
+#492 closed that gap: every native-oracle job now installs Zsh 5.9.2 through the version-aware `setup-zsh` action (z-shell/.github#666), so CI and local runs judge with the same oracle and the five files above are no longer false accepts in CI.
 
 Locally, the one false accept is `Completion/Base/Utility/_pick_variant`, which `zsh -f -n` rejects only because it expands `${(P)opts[-r]::=$1}` at top level; that is the native-gate artifact #287, not a parser defect.
 
