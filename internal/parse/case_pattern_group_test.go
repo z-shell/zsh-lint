@@ -106,3 +106,68 @@ func TestCasePatternGroupPreservesLaterErrorPosition(t *testing.T) {
 		t.Errorf("error position = %d:%d, want 4:1", parseErr.Pos.Line(), parseErr.Pos.Col())
 	}
 }
+
+// Native Zsh accepts a case pattern with an empty alternative (#396). The
+// empty alternative matches the empty string.
+func TestCasePatternEmptyAlternative(t *testing.T) {
+	for _, tt := range []struct {
+		src  string
+		want []string
+	}{
+		{"case x in\n  (|a) print hit ;;\nesac", []string{"", "a"}},
+		{"case x in\n  (a|) print hit ;;\nesac", []string{"a", ""}},
+		{"case x in\n  |a) print hit ;;\nesac", []string{"", "a"}},
+		{"case x in\n  a|) print hit ;;\nesac", []string{"a", ""}},
+		{"case x in\n  |a|) print hit ;;\nesac", []string{"", "a", ""}},
+		{"case x in\n  (a||b) print hit ;;\nesac", []string{"a", "", "b"}},
+		{"case x in\n  (|) print hit ;;\nesac", []string{"", ""}},
+		{"case x in\n  ||) print hit ;;\nesac", []string{"", "", ""}},
+		{"case x in\n  (|a|) print hit ;;\nesac", []string{"", "a", ""}},
+		{"case x in\n  (|https|git|http|ftp|ftps|rsync|ssh) print hit ;;\nesac", []string{"", "https", "git", "http", "ftp", "ftps", "rsync", "ssh"}},
+		{"case x in\n  (a||) print hit ;;\nesac", []string{"a", "", ""}},
+		{"case x in\n  |) print hit ;;\nesac", []string{"", ""}},
+		{"case x in\n  (||) print hit ;;\nesac", []string{"", "", ""}},
+		{"case x in\n  a||b) print hit ;;\nesac", []string{"a", "", "b"}},
+		{"case x in\n  |a|b) print hit ;;\nesac", []string{"", "a", "b"}},
+		{"case x in\n  (a|b|) print hit ;;\nesac", []string{"a", "b", ""}},
+		{"case x in (|a) print hit ;; esac", []string{"", "a"}},
+	} {
+		file, err := Parse(strings.NewReader(tt.src+"\n"), "t.zsh")
+		if err != nil {
+			t.Errorf("%q: %v", tt.src, err)
+			continue
+		}
+		got := casePatterns(t, file.AST())
+		if len(got) != 1 || strings.Join(got[0], "|") != strings.Join(tt.want, "|") || len(got[0]) != len(tt.want) {
+			t.Errorf("%q: patterns = %q, want %q", tt.src, got, tt.want)
+		}
+	}
+}
+
+// Native-invalid case patterns stay parse errors: empty parens, unclosed
+// pattern, and lone right paren.
+func TestCasePatternEmptyAlternativeInvalid(t *testing.T) {
+	for _, src := range []string{
+		"case x in () print hit ;; esac",
+		"case x in ( ) print hit ;; esac",
+		"case x in ) print hit ;; esac",
+		"case x in (|a print hit ;;\nesac",
+	} {
+		var parseErr syntax.ParseError
+		if _, err := Parse(strings.NewReader(src+"\n"), "t.zsh"); !errors.As(err, &parseErr) {
+			t.Errorf("%q: error = %v, want a parse error", src, err)
+		}
+	}
+	for _, file := range []string{
+		"testdata/invalid-396-empty-parens-case-pattern.txt",
+		"testdata/invalid-396-unclosed-case-pattern.txt",
+	} {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse(strings.NewReader(string(src)), file); err == nil {
+			t.Fatalf("Parse(%s) accepted invalid source", file)
+		}
+	}
+}

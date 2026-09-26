@@ -3082,6 +3082,12 @@ func zshCasePatternEnd(r rune) bool {
 	return false
 }
 
+// zshCaseEmptyWord returns an empty literal word at pos for an empty case
+// pattern alternative (#396).
+func zshCaseEmptyWord(pos Pos) *Word {
+	return &Word{Parts: []WordPart{&Lit{ValuePos: pos, ValueEnd: pos, Value: ""}}}
+}
+
 // zshCaseGroupWord rebuilds the patterns read after an opener at lparen as
 // one glob group word, `(` pats joined by `|` then `)`.
 func zshCaseGroupWord(lparen Pos, pats []*Word, bars []Pos, rparen Pos) *Word {
@@ -3113,10 +3119,24 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 		}
 		var bars []Pos
 		for p.tok != _EOF {
-			if w := p.getWord(); w == nil {
-				p.curErr("case patterns must consist of words")
-			} else {
+			if w := p.getWord(); w != nil {
 				ci.Patterns = append(ci.Patterns, w)
+			} else if p.err != nil {
+				break
+			} else if p.lang.in(LangZsh) && (p.tok == or || p.tok == orOr) {
+				bar := p.pos
+				if p.tok == orOr {
+					p.tok, p.pos = or, posAddCol(p.pos, 1)
+				} else {
+					p.next()
+				}
+				ci.Patterns = append(ci.Patterns, zshCaseEmptyWord(bar))
+				bars = append(bars, bar)
+				continue
+			} else if p.lang.in(LangZsh) && p.tok == rightParen && len(bars) > 0 {
+				ci.Patterns = append(ci.Patterns, zshCaseEmptyWord(p.pos))
+			} else {
+				p.curErr("case patterns must consist of words")
 			}
 			if p.tok == rightParen {
 				if !opened || !p.lang.in(LangZsh) || zshCasePatternEnd(p.r) {
@@ -3137,7 +3157,9 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 				}
 			}
 			bar := p.pos
-			if !p.got(or) {
+			if p.tok == orOr && p.lang.in(LangZsh) {
+				p.tok, p.pos = or, posAddCol(p.pos, 1)
+			} else if !p.got(or) {
 				p.curErr("case patterns must be separated with %#q", or)
 			}
 			bars = append(bars, bar)

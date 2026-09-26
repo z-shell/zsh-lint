@@ -2701,6 +2701,72 @@ func TestNodeEndPos(t *testing.T) {
 	qt.Check(t, qt.Equals(f.Stmts[0].Cmd.(*CaseClause).End().Offset(), uint(18)))
 }
 
+func TestZshCaseEmptyAlternative(t *testing.T) {
+	t.Parallel()
+	for _, src := range []string{
+		"case x in (|a) print hit ;; esac",
+		"case x in (a|) print hit ;; esac",
+		"case x in |a) print hit ;; esac",
+		"case x in a|) print hit ;; esac",
+		"case x in |a|) print hit ;; esac",
+		"case x in (a||b) print hit ;; esac",
+		"case x in (|) print hit ;; esac",
+		"case x in ||) print hit ;; esac",
+		"case x in (|a|) print hit ;; esac",
+		"case x in (a||) print hit ;; esac",
+		"case x in |) print hit ;; esac",
+		"case x in (||) print hit ;; esac",
+		"case x in a||b) print hit ;; esac",
+		"case x in |a|b) print hit ;; esac",
+		"case x in (a|b|) print hit ;; esac",
+	} {
+		p := NewParser(Variant(LangZsh))
+		if _, err := p.Parse(strings.NewReader(src), ""); err != nil {
+			t.Errorf("%s: %v", src, err)
+		}
+	}
+	for _, src := range []string{
+		"case x in () print hit ;; esac",
+		"case x in ) print hit ;; esac",
+		"case x in (|a print hit ;;\nesac",
+	} {
+		p := NewParser(Variant(LangZsh))
+		if _, err := p.Parse(strings.NewReader(src), ""); err == nil {
+			t.Errorf("%s: expected parse error, got nil", src)
+		}
+	}
+	// Outside Zsh an empty alternative stays an error.
+	for _, src := range []string{
+		"case x in |a) :;; esac",
+		"case x in a||b) :;; esac",
+		"case x in a|) :;; esac",
+	} {
+		p := NewParser(Variant(LangBash))
+		if _, err := p.Parse(strings.NewReader(src), ""); err == nil {
+			t.Errorf("bash %s: expected parse error, got nil", src)
+		}
+	}
+	// Bash keeps reading `||` as one token, so the error stays at the separator.
+	_, err := NewParser(Variant(LangBash)).Parse(strings.NewReader("case x in a||b) :;; esac"), "")
+	qt.Assert(t, qt.ErrorMatches(err, "1:12: case patterns must be separated with `\\|`"))
+	// A `||` splits into two bars; the empty alternative sits at the second.
+	f, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader("case x in a||b) :;; esac"), "")
+	qt.Assert(t, qt.IsNil(err))
+	pats := f.Stmts[0].Cmd.(*CaseClause).Items[0].Patterns
+	qt.Assert(t, qt.HasLen(pats, 3))
+	qt.Check(t, qt.Equals(pats[1].Pos().Offset(), uint(12)))
+	qt.Check(t, qt.Equals(pats[1].End().Offset(), uint(12)))
+	qt.Check(t, qt.Equals(pats[2].Pos().Offset(), uint(13)))
+	// A leading `||` yields two empty alternatives, one at each bar.
+	f, err = NewParser(Variant(LangZsh)).Parse(strings.NewReader("case x in ||) :;; esac"), "")
+	qt.Assert(t, qt.IsNil(err))
+	pats = f.Stmts[0].Cmd.(*CaseClause).Items[0].Patterns
+	qt.Assert(t, qt.HasLen(pats, 3))
+	qt.Check(t, qt.Equals(pats[0].Pos().Offset(), uint(10)))
+	qt.Check(t, qt.Equals(pats[1].Pos().Offset(), uint(11)))
+	qt.Check(t, qt.Equals(pats[2].Pos().Offset(), uint(12)))
+}
+
 func TestParseRecoverErrors(t *testing.T) {
 	t.Parallel()
 
