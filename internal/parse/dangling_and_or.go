@@ -66,34 +66,139 @@ func parseDanglingAndOr(src []byte, name string, firstErr error) (*syntax.File, 
 }
 
 // findDanglingAndOrBefore locates a dangling operator that precedes a reported
-// closer, scanning back over whitespace and comments only. Anything else between
-// the operator and the closer means the operator had a right operand and the
-// error belongs to something this adapter must not touch.
+// closer. Only list trivia may stand between the two: blanks, newlines, a `\`
+// line continuation, and comments (#466). Anything else means the operator had
+// a right operand and the error belongs to something this adapter must not
+// touch.
+//
+// The walk back from the closer only proposes a candidate; skipListTrivia then
+// confirms it forward from the operator, where Zsh's own reading of the same
+// bytes is unambiguous. A proposal that does not reach the closer exactly is
+// refused.
 func findDanglingAndOrBefore(src []byte, seed int) (int, bool) {
-	if seed <= 0 || seed > len(src) {
+	// seed is the closer's offset; len(src) stands for end of input.
+	if seed > len(src) {
 		return 0, false
 	}
-	i := seed - 1
-	for i > 0 {
-		switch src[i] {
-		case ' ', '	', '\n', '\r':
-			i--
-			continue
-		}
-		break
-	}
-	if i < 1 {
+	start, ok := danglingOperatorCandidate(src, seed)
+	if !ok {
 		return 0, false
 	}
-	// i now rests on the last non-space byte before the closer.
-	start := i - 1
-	if src[start] != src[i] || (src[i] != '&' && src[i] != '|') {
+	if skipListTrivia(src, start+2) != seed {
 		return 0, false
 	}
-	if !danglingOperatorEndsList(src, i+1) {
+	if !danglingOperatorEndsList(src, start+2) {
 		return 0, false
 	}
 	return start, true
+}
+
+// danglingOperatorCandidate walks back from seed over blanks, newlines and
+// line continuations and returns the offset of the `&&` or `||` it lands on.
+// When it lands inside a line instead, that line may end in a comment: the
+// operator is then the last token before the line's first comment, and a line
+// holding nothing but a comment is stepped over like a blank one.
+//
+// The comment test is a proposal, not a proof. A `#` inside quotes can look
+// like a comment start here; the forward check in findDanglingAndOrBefore
+// rejects any candidate whose following bytes are not really trivia.
+func danglingOperatorCandidate(src []byte, seed int) (int, bool) {
+	i := skipTriviaBackward(src, seed)
+	// The operator that ends the closest line, read without any comment
+	// handling. It is the fallback when the comment reading finds nothing:
+	// a `#` line may be the inside of a multi-line quote (`'a⏎# x' ||`).
+	last := i - 2
+	for {
+		lineStart := bytes.LastIndexByte(src[:i], '\n') + 1
+		// Read the line as code ending at its first comment, so an operator
+		// written inside a comment (`# c ||`) is never taken for the real one.
+		if hash := firstCommentStart(src[lineStart:i]); hash >= 0 {
+			before := max(lineStart, skipBlanksBackward(src, lineStart+hash))
+			if before == lineStart {
+				// The whole line is a comment: keep walking back.
+				i = skipTriviaBackward(src, lineStart)
+				continue
+			}
+			if isAndOrOperatorAt(src, before-2) {
+				return before - 2, true
+			}
+			// The `#` may sit inside quotes (`"a #b" &&`); fall through and try
+			// the line's real last token.
+		}
+		if isAndOrOperatorAt(src, i-2) {
+			return i - 2, true
+		}
+		if isAndOrOperatorAt(src, last) {
+			return last, true
+		}
+		return 0, false
+	}
+}
+
+// skipTriviaBackward returns the offset just past the last byte before end that
+// is not a blank, a newline, or part of a `\` line continuation.
+func skipTriviaBackward(src []byte, end int) int {
+	i := end
+	for i > 0 {
+		switch src[i-1] {
+		case ' ', '	':
+			i--
+			continue
+		case '\n':
+			i--
+			// Only an unescaped `\` continues the line: `\\` before the
+			// newline is an escaped backslash, which is a word.
+			n := 0
+			for i-n > 0 && src[i-n-1] == '\\' {
+				n++
+			}
+			if n%2 == 1 {
+				i--
+			}
+			continue
+		}
+		return i
+	}
+	return i
+}
+
+// firstCommentStart returns the offset in line of the first `#` that begins a
+// word, or -1. A `#` glued to a preceding word byte (`a#b`, `$#`, `${#x}`,
+// `(#i)`) does not start a comment. An operator byte ends a word, so `||#c`
+// does.
+func firstCommentStart(line []byte) int {
+	for j, b := range line {
+		if b != '#' {
+			continue
+		}
+		if j == 0 {
+			return 0
+		}
+		switch line[j-1] {
+		case ' ', '	', ';', '&', '|':
+			return j
+		}
+	}
+	return -1
+}
+
+// isAndOrOperatorAt reports whether src holds `&&` or `||` at i.
+func isAndOrOperatorAt(src []byte, i int) bool {
+	return i >= 0 && i+1 < len(src) && src[i] == src[i+1] && (src[i] == '&' || src[i] == '|')
+}
+
+// skipListTrivia returns the first offset at or after i that is not a blank, a
+// newline, a comment, or a `\` line continuation: the bytes Zsh reads between
+// a list operator and whatever follows it.
+func skipListTrivia(src []byte, i int) int {
+	for {
+		i = skipSpacesAndComments(src, i)
+		if i+1 < len(src) && src[i] == '\\' && src[i+1] == '\n' {
+			i += 2
+			continue
+		}
+		return i
+	}
 }
 
 // findDanglingAndOr reports the offset of a `&&` or `||` that ends its list.
@@ -144,40 +249,35 @@ func findDanglingAndOr(src []byte, seed int) (int, bool) {
 //
 // Newlines are skipped: Zsh reads an operator's right operand across a line
 // break, so `print a &&\nprint b` is an ordinary two-statement list and only a
-// terminator after the newline makes the operator dangling.
+// terminator after the newline makes the operator dangling. A `\` line
+// continuation is skipped for the same reason (#466).
 func danglingOperatorEndsList(src []byte, i int) bool {
-	for i < len(src) {
-		i = skipSpacesAndComments(src, i)
-		if i >= len(src) {
-			// End of input closes the outermost list.
-			return true
-		}
-		switch src[i] {
-		case '\n':
-			i++
-			continue
-		case ';':
-			// `;` terminates the list; `;;` and `;&` terminate a case arm.
-			return true
-		case '}', ')':
-			// A closing brace, subshell or case-arm paren.
-			return true
-		case '&':
-			// `&` backgrounds the left operand and ends the list, but `&&` is a
-			// second operator, which Zsh rejects.
-			return i+1 >= len(src) || src[i+1] != '&'
-		case '|':
-			// Another operator with no left operand: invalid in Zsh.
-			return false
-		}
-		// A keyword that closes the enclosing construct behaves as a terminator.
-		for _, kw := range [...]string{"done", "fi", "esac", "then", "else", "elif"} {
-			if matchSourceWord(src, i, kw) {
-				return true
-			}
-		}
-		// Anything else is a real right operand.
+	i = skipListTrivia(src, i)
+	if i >= len(src) {
+		// End of input closes the outermost list.
+		return true
+	}
+	switch src[i] {
+	case ';':
+		// `;` terminates the list; `;;` and `;&` terminate a case arm.
+		return true
+	case '}', ')':
+		// A closing brace, subshell or case-arm paren.
+		return true
+	case '&':
+		// `&` backgrounds the left operand and ends the list, but `&&` is a
+		// second operator, which Zsh rejects.
+		return i+1 >= len(src) || src[i+1] != '&'
+	case '|':
+		// Another operator with no left operand: invalid in Zsh.
 		return false
 	}
-	return true
+	// A keyword that closes the enclosing construct behaves as a terminator.
+	for _, kw := range [...]string{"done", "fi", "esac", "then", "else", "elif"} {
+		if matchSourceWord(src, i, kw) {
+			return true
+		}
+	}
+	// Anything else is a real right operand.
+	return false
 }
