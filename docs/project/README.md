@@ -22,6 +22,7 @@ Change them in the same PR as the behavior they describe.
 Point-in-time survey runs and decisions.
 They are history, not policy; read the newest first and do not update older ones.
 
+- [2026-09-26 dangling operator trivia survey](2026-09-26-dangling-operator-trivia-survey.md)
 - [2026-09-24 quoted nested key survey](2026-09-24-quoted-nested-key-survey.md)
 - [2026-09-24 flagged pattern command substitution survey](2026-09-24-flag-pattern-command-substitution-survey.md)
 - [2026-09-24 flagged pattern in arithmetic survey](2026-09-24-flag-pattern-arithmetic-survey.md)
