@@ -52,7 +52,17 @@ Its three failures are new gaps, each filed:
 | Completion | 1026         | 111        | 1                   |
 
 The Regression corpus job's first CI run (Actions run `36254455546`) judged the same files with the runner's `zsh 5.9` from Ubuntu, not 5.9.2, and reported `1083 file(s) compared, 1083 unchanged; known: 114 gap(s), 6 false accept(s)`.
-The five extra false accepts are files that 5.9 rejects and 5.9.2 accepts; they are known on both builds, so they do not fail the job, but a pull request that changes one of them is judged against 5.9.
+The five extra false accepts are files that 5.9 rejects and 5.9.2 accepts. This was checked by running `zsh -f -n` from Ubuntu 24.04's `zsh 5.9` (`x86_64-ubuntu-linux-gnu`, the runner's package) over all 1083 files and comparing each verdict with local 5.9.2; exactly these five differ, and `zsh-lint-survey` parses all five:
+
+| File under `Completion/`    | `zsh 5.9` diagnostic                                              |
+| --------------------------- | ----------------------------------------------------------------- |
+| `BSD/Type/_login_classes`   | `:5: no such file or directory: /etc/login.conf`                  |
+| `Debian/Command/_axi-cache` | `:5: no such file or directory: /var/lib/apt-xapian-index/values` |
+| `Debian/Command/_deborphan` | `:4: no such file or directory:`                                  |
+| `Unix/Type/_ctags_tags`     | `:5: no such file or directory: tags`                             |
+| `Unix/Type/_sys_calls`      | `:15: no such file or directory:`                                 |
+
+Each holds a `$(< file)` substitution in a command argument or an array element, which 5.9's `-n` evaluates, so the missing file is reported and `-n` exits 1. Minimal rows show the split: `x=( $(</nonexistent/a) )`, `x=( ${(f)"$(</nonexistent/a)"} )`, `print "$(</nonexistent/a)"` and `print ${(f)"$(</nonexistent/a)"}` exit 1 under 5.9 and 0 under 5.9.2, while the scalar assignments `x=$(</nonexistent/a)` and `x="$(</nonexistent/a)"` exit 0 under both. This is the class of the native-gate artifact #287, `-n` evaluating a word rather than checking syntax, not a parser defect. They are known on both builds, so they do not fail the job, but a pull request that changes one of them is judged against 5.9.
 
 Locally, the one false accept is `Completion/Base/Utility/_pick_variant`, which `zsh -f -n` rejects only because it expands `${(P)opts[-r]::=$1}` at top level; that is the native-gate artifact #287, not a parser defect.
 
