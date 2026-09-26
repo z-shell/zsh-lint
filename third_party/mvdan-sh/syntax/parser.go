@@ -4,6 +4,7 @@
 package syntax
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"iter"
@@ -2431,6 +2432,12 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			if p.lang.in(LangZsh) && !p.spaced {
 				w.Parts = append(w.Parts, p.wordParts(nil)...)
 			}
+			if p.lang.in(LangZsh) && p.tok == leftParen && p.r == ')' {
+				p.next()
+				p.follow(w.Pos(), "foo(", rightParen)
+				p.funcDecl(s, w.Pos(), false, true, p.wordToLit(w))
+				break
+			}
 			p.callExpr(s, w, false)
 		}
 	case bckQuote:
@@ -2446,6 +2453,12 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			break
 		}
 		w := p.wordAnyNumber()
+		if p.lang.in(LangZsh) && p.tok == leftParen && p.r == ')' {
+			p.next()
+			p.follow(w.Pos(), "foo(", rightParen)
+			p.funcDecl(s, w.Pos(), false, true, p.wordToLit(w))
+			break
+		}
 		if p.got(leftParen) {
 			p.posErr(w.Pos(), "invalid func name")
 		}
@@ -3464,9 +3477,23 @@ func (p *Parser) bashFuncDecl(s *Stmt) {
 	fpos := p.pos
 	p.next()
 	names := make([]*Lit, 0, 1)
-	for p.tok == _LitWord && p.val != "{" {
-		names = append(names, p.lit(p.pos, p.val))
-		p.next()
+	if p.lang.in(LangZsh) {
+		// A Zsh name is any word, as in `function _w_${cur} { :; }` (zsh-lint
+		// #234). funcNameWord returns nil at a token that cannot start a word
+		// (a redirect, `&&`, `|`, `(`, `;`, a newline), which ends the names as
+		// the literal loop below ends at a non-literal.
+		for p.tok != _LitWord || p.val != "{" {
+			w := p.funcNameWord()
+			if w == nil {
+				break
+			}
+			names = append(names, p.wordToLit(w))
+		}
+	} else {
+		for p.tok == _LitWord && p.val != "{" {
+			names = append(names, p.lit(p.pos, p.val))
+			p.next()
+		}
 	}
 	hasParens := p.got(leftParen)
 	switch len(names) {
@@ -3589,6 +3616,79 @@ loop:
 		}
 	}
 	s.Cmd = ce
+}
+
+// funcNameWord reads one function name word. It is getWord except that an
+// unspaced `(` ends the word, so `foo(` and `f$x()` keep `(` for the
+// parentheses instead of reading a Zsh glob group. It returns nil at a token
+// that cannot start a word.
+func (p *Parser) funcNameWord() *Word {
+	if p.quote == noState {
+		p.quote = unquotedWordCont
+		defer func() { p.quote = noState }()
+	}
+	var parts []WordPart
+	for p.tok != leftParen {
+		n := p.wordPart()
+		if n == nil {
+			break
+		}
+		parts = append(parts, n)
+		if p.spaced {
+			break
+		}
+	}
+	if len(parts) == 0 || p.err != nil {
+		return nil
+	}
+	return &Word{Parts: parts}
+}
+
+// zshNameClosesBrace reports whether a function name ends in an unquoted `}`
+// that closes no `{` of the name, as in `a$x}` or `a{b}}`. Zsh reads that `}`
+// as the end of a block and rejects the definition, while `a}b`, `{a}` and
+// `a{b}` are names.
+func zshNameClosesBrace(w *Word) bool {
+	depth := 0
+	for pi, part := range w.Parts {
+		lit, ok := part.(*Lit)
+		if !ok {
+			continue
+		}
+		v := lit.Value
+		for i := 0; i < len(v); i++ {
+			switch v[i] {
+			case '\\':
+				i++ // an escaped byte is text
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if pi == len(w.Parts)-1 && i == len(v)-1 {
+					return depth < 0
+				}
+			}
+		}
+	}
+	return false
+}
+
+// wordToLit turns a function name word into the Lit that FuncDecl stores.
+// It keeps the word's printed source, such as `_w_${cur}`, which for a
+// literal is its value, since the parser does not retain the input bytes. The caller
+// passes a word with at least one part (funcNameWord and wordAnyNumber after
+// a word start guarantee it), and printing into a bytes.Buffer cannot fail.
+func (p *Parser) wordToLit(w *Word) *Lit {
+	if zshNameClosesBrace(w) {
+		p.posErr(w.Pos(), "invalid func name")
+	}
+	var buf bytes.Buffer
+	_ = NewPrinter().Print(&buf, w)
+	return &Lit{
+		ValuePos: w.Pos(),
+		ValueEnd: w.End(),
+		Value:    buf.String(),
+	}
 }
 
 func (p *Parser) funcDecl(s *Stmt, pos Pos, long, withParens bool, names ...*Lit) {

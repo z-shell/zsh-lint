@@ -637,11 +637,13 @@ var errorCases = []errorCase{
 	errCase(
 		`"foo"(){ :; }`,
 		langErr("1:1: invalid func name"),
+		langErr("", LangZsh),
 		flipConfirm(LangMirBSDKorn), // TODO: support non-literal func names
 	),
 	errCase(
 		`foo$bar(){ :; }`,
 		langErr("1:1: invalid func name"),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"{",
@@ -1482,6 +1484,7 @@ var errorCases = []errorCase{
 	errCase(
 		`""()`,
 		langErr("1:1: invalid func name"),
+		langErr("1:1: `foo()` must be followed by a statement", LangZsh),
 		flipConfirm(LangMirBSDKorn), // TODO: support non-literal func names, even empty ones?
 	),
 	errCase(
@@ -1781,7 +1784,7 @@ var errorCases = []errorCase{
 	errCase(
 		`function "foo"(){}`,
 		langErr("1:1: `function` must be followed by a name", LangBash|LangMirBSDKorn),
-		langErr("1:10: invalid func name", LangZsh),
+		langErr("", LangZsh),
 	),
 	errCase(
 		"function foo()",
@@ -3016,5 +3019,72 @@ func TestZshForeach(t *testing.T) {
 			_, isCall := stmt.Cmd.(*CallExpr)
 			qt.Check(t, qt.IsTrue(isCall), qt.Commentf("%v: %T", lang, stmt.Cmd))
 		}
+	}
+}
+
+// TestZshFuncNameWord pins the Zsh function name loop (zsh-lint #234): a name
+// is any word, and a token that cannot start a word ends the names.
+func TestZshFuncNameWord(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		src   string
+		names []string
+	}{
+		{"function _w_${cur} { :; }", []string{"_w_${cur}"}},
+		{"function a$x b \"c\" { :; }", []string{"a$x", "b", `"c"`}},
+		{"function foo > out { :; }", []string{"foo"}},
+		{"function foo ((x))", []string{"foo"}},
+		{"function f$x() { :; }", []string{"f$x"}},
+		{"f$x() { :; }", []string{"f$x"}},
+		{"a(N)() { :; }", []string{"a(N)"}},
+		{"a$(x)() { :; }", []string{"a$(x)"}},
+		{"$x () { :; }", []string{"$x"}},
+		{"function a${x}#b { :; }", []string{"a${x}#b"}},
+		{"function x${y}}z { :; }", []string{"x${y}}z"}},
+		{"function a${x}'}' { :; }", []string{"a${x}'}'"}},
+		{`function a${x}\} { :; }`, []string{`a${x}\}`}},
+		{"function a{b} { :; }", []string{"a{b}"}},
+		{`function {a\}} { :; }`, []string{`{a\}}`}},
+	} {
+		f, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(tc.src), "")
+		qt.Assert(t, qt.IsNil(err), qt.Commentf("%q", tc.src))
+		fd, ok := f.Stmts[0].Cmd.(*FuncDecl)
+		qt.Assert(t, qt.IsTrue(ok), qt.Commentf("%q: %T", tc.src, f.Stmts[0].Cmd))
+		var got []string
+		if fd.Name != nil {
+			got = append(got, fd.Name.Value)
+		}
+		for _, name := range fd.Names {
+			got = append(got, name.Value)
+		}
+		qt.Check(t, qt.DeepEquals(got, tc.names), qt.Commentf("%q", tc.src))
+	}
+	// The name keeps its source span.
+	f, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader("function _w_${cur} { :; }"), "")
+	qt.Assert(t, qt.IsNil(err))
+	name := f.Stmts[0].Cmd.(*FuncDecl).Name
+	qt.Check(t, qt.Equals(name.Pos().Offset(), uint(9)))
+	qt.Check(t, qt.Equals(name.End().Offset(), uint(18)))
+	// A token that cannot start a word is an error, not an empty name.
+	for _, src := range []string{
+		"function foo &", "function foo(", "function foo && bar",
+		// Zsh reads a trailing `}` that closes no `{` of the name as the end
+		// of a block; each row fails `zsh -f -n`.
+		"function a$x} { :; }", "function a} { :; }", "function a{b}} { :; }", "a$x}() { :; }",
+		`function a\{} { :; }`, `function a\\} { :; }`,
+	} {
+		_, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(src), "")
+		qt.Check(t, qt.IsNotNil(err), qt.Commentf("%q", src))
+	}
+	// A `(` that does not open `()` after a non-literal word keeps the
+	// existing error rather than reading a definition.
+	for _, src := range []string{"$x (a)", "f$x (N)"} {
+		_, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(src), "")
+		qt.Check(t, qt.ErrorMatches(err, "1:1: invalid func name"), qt.Commentf("%q", src))
+	}
+	// Outside Zsh, a name stays a literal.
+	for _, lang := range []LangVariant{LangBash, LangMirBSDKorn} {
+		_, err := NewParser(Variant(lang)).Parse(strings.NewReader("function _w_${cur} { :; }"), "")
+		qt.Check(t, qt.IsNotNil(err), qt.Commentf("%v", lang))
 	}
 }
