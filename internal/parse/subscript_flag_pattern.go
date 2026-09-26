@@ -850,8 +850,8 @@ func substitutionBodyParses(body []byte) bool {
 // Measured with `zsh -f -n` on a file holding only the word, against
 // `syntax.LangZsh` on the same bytes. `else` is a reserved word that cannot open
 // a list; `nocorrect` and `repeat` are prefixes that require a following
-// command; `foreach` and `end` belong to the `foreach` loop the front end does
-// not support yet (issue #214). Words that merely look reserved are NOT here
+// command; `foreach` and `end` belong to the `foreach` loop (issue #214).
+// Words that merely look reserved are NOT here
 // because Zsh accepts them alone as ordinary commands: `in`, `fo`, `time` and
 // `coproc` all exit 0, so refusing them would reject valid source.
 var zshIncompleteWords = map[string]struct{}{

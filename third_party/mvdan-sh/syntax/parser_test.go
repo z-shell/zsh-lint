@@ -574,6 +574,11 @@ var errorCases = []errorCase{
 		langErr("1:1: `done` can only be used to end a loop"),
 	),
 	errCase(
+		"end",
+		langErr(""),
+		langErr("1:1: `end` can only be used to end a loop", LangZsh),
+	),
+	errCase(
 		"esac",
 		langErr("1:1: `esac` can only be used to end a `case`"),
 	),
@@ -1062,6 +1067,16 @@ var errorCases = []errorCase{
 		"select in 1 2 3; do echo $i; done",
 		langErr("1:1: `select foo` must be followed by `in`, `do`, `;`, or a newline", LangBash|LangMirBSDKorn|LangZsh),
 		langErr("1:18: `do` can only be used in a loop", LangZsh),
+	),
+	errCase(
+		"foreach",
+		langErr(""),
+		langErr("1:1: `foreach` must be followed by a literal", LangZsh),
+	),
+	errCase(
+		"foreach i (1 2); echo $i",
+		langErr(""),
+		langErr("1:1: `foreach` statement must end with `end`", LangZsh),
 	),
 	errCase(
 		"echo foo &\n;",
@@ -2941,4 +2956,65 @@ func countRecoveredPositions(x reflect.Value) int {
 		return n
 	}
 	return 0
+}
+
+func TestZshForeach(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		src string
+	}{
+		{"foreach v (a b)\nprint $v\nend\n"},
+		{"foreach v (a b)\nend\n"},
+		{"foreach v end\n"},
+		{"foreach a b (1 2 3 4)\nprint $a $b\nend\n"},
+		{"foreach v in a b; print $v; end\n"},
+		{"foreach v (a b) { print $v }\n"},
+		{"foreach v (a b) do print $v; done\n"},
+	}
+	for _, tc := range cases {
+		p := NewParser(Variant(LangZsh))
+		f, err := p.Parse(strings.NewReader(tc.src), "test.zsh")
+		if err != nil {
+			t.Fatalf("Parse(%q) failed: %v", tc.src, err)
+		}
+		if len(f.Stmts) == 0 {
+			t.Fatalf("no statements for %q", tc.src)
+		}
+		if _, ok := f.Stmts[0].Cmd.(*ForClause); !ok {
+			t.Fatalf("Cmd is %T, want *ForClause for %q", f.Stmts[0].Cmd, tc.src)
+		}
+	}
+	// A loop left without a body inside the foreach list ends at `end`, as
+	// native Zsh reads it; each row passes `zsh -f -n`.
+	for _, src := range []string{
+		"foreach v (a)\n  for i in x\nend\n",
+		"foreach v (a); repeat 2; end\n",
+		"foreach v (a)\n  while true\nend\n",
+		"foreach v (a)\n  if true\nend\n",
+	} {
+		if _, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(src), ""); err != nil {
+			t.Errorf("Parse(%q) failed: %v", src, err)
+		}
+	}
+	// An empty body still records the loop's `end`.
+	f, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader("foreach v (a)\nend\n"), "")
+	qt.Assert(t, qt.IsNil(err))
+	fc := f.Stmts[0].Cmd.(*ForClause)
+	qt.Check(t, qt.Equals(fc.DoPos.Offset(), uint(14)))
+	qt.Check(t, qt.Equals(fc.DonePos.Offset(), uint(14)))
+	qt.Check(t, qt.Equals(fc.End().Offset(), uint(17)))
+	// Outside Zsh, `foreach` and `end` stay ordinary command names.
+	for _, lang := range []LangVariant{LangBash, LangPOSIX, LangMirBSDKorn} {
+		f, err := NewParser(Variant(lang)).Parse(strings.NewReader("foreach v (a)\nend\n"), "")
+		if err == nil {
+			t.Errorf("%v: foreach with a word list parsed, want the call error", lang)
+		}
+		f, err = NewParser(Variant(lang)).Parse(strings.NewReader("foreach v\nend\n"), "")
+		qt.Assert(t, qt.IsNil(err), qt.Commentf("%v", lang))
+		qt.Check(t, qt.HasLen(f.Stmts, 2))
+		for _, stmt := range f.Stmts {
+			_, isCall := stmt.Cmd.(*CallExpr)
+			qt.Check(t, qt.IsTrue(isCall), qt.Commentf("%v: %T", lang, stmt.Cmd))
+		}
+	}
 }

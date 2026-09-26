@@ -1111,7 +1111,7 @@ loop:
 			// valid.
 			if braceStop != zshBraceNone && count > 0 {
 				switch p.val {
-				case "}", "then", "else", "elif", "fi", "do", "done", "esac":
+				case "}", "then", "else", "elif", "fi", "do", "done", "esac", "end":
 					break loop
 				}
 			}
@@ -2334,6 +2334,10 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			}
 		case "for":
 			p.forClause(s)
+		case "foreach":
+			if p.lang.in(LangZsh) {
+				p.foreachClause(s)
+			}
 		case "case":
 			p.caseClause(s)
 		// TODO(zsh): { try-list } "always" { always-list }
@@ -2352,6 +2356,10 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			p.curErr(`%#q can only be used in a loop`, p.val)
 		case "done":
 			p.curErr(`%#q can only be used to end a loop`, p.val)
+		case "end":
+			if p.lang.in(LangZsh) {
+				p.curErr(`%#q can only be used to end a loop`, p.val)
+			}
 		case "esac":
 			p.curErr("%#q can only be used to end a `case`", p.val)
 		case "!":
@@ -2768,6 +2776,14 @@ func (p *Parser) forClause(s *Stmt) {
 	s.Cmd = fc
 }
 
+func (p *Parser) foreachClause(s *Stmt) {
+	fc := &ForClause{ForPos: p.pos}
+	p.next()
+	fc.Loop = p.zshWordIter("foreach", fc.ForPos, true)
+	p.zshLoopBody(s, fc, "foreach")
+	s.Cmd = fc
+}
+
 func (p *Parser) loop(fpos Pos) Loop {
 	switch p.tok {
 	case leftParen, dblLeftParen:
@@ -2838,7 +2854,7 @@ func (p *Parser) zshWordIter(ftok string, fpos Pos, multi bool) *WordIter {
 	for multi {
 		if p.tok == _LitWord {
 			switch {
-			case p.val == "in", p.val == "do", p.val == "}", strings.HasPrefix(p.val, "{"):
+			case p.val == "in", p.val == "do", p.val == "}", strings.HasPrefix(p.val, "{"), p.val == "end":
 			default:
 				if !zshParamName(p.val) {
 					p.curErr("%#q is not a valid name for a %s loop", p.val, ftok)
@@ -2954,6 +2970,17 @@ func (p *Parser) zshLoopBodyOf(s *Stmt, n Node, rsrv string) (b zshLoop) {
 		b.end = posAddCol(rbrace, 1)
 		return b
 	}
+	if rsrv == "foreach" {
+		b.do, b.doLast = p.followStmts("foreach", n.Pos(), "end")
+		b.donePos = p.stmtEnd(n, "foreach", "end")
+		if len(b.do) > 0 {
+			b.doPos = b.do[0].Pos()
+		} else {
+			b.doPos = b.donePos
+		}
+		b.end = posAddCol(b.donePos, len("end"))
+		return b
+	}
 	var body *Stmt
 	b.doPos, b.donePos, body = p.zshShortBody(rsrv + " loop")
 	if body != nil {
@@ -3026,7 +3053,7 @@ func (p *Parser) zshEmptyLoopBody() bool {
 		return p.backquoteEnd()
 	case _LitWord:
 		switch p.val {
-		case "}", "then", "do", "done", "fi", "elif", "else", "esac":
+		case "}", "then", "do", "done", "fi", "elif", "else", "esac", "end":
 			return true
 		}
 	}
