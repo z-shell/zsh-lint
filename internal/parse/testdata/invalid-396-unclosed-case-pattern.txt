@@ -1,0 +1,4 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
+case x in
+  (|a print hit ;;
+esac
