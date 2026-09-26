@@ -1,0 +1,4 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Simple-Commands-_0026-Pipelines
+# Issue #278: `[[` after an assignment prefix opens a conditional
+# expression, which cannot follow an assignment.
+x=1 [[ a == a ]]

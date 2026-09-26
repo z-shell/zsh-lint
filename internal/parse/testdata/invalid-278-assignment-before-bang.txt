@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Simple-Commands-_0026-Pipelines
+# Issue #278: an assignment prefix before a reserved word. Zsh keeps
+# command position after the prefix, so `!` here opens a pipeline, which
+# cannot follow an assignment; `zsh -f -n` reports "parse error near `!'".
+x=1 ! true

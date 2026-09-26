@@ -20,6 +20,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | A `RepeatClause` node for `repeat count` loops (`do list done`, `{ list }` or one sublist, as `for` reads its body), with walk, printer and `typedjson` support | `syntax/nodes.go`, `syntax/parser.go`, `syntax/walk.go`, `syntax/printer.go`, `syntax/typedjson/json.go` | [#281](https://github.com/z-shell/zsh-lint/issues/281) |
 | Function definitions whose name is any word, holding a parameter expansion, quote or command substitution (`word()` and `function word ...`), and a name ending in a `}` that closes no `{` of the name rejected as zsh does | `syntax/parser.go`, `syntax/parser_test.go` | [#234](https://github.com/z-shell/zsh-lint/issues/234) |
 | Semicolons and newlines between the case word and `in` (`case word; in`) | `syntax/parser.go`, `syntax/parser_test.go` | [#485](https://github.com/z-shell/zsh-lint/issues/485) |
+| After an assignment prefix, `!`, `[[`, `{`, `(`, `time`, `coproc`, `if`, `case`, `while`, `until`, `for`, `select`, `foreach` and `function` are rejected, and a closing reserved word (`then`, `fi`, `do`, `done`, `esac`, `end`, ...) ends the command, as Zsh keeps command position after the prefix | `syntax/parser.go`, `syntax/parser_test.go` | [#278](https://github.com/z-shell/zsh-lint/issues/278) |
 
 ## Taking an upstream release
 
