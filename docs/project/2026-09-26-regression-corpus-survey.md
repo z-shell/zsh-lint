@@ -51,7 +51,10 @@ Its three failures are new gaps, each filed:
 | F-Sy-H     | 54           | 3          | 0                   |
 | Completion | 1026         | 111        | 1                   |
 
-The false accept is `Completion/Base/Utility/_pick_variant`, which `zsh -f -n` rejects only because it expands `${(P)opts[-r]::=$1}` at top level; that is the native-gate artifact #287, not a parser defect.
+The Regression corpus job's first CI run (Actions run `36254455546`) judged the same files with the runner's `zsh 5.9` from Ubuntu, not 5.9.2, and reported `1083 file(s) compared, 1083 unchanged; known: 114 gap(s), 6 false accept(s)`.
+The five extra false accepts are files that 5.9 rejects and 5.9.2 accepts; they are known on both builds, so they do not fail the job, but a pull request that changes one of them is judged against 5.9.
+
+Locally, the one false accept is `Completion/Base/Utility/_pick_variant`, which `zsh -f -n` rejects only because it expands `${(P)opts[-r]::=$1}` at top level; that is the native-gate artifact #287, not a parser defect.
 
 The largest Completion families by first error:
 
