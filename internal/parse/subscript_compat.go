@@ -150,6 +150,7 @@ type associativeKey struct {
 	open        int
 	close       int
 	punctuation []int
+	spaces      []int
 }
 
 func findBareAssociativeKey(src []byte, seed int, errorText string) (associativeKey, bool) {
@@ -209,18 +210,27 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (associative
 	first := src[open+1]
 	switch {
 	case errorText == invalidSubscriptExpression:
-		if first != '.' || seed != open {
+		if first != '.' || seed != open || len(key.spaces) > 0 {
 			return associativeKey{}, false
 		}
 	case errorText == invalidSubscriptTernary:
-		if src[seed] != ':' || !slices.Contains(key.punctuation, seed) {
+		if src[seed] != ':' || !slices.Contains(key.punctuation, seed) || len(key.spaces) > 0 {
 			return associativeKey{}, false
 		}
 	case strings.HasPrefix(errorText, invalidSubscriptArithmetic):
 		// `g[@x]`, or an operand straight after a postfix doubled sign,
 		// `g[a--b]`: the decrement took `a`, and `b` has no operator.
 		atKey := first == '@' && key.close-key.open > 2
-		if !atKey && !isDoubledSignAt(src, key, seed-2) {
+		switch {
+		case len(key.spaces) > 0:
+			// `g[a b]`: a key word straight after another across blanks, where
+			// arithmetic cannot continue (#372). Only this shape masks blanks;
+			// every other key with a blank stays arithmetic, as `${map[$M :b]}`.
+			if !isBareKeyWordAfterSpaceAt(src, key, seed) {
+				return associativeKey{}, false
+			}
+			key.punctuation = append(key.punctuation, key.spaces...)
+		case !atKey && !isDoubledSignAt(src, key, seed-2):
 			return associativeKey{}, false
 		}
 	default:
@@ -231,23 +241,79 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (associative
 			// key is recognized: dropping either check changed no verdict
 			// over every key of up to four bytes from the key alphabet.
 			// They stay as the statement of what the retry relies on.
-			if src[seed] != sign || !isDoubledSignAt(src, key, seed) {
+			if src[seed] != sign || !isDoubledSignAt(src, key, seed) || len(key.spaces) > 0 {
 				return associativeKey{}, false
 			}
 			break
 		}
 		op, ok := subscriptOperatorError(errorText)
-		if !ok || src[seed] != op || !slices.Contains(key.punctuation, seed) {
+		if !ok || src[seed] != op || !slices.Contains(key.punctuation, seed) || len(key.spaces) > 0 {
 			return associativeKey{}, false
 		}
 	}
 	return key, true
 }
 
+func isSpaceByte(b byte) bool {
+	return b == ' ' || b == '\t'
+}
+
+// isBareKeyWordAfterSpaceAt reports whether seed is the start of a bare-key
+// word that follows another word across whitespace, where native Zsh reads the
+// subscript as associative key text because arithmetic cannot continue. The
+// caller guarantees key.open < seed <= key.close (findBareAssociativeKey walks
+// back from seed to the key's `[` and refuses to cross a `]`) and a `[` at
+// key.open, so src[key.close] is `]` and the walk back stops at the `[`.
+func isBareKeyWordAfterSpaceAt(src []byte, key associativeKey, seed int) bool {
+	if !isSpaceByte(src[seed-1]) || !isIdentByte(src[seed]) {
+		return false
+	}
+	p := seed - 1
+	for isSpaceByte(src[p]) {
+		p--
+	}
+	return isIdentByte(src[p])
+}
+
+// isInsideBracedParamExp reports whether the subscript at open belongs to a
+// braced parameter expansion `${...}`: the name before open is preceded only
+// by `${`, optionally with the `+ ~ = # ^ !` prefixes and `(...)` flag groups.
+// The caller guarantees open > 0 and a name byte at open-1.
+func isInsideBracedParamExp(src []byte, open int) bool {
+	p := open - 1
+	for p >= 0 && isIdentByte(src[p]) {
+		p--
+	}
+	for p >= 0 {
+		switch src[p] {
+		case '+', '~', '=', '#', '^', '!':
+			p--
+			continue
+		case ')':
+			// A flag group; its delimited arguments may hold any byte,
+			// including a newline, as in `${(j:\n:)Z[a b]}`.
+			depth := 1
+			for p--; p >= 0 && depth > 0; p-- {
+				switch src[p] {
+				case ')':
+					depth++
+				case '(':
+					depth--
+				}
+			}
+			continue
+		}
+		break
+	}
+	return p >= 1 && src[p-1] == '$' && src[p] == '{'
+}
+
 // scanBareAssociativeKey reads the key that starts after the `[` at open. It
-// records the punctuation bytes to mask and steps over `$name`, `${...}`, and
-// `$(...)` without masking inside them. Any other byte, including quotes,
-// backticks, whitespace, and special parameters, leaves the key unrecognized.
+// records the punctuation and space bytes to mask and steps over `$name`,
+// `${...}`, and `$(...)` without masking inside them. Any other byte,
+// including quotes, backticks, and special parameters, leaves the key
+// unrecognized. Whitespace is permitted only inside a braced parameter
+// expansion.
 func scanBareAssociativeKey(src []byte, open int) (associativeKey, bool) {
 	key := associativeKey{open: open}
 	for offset := open + 1; offset < len(src); offset++ {
@@ -268,6 +334,11 @@ func scanBareAssociativeKey(src []byte, open int) (associativeKey, bool) {
 				return associativeKey{}, false
 			}
 			offset = end
+		case isSpaceByte(b):
+			if !isInsideBracedParamExp(src, open) {
+				return associativeKey{}, false
+			}
+			key.spaces = append(key.spaces, offset)
 		default:
 			return associativeKey{}, false
 		}
