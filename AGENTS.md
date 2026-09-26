@@ -42,7 +42,11 @@ Read the matching file before changing code under its path; Copilot loads them b
 - `.github/instructions/parser-front-end.instructions.md` for the parser (`internal/parse/`, `internal/survey/`): dual-oracle proof, adapter invariants, fixture naming.
   The full contract is `docs/project/parser-gap-workflow.md`.
 - `.github/skills/parser-gap-fix/SKILL.md` is the step-by-step procedure for a parser change, with the commands that prove and verify it; it is advisory and defers to the contract.
-- For parser and scanner logic, follow the organization's [generator-verifier workflow](https://github.com/z-shell/.github/blob/main/.github/instructions/generator-verifier-workflow.instructions.md) and [testing instructions](https://github.com/z-shell/.github/blob/main/.github/instructions/testing.instructions.md): draft, then verify adversarially against native Zsh.
+- Parser and scanner logic also follows organization guidance that lives in the [z-shell/.github repository](https://github.com/z-shell/.github), not here.
+  Copilot loads it through `.github/instruction-surfaces.json` there; every other runtime opens each file from a `z-shell/.github` checkout before editing `internal/parse/`:
+  - `.github/instructions/zsh-scripting.instructions.md`, the [zsh-scripting instructions](https://github.com/z-shell/.github/blob/main/.github/instructions/zsh-scripting.instructions.md): the released Zsh manual is the semantic authority.
+  - `.github/instructions/generator-verifier-workflow.instructions.md`, the [generator-verifier workflow](https://github.com/z-shell/.github/blob/main/.github/instructions/generator-verifier-workflow.instructions.md), and `.github/instructions/testing.instructions.md`, the [testing instructions](https://github.com/z-shell/.github/blob/main/.github/instructions/testing.instructions.md): draft, then verify adversarially against native Zsh.
+  - `.github/skills/zsh-manual-research/SKILL.md`, the [zsh-manual-research skill](https://github.com/z-shell/.github/blob/main/.github/skills/zsh-manual-research/SKILL.md), which the manifest routes to the `zsh-lint-parser-gap` task class.
 
 `docs/project/README.md` separates the living contracts from dated survey reports.
 
