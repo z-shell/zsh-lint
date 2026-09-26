@@ -19,6 +19,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | The csh-style `foreach ... end` loop (one or more names, `( word ... )` or `in word ...`, `list end`, `{ list }` or `do list done`), and `end` reserved in command position | `syntax/parser.go`, `syntax/nodes.go`, `syntax/parser_test.go` | [#214](https://github.com/z-shell/zsh-lint/issues/214) |
 | A `RepeatClause` node for `repeat count` loops (`do list done`, `{ list }` or one sublist, as `for` reads its body), with walk, printer and `typedjson` support | `syntax/nodes.go`, `syntax/parser.go`, `syntax/walk.go`, `syntax/printer.go`, `syntax/typedjson/json.go` | [#281](https://github.com/z-shell/zsh-lint/issues/281) |
 | Function definitions whose name is any word, holding a parameter expansion, quote or command substitution (`word()` and `function word ...`), and a name ending in a `}` that closes no `{` of the name rejected as zsh does | `syntax/parser.go`, `syntax/parser_test.go` | [#234](https://github.com/z-shell/zsh-lint/issues/234) |
+| Semicolons and newlines between the case word and `in` (`case word; in`) | `syntax/parser.go`, `syntax/parser_test.go` | [#485](https://github.com/z-shell/zsh-lint/issues/485) |
 
 ## Taking an upstream release
 
