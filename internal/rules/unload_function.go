@@ -242,7 +242,7 @@ func isHookRegistrationCall(call *syntax.CallExpr) bool {
 }
 
 func checkUnloadFunctionHygiene(ctx *analyzer.Context, fn *syntax.FuncDecl, ruleID diag.RuleID) {
-	if fn == nil || fn.Name == nil {
+	if fn == nil || fn.Name == nil || fn.Body == nil {
 		return
 	}
 	fnName := fn.Name.Value

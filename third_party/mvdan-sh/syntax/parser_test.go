@@ -1773,7 +1773,6 @@ var errorCases = []errorCase{
 	errCase(
 		"function",
 		langErr("1:1: `function` must be followed by a name", LangBash|LangMirBSDKorn),
-		langErr("1:1: `foo()` must be followed by a statement", LangZsh),
 	),
 	errCase(
 		"function foo(",
@@ -1782,7 +1781,7 @@ var errorCases = []errorCase{
 	errCase(
 		"function `function",
 		langErr("1:1: `function` must be followed by a name", LangBash|LangMirBSDKorn),
-		langErr("1:11: `foo()` must be followed by a statement", LangZsh),
+		langErr("1:10: reached EOF without closing quote \"`\"", LangZsh),
 	),
 	errCase(
 		`function "foo"(){}`,
@@ -1791,7 +1790,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"function foo()",
-		langErr("1:1: `foo()` must be followed by a statement", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("1:1: `foo()` must be followed by a statement", LangBash|LangMirBSDKorn),
 	),
 	errCase(
 		"@test",

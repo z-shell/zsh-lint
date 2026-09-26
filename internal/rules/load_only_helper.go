@@ -85,16 +85,18 @@ func (rule LoadOnlyHelper) AnalyzeProject(ctx *analyzer.ProjectContext) {
 				for _, name := range names {
 					declarations[name.Value] = declaration{input: input, name: name}
 				}
-				syntax.Walk(value.Body, func(bodyNode syntax.Node) bool {
-					call, ok := bodyNode.(*syntax.CallExpr)
-					if !ok {
+				if value.Body != nil {
+					syntax.Walk(value.Body, func(bodyNode syntax.Node) bool {
+						call, ok := bodyNode.(*syntax.CallExpr)
+						if !ok {
+							return true
+						}
+						if name, ok := calledFunctionName(call); ok {
+							persistentCalls[name] = true
+						}
 						return true
-					}
-					if name, ok := calledFunctionName(call); ok {
-						persistentCalls[name] = true
-					}
-					return true
-				})
+					})
+				}
 				return false
 			case *syntax.CallExpr:
 				name, ok := calledFunctionName(value)

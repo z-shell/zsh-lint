@@ -1323,6 +1323,9 @@ func (p *Printer) command(cmd Command, redirs []*Redirect) (startRedirs int) {
 			p.w.WriteString("()")
 			p.wantSpace = spaceNotRequired
 		}
+		if cmd.Body == nil {
+			break
+		}
 		if p.funcNextLine {
 			p.newline(Pos{})
 			p.indent()

@@ -456,6 +456,18 @@ func TestRunConfiguredMetadataOverridesLegacyPathHeuristics(t *testing.T) {
 	}
 }
 
+func TestRunFunctionWithoutBody(t *testing.T) {
+	root := t.TempDir()
+	filename := filepath.Join(root, "bodyless.zsh")
+	writeFile(t, filename, "function a\n")
+
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{filename}, &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("run() exit = %d, want 0; stdout = %q, stderr = %q", exit, stdout.String(), stderr.String())
+	}
+}
+
 func writeFile(t *testing.T, filename, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {

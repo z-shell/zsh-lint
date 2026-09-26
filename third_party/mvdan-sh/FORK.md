@@ -21,6 +21,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | Function definitions whose name is any word, holding a parameter expansion, quote or command substitution (`word()` and `function word ...`), and a name ending in a `}` that closes no `{` of the name rejected as zsh does | `syntax/parser.go`, `syntax/parser_test.go` | [#234](https://github.com/z-shell/zsh-lint/issues/234) |
 | Semicolons and newlines between the case word and `in` (`case word; in`) | `syntax/parser.go`, `syntax/parser_test.go` | [#485](https://github.com/z-shell/zsh-lint/issues/485) |
 | After an assignment prefix, `!`, `[[`, `{`, `(`, `time`, `coproc`, `if`, `case`, `while`, `until`, `for`, `select`, `foreach` and `function` are rejected, and a closing reserved word (`then`, `fi`, `do`, `done`, `esac`, `end`, ...) ends the command, as Zsh keeps command position after the prefix | `syntax/parser.go`, `syntax/parser_test.go` | [#278](https://github.com/z-shell/zsh-lint/issues/278) |
+| A `function` keyword definition whose body is missing or is itself a bodyless or keyword definition defines each name with an empty body (`FuncDecl.Body == nil`), with `ParensEnd` for `End()`, printer, and walk support | `syntax/nodes.go`, `syntax/parser.go`, `syntax/printer.go`, `syntax/walk.go`, `syntax/parser_test.go` | [#479](https://github.com/z-shell/zsh-lint/issues/479) |
 
 ## Taking an upstream release
 
