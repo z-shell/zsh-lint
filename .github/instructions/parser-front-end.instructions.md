@@ -12,6 +12,7 @@ The contract is in [`docs/project/parser-gap-workflow.md`](../../docs/project/pa
 
 1. Prove the gap with both oracles: `zsh -f -n <file>` passes and `go run ./cmd/zsh-lint-survey <file>` fails.
    A file both reject is a broken script, not a gap.
+   `zsh -f -n` also runs word expansion on a top-level simple command, but only the lexer inside a function body, so state which placement a row uses ([#287](https://github.com/z-shell/zsh-lint/issues/287), `parser-gap-workflow.md` section 3).
 2. Name the language feature from the Zsh manual (`zshmisc`, `zshexpn`, `zshparam`) and link its section in the issue body and in the fixture's `# Manual: <url>` line.
    Read the released manual; do not ground a gap in memory, another shell, or mvdan/sh behavior.
    One issue per feature; label it `parser-gap`.
