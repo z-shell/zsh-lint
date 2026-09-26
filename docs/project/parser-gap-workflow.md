@@ -31,6 +31,14 @@ Validate both directions:
 
 A fixture that `zsh -n` rejects is a broken script, not a parser gap; never commit one to the native-valid survey corpus.
 
+`zsh -n` is not a pure syntax check, and its verdict depends on where a line sits ([#287](https://github.com/z-shell/zsh-lint/issues/287)).
+For a simple command at the top level of a file, Zsh still runs word expansion under `NO_EXEC`, so the verdict is the lexer plus the expansion stages that do not check `EXEC`: `print ${m[(r)a,'x]y']}` fails with `bad substitution`, and `print ${m[x"[y"]}` with `invalid subscript`.
+Inside a function body, or in an assignment word, the same text reaches the lexer alone: `f() { print ${m[(r)a,'x]y']}; }` and `x=${m[(r)a,'x]y']}` both pass.
+Stages that do check `EXEC` stay silent in both placements: arithmetic evaluation (`print $((1/0))`) and the `:?` error (`print ${x:?msg}`).
+So a top-level row can be rejected for an expansion reason, and a function-body row can pass although it could never run.
+Say in each fixture or probe row which placement it uses: top level to see the expansion verdict, inside a function to see the lexer verdict.
+When the verdict decides whether something is a gap, confirm it by running the source under `timeout 5 zsh -f` as well.
+
 ## 4. Promote to fixture
 
 Add the minimized script as `internal/survey/testdata/corpus/gap-<issue>-<slug>.zsh` with the standard Zsh modeline, a leading comment naming the issue, and a `# Manual: <url>` line linking the manual section from step 2.
@@ -47,6 +55,7 @@ Store a minimized source as `internal/parse/testdata/invalid-<issue>-<slug>.txt`
 Use `.txt` deliberately so the repository-wide native Zsh syntax gate continues to require every tracked `.zsh` corpus source to be valid.
 
 Record the native decision with `zsh -f -n`, but never execute an invalid test source.
+The recorded verdict belongs to the source's placement (section 3): write the rejected construct at the top level when the defect is an expansion error, and say so in the source's leading comment.
 Parser tests read its bytes and assert the error family and original source position.
 A source that `zsh -f -n` accepts and Zsh rejects only when the line runs (arithmetic and assignment-word expansion, [#287](https://github.com/z-shell/zsh-lint/issues/287)) is runtime-tier: list it in `runtimeTierInvalidFixtures` (`internal/survey/native_oracle_test.go`) with the runtime error its issue records instead of executing it.
 `TestCorpusFixturesAgreeWithNativeZsh` re-checks every recorded verdict whenever `zsh` is installed, as it is in Go CI: every corpus `.zsh` fixture must pass `zsh -f -n`, and every `invalid-*.txt` source must fail it unless it is listed as runtime-tier.
