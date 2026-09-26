@@ -487,8 +487,8 @@ type ForClause struct {
 	Do     []*Stmt
 	DoLast []Comment
 
-	// ZshEnd is where a Zsh brace or short form ends, which has no "done"
-	// (zsh-lint #459).
+	// ZshEnd is where a Zsh brace, short form or foreach ... end loop ends,
+	// which has no "done" (zsh-lint #459, #214).
 	ZshEnd Pos
 }
 

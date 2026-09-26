@@ -1,40 +1,37 @@
 package parse
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// The front end has no node for foreach. mvdan/sh v3.14.1 parses it as an
-// ordinary call, so these sources would otherwise yield a tree of the wrong
-// shape with no error. Each row is `zsh -f -n` valid. `repeat` left the guard
-// when repeat.go started rewriting the loop; repeat_test.go covers it.
-func TestParseRejectsUnsupportedLoopWords(t *testing.T) {
+// The parser fork reads foreach in command position as a ForClause (#214).
+// Each row is `zsh -f -n` valid.
+func TestParseForeachLoops(t *testing.T) {
 	tests := []struct {
-		name     string
-		src      string
-		wantLine uint
-		wantCol  uint
-		wantText string
+		name string
+		src  string
 	}{
-		{"foreach end form", "foreach v ($a)\n  cmd $v\nend\n", 1, 1, "z-shell/zsh-lint#214"},
-		{"foreach nested end form", "if true; then\n  foreach v ($a)\n    cmd $v\n  end\nfi\n", 2, 3, "z-shell/zsh-lint#214"},
+		{"foreach end form", "foreach v ($a)\n  cmd $v\nend\n"},
+		{"foreach nested end form", "if true; then\n  foreach v ($a)\n    cmd $v\n  end\nfi\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := Parse(strings.NewReader(test.src), test.name+".zsh")
-			var perr syntax.ParseError
-			if !errors.As(err, &perr) {
-				t.Fatalf("Parse() error = %v, want syntax.ParseError", err)
+			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse() unexpected error: %v", err)
 			}
-			if perr.Pos.Line() != test.wantLine || perr.Pos.Col() != test.wantCol {
-				t.Errorf("position = %d:%d, want %d:%d", perr.Pos.Line(), perr.Pos.Col(), test.wantLine, test.wantCol)
-			}
-			if !strings.Contains(perr.Text, test.wantText) {
-				t.Errorf("text = %q, want reference to %s", perr.Text, test.wantText)
+			var found []*syntax.ForClause
+			syntax.Walk(file.AST(), func(node syntax.Node) bool {
+				if fc, ok := node.(*syntax.ForClause); ok {
+					found = append(found, fc)
+				}
+				return true
+			})
+			if len(found) != 1 {
+				t.Fatalf("found %d ForClause nodes, want 1", len(found))
 			}
 		})
 	}

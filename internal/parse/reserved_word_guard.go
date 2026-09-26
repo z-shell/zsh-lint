@@ -6,14 +6,12 @@ import (
 
 // unsupportedLoopWords are Zsh reserved words that the front end does not
 // recognise. In command position mvdan/sh reads them as ordinary command
-// names, so `foreach x (a b)` becomes a call named foreach. A silent tree of
-// the wrong shape is worse than a parse error for every rule that reasons
-// about loop bodies, so the front end fails closed until the constructs are
-// supported. `repeat` left this list when the front end started reading the
-// loop (#208); the parser fork reads it itself since #281.
-var unsupportedLoopWords = map[string]string{
-	"foreach": "`foreach ... end` loops are not supported yet (z-shell/zsh-lint#214)",
-}
+// names. A silent tree of the wrong shape is worse than a parse error for
+// every rule that reasons about loop bodies, so the front end fails closed
+// until the constructs are supported. `repeat` left this list when the front end
+// started reading the loop (#208; the parser fork reads it itself since #281);
+// `foreach` left this list when the parser fork started reading it (#214).
+var unsupportedLoopWords = map[string]string{}
 
 // assignedRepeatError is reported for an assignment prefix before `repeat`.
 const assignedRepeatError = "`repeat` cannot follow an assignment"

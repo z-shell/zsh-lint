@@ -347,7 +347,7 @@ func TestParseRepeatReportsLaterBlocker(t *testing.T) {
 		wantPos string
 	}{
 		{"repeat 3 do\nprint hi\ndone\nprint )\n", "4:7"},
-		{"repeat 3; print hi\nrepeat 2\n{ print b }\nforeach v ($a)\nend\n", "4:1"},
+		{"repeat 3; print hi\nrepeat 2\n{ print b }\nend\n", "4:1"},
 		{"repeat 3 { print hi }\n  print )\n", "2:9"},
 	}
 	for _, test := range tests {
