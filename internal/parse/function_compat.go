@@ -180,9 +180,13 @@ func findFunctionSemicolonBody(src []byte, seed int) (int, bool) {
 			src[i] != ';' && src[i] != '(' && src[i] != ')' && src[i] != '{' && src[i] != '}' {
 			i++
 		}
-		if i > nameStart {
-			hasName = true
+		// A `)` or `}` ends the head without being a separator, as in
+		// `(function a)`. The scan consumed nothing, so stop: the head has
+		// no `;` before a body, and looping again would never advance (#480).
+		if i == nameStart {
+			break
 		}
+		hasName = true
 	}
 	if !hasName {
 		return 0, false
