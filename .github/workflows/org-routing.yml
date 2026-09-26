@@ -1,0 +1,28 @@
+---
+name: Org Routing
+
+# Thin caller for the organization routing check (decisions/0031): the
+# generated routing block in AGENTS.md must be current and every vendored
+# organization skill must sit at its approved revision. The called workflow
+# checks this checkout against the inventory at its own pinned commit and
+# never writes.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# No concurrency block here: the called workflow declares its own group from
+# github.workflow and github.ref, which resolve to the caller's values, so a
+# second declaration at this level deadlocks against it.
+
+jobs:
+  org-routing:
+    name: Org Routing
+    permissions:
+      contents: read
+    uses: z-shell/.github/.github/workflows/org-routing.yml@58b42bd4cf329614dd8bb5d690e8b7fb181145e0 # main
