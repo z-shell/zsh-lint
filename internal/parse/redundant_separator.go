@@ -93,6 +93,12 @@ func scanRedundantSeparatorSites(src []byte) []int {
 		b := src[index]
 
 		switch {
+		case b == '\\' && index+1 < len(src) && src[index+1] == '\n':
+			// A line continuation is removed before the line is read, so
+			// it neither ends nor starts a word: `print a; \` + newline +
+			// `;` is `print a; ;` (#467).
+			index += 2
+			continue
 		case b == '\\' && index+1 < len(src):
 			index += 2
 			commandStart = false
