@@ -15,13 +15,14 @@ Change them in the same PR as the behavior they describe.
 - [Inline suppression contract](suppression.md): the shared `# zsh-lint disable=<rule-id>` directive.
 - [Machine-readable output contract](output-contract.md): the greppable diagnostic line and exit codes.
 - [Project configuration](project-configuration.md): `zsh-lint.json` discovery, explicit overrides, and metadata for project-aware rules.
-- [Reference corpus](corpus.md): the repositories the survey and corpus gate run over, with `corpus-paths.txt`, `corpus-configs/`, and `configured-corpus-expected.json` as the gate's inputs.
+- [Reference corpus](corpus.md): the repositories the survey and corpus gate run over, with `corpus-paths.txt`, `corpus-configs/`, and `configured-corpus-expected.json` as the gate's inputs, and `regression-corpus.txt` as the regression job's.
 
 ## Dated records
 
 Point-in-time survey runs and decisions.
 They are history, not policy; read the newest first and do not update older ones.
 
+- [2026-09-26 regression corpus survey](2026-09-26-regression-corpus-survey.md)
 - [2026-09-26 dangling operator trivia survey](2026-09-26-dangling-operator-trivia-survey.md)
 - [2026-09-24 quoted nested key survey](2026-09-24-quoted-nested-key-survey.md)
 - [2026-09-24 flagged pattern command substitution survey](2026-09-24-flag-pattern-command-substitution-survey.md)

@@ -1,0 +1,2 @@
+F-Sy-H z-shell/F-Sy-H d1856c3fea41235e964889ff79214320c6f309d1 F-Sy-H.plugin.zsh chroma functions lib
+zsh zsh-users/zsh 19767e11291d96acf567003c69972a973b717f39 Completion
