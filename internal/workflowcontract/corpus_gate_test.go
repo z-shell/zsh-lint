@@ -43,8 +43,8 @@ func TestCorpusGateUsesReadOnlyPinnedCheckouts(t *testing.T) {
 	// consistency rather than one literal commit; a Renovate bump then moves
 	// every checkout together without touching this test (#91, #420).
 	checkouts := pinnedCheckout.FindAllStringSubmatch(workflow, -1)
-	if len(checkouts) != 14 {
-		t.Fatalf("two corpus jobs must use fourteen checkout steps pinned to a full commit SHA with a version comment; got %d", len(checkouts))
+	if len(checkouts) != 18 {
+		t.Fatalf("the corpus jobs must use eighteen checkout steps pinned to a full commit SHA with a version comment; got %d", len(checkouts))
 	}
 	for _, checkout := range checkouts[1:] {
 		if checkout[1] != checkouts[0][1] {
@@ -54,7 +54,7 @@ func TestCorpusGateUsesReadOnlyPinnedCheckouts(t *testing.T) {
 	if got := strings.Count(workflow, "uses: actions/checkout@"); got != len(checkouts) {
 		t.Fatalf("every corpus checkout must be pinned to a full commit SHA with a version comment; %d of %d are", len(checkouts), got)
 	}
-	if got := strings.Count(workflow, "persist-credentials: false"); got != 14 {
+	if got := strings.Count(workflow, "persist-credentials: false"); got != 18 {
 		t.Fatalf("every corpus checkout must disable persisted credentials; got %d", got)
 	}
 	if got := strings.Count(workflow, "- name: Resolve pinned corpus revisions\n        id: revisions"); got != 2 {

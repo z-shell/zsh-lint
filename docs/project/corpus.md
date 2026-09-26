@@ -101,3 +101,22 @@ Pins are full 40-character commit SHAs, one `<repository> <sha>` line per corpus
 See [2026-08-28-discovery-survey.md](2026-08-28-discovery-survey.md).
 
 Promotion is the same sequence used for the current members: close the parser gaps, remediate consumer findings in the owning repository, then add the roots here and re-run the complete gate.
+
+## Regression corpus
+
+Some sources cannot join the strict corpus because they still hold open parser gaps or warning-level findings, yet a parser change must not break the files in them that parse today.
+#461 showed the cost: it made `z-shell/F-Sy-H` `functions/fsh_theme` stop parsing, and no gate saw it because F-Sy-H was in neither corpus ([#466](https://github.com/z-shell/zsh-lint/issues/466), [#470](https://github.com/z-shell/zsh-lint/issues/470)).
+
+The `Regression corpus` job in `corpus-gate.yml` covers them on every pull request that touches the parser.
+It checks out each source listed in `regression-corpus.txt` at its pinned revision, builds `zsh-lint-survey` from the pull request and from its base, and runs `.github/scripts/regression-corpus.sh`, which compares the two builds with `zsh-lint-survey -compare <base> -native`.
+The job fails on a `REGRESSED` file (native Zsh accepts it, the base parsed it, the pull request does not) and on a `FALSE-ACCEPT` file (native Zsh rejects it and the pull request starts parsing it).
+A file that fails on both builds is a known gap and passes; a `FIXED` or `MOVED` file is listed in the job summary for the pull request to record.
+
+| Source                        | Pinned roots                                         | Why it is included                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `z-shell/F-Sy-H`              | `F-Sy-H.plugin.zsh`, `chroma/`, `functions/`, `lib/` | Largest first-party consumer of adapter-heavy syntax: dangling operators, brace-form conditionals, and chroma pattern groups. On 2026-09-26 it holds 3 open gaps ([#481](https://github.com/z-shell/zsh-lint/issues/481), [#482](https://github.com/z-shell/zsh-lint/issues/482), [#483](https://github.com/z-shell/zsh-lint/issues/483)) and 148 warning-level findings, so it fails the strict gate. |
+| `zsh-users/zsh` `Completion/` | `Completion`                                         | The upstream completion tree that `z-shell/zpmod` vendors as its `vendor/zsh` submodule, pinned to the same commit. It is not first-party code, but it is the richest native-valid grammar sample available; 110 of its 1026 native-valid files fail today.                                                                                                                                            |
+
+Each line of `regression-corpus.txt` is `<path> <repository> <sha> <root>...`: the checkout directory under `corpus/`, the GitHub repository, a full 40-character commit SHA, and the roots below it.
+The job does not track `main`: a revision bump is a reviewed change that re-runs `zsh-lint-survey -compare -native -known` at the new pin and records the result.
+See [2026-09-26-regression-corpus-survey.md](2026-09-26-regression-corpus-survey.md) for the baseline.

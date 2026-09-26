@@ -5,11 +5,13 @@ on:
   push:
     branches: [main]
     paths:
+      - ".github/scripts/regression-corpus.sh"
       - ".github/workflows/corpus-gate.yml"
       - "cmd/**"
       - "docs/project/corpus.md"
       - "docs/project/corpus-paths.txt"
       - "docs/project/corpus-revisions.txt"
+      - "docs/project/regression-corpus.txt"
       - "docs/project/corpus-configs/**"
       - "docs/project/configured-corpus-expected.json"
       - "go.mod"
@@ -18,11 +20,13 @@ on:
       - "third_party/**"
   pull_request:
     paths:
+      - ".github/scripts/regression-corpus.sh"
       - ".github/workflows/corpus-gate.yml"
       - "cmd/**"
       - "docs/project/corpus.md"
       - "docs/project/corpus-paths.txt"
       - "docs/project/corpus-revisions.txt"
+      - "docs/project/regression-corpus.txt"
       - "docs/project/corpus-configs/**"
       - "docs/project/configured-corpus-expected.json"
       - "go.mod"
@@ -370,3 +374,79 @@ jobs:
             echo "::error::Configured corpus diagnostics changed; review and classify every difference."
             exit 1
           fi
+
+  regression-corpus:
+    # Sources with open parser gaps cannot join the strict corpus, but a
+    # change must still not break the files in them that parse today (#470).
+    # This job compares the pull request's verdicts with its base, judged by
+    # zsh -f -n, and fails only on a REGRESSED or FALSE-ACCEPT file.
+    name: Regression corpus
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out zsh-lint
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: zsh-lint
+          persist-credentials: false
+
+      - name: Check out the pull request base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: zsh-lint-base
+          persist-credentials: false
+
+      - name: Resolve pinned regression corpus revisions
+        id: revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r path _ revision _; do
+            [[ -n $path ]] || continue
+            if [[ ! $revision =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::regression-corpus.txt: $path is not pinned to a full commit SHA: $revision"
+              exit 1
+            fi
+            echo "$path=$revision" >> "$GITHUB_OUTPUT"
+          done < zsh-lint/docs/project/regression-corpus.txt
+          for path in F-Sy-H zsh; do
+            grep -q "^$path=" "$GITHUB_OUTPUT" || {
+              echo "::error::regression-corpus.txt has no revision for $path"
+              exit 1
+            }
+          done
+
+      - name: Check out F-Sy-H
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: z-shell/F-Sy-H
+          ref: ${{ steps.revisions.outputs.F-Sy-H }}
+          path: corpus/F-Sy-H
+          persist-credentials: false
+
+      - name: Check out the Zsh Completion tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: zsh-users/zsh
+          ref: ${{ steps.revisions.outputs.zsh }}
+          path: corpus/zsh
+          sparse-checkout: Completion
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache-dependency-path: zsh-lint/go.sum
+
+      - name: Set up Zsh
+        uses: z-shell/.github/actions/setup-zsh@4403e5a200c63596f641966dfb64e08a7a655ffa # main
+
+      - name: Build survey binaries
+        run: |
+          (cd zsh-lint && go build -o "$RUNNER_TEMP/survey-head" ./cmd/zsh-lint-survey)
+          (cd zsh-lint-base && go build -o "$RUNNER_TEMP/survey-base" ./cmd/zsh-lint-survey)
+
+      - name: Compare regression corpus verdicts
+        run: bash zsh-lint/.github/scripts/regression-corpus.sh
