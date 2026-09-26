@@ -90,6 +90,56 @@ func TestParseNativeAssociativeSubscriptKeys(t *testing.T) {
 			src:  "  ZI[.foo]=x\n",
 			want: ".foo",
 		},
+		{
+			name: "space in parameter expansion key",
+			src:  "print -r -- ${Z[a b]}\n",
+			want: "a b",
+		},
+		{
+			name: "quoted parameter expansion key with space",
+			src:  "print -r -- \"${Z[a b]}\"\n",
+			want: "a b",
+		},
+		{
+			name: "colon after space in parameter expansion key",
+			src:  "print -r -- ${Z[a b:$x]}\n",
+			want: "a b:",
+		},
+		{
+			name: "zi annex subcommand key",
+			src:  "reply=( ${ZI_EXTS[z-annex subcommand:${(q)1}]} )\n",
+			want: "z-annex subcommand:",
+		},
+		{
+			name: "space key after a flag group",
+			src:  "print -r -- ${(q)Z[a b]}\n",
+			want: "a b",
+		},
+		{
+			name: "space key after a flag group holding a newline",
+			src:  "print -r -- ${(j:\n:)Z[a b]}\n",
+			want: "a b",
+		},
+		{
+			name: "space key after a prefix and a flag group",
+			src:  "print -r -- ${(q)#Z[a b]}\n",
+			want: "a b",
+		},
+		{
+			name: "space key after each prefix",
+			src:  "print -r -- ${+Z[a b]} ${~Z[a b]} ${=Z[a b]} ${^Z[a b]} ${#Z[a b]}\n",
+			want: "a b",
+		},
+		{
+			name: "space key inside a nested expansion",
+			src:  "print -r -- ${(j.,.)${(s. .)Z[a b]}}\n",
+			want: "a b",
+		},
+		{
+			name: "tab and three words in a key",
+			src:  "print -r -- ${Z[a\tb c]}\n",
+			want: "a\tb c",
+		},
 	}
 
 	for _, test := range tests {
@@ -413,6 +463,83 @@ func TestAssociativeSubscriptRejectsUnclosedExpansionKeys(t *testing.T) {
 				t.Fatalf("read invalid fixture: %v", err)
 			}
 			assertParseErrorAt(t, src, "not a valid parameter expansion operator: \"\\n\"", 1, test.col)
+		})
+	}
+}
+
+func TestAssociativeSubscriptRejectsSpaceOutsideBracedParamExp(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+		src     string
+		text    string
+		line    uint
+		col     uint
+	}{
+		{
+			name:    "unbraced parameter subscript with space",
+			fixture: "testdata/invalid-372-unbraced-subscript-space.txt",
+			text:    "not a valid arithmetic operator: `b`",
+			line:    2,
+			col:     12,
+		},
+		{
+			name: "unquoted assignment with space in key",
+			src:  "Z[a b]=1\n",
+			text: "not a valid arithmetic operator: `b`",
+			line: 1,
+			col:  5,
+		},
+		{
+			// `$Z[a b]` is not a braced expansion; zsh -f -n rejects it.
+			name: "unbraced expansion after other text",
+			src:  "print x$Z[a b]\n",
+			text: "not a valid arithmetic operator: `b`",
+			line: 1,
+			col:  13,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var src []byte
+			if test.fixture != "" {
+				var err error
+				src, err = os.ReadFile(test.fixture)
+				if err != nil {
+					t.Fatalf("read invalid fixture: %v", err)
+				}
+			} else {
+				src = []byte(test.src)
+			}
+			assertParseErrorAt(t, src, test.text, test.line, test.col)
+		})
+	}
+}
+
+func TestArithmeticSubscriptWithSpacesKeepsArithmeticTree(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "addition with spaces",
+			src:  "x=${a[1 + 1]}\n",
+		},
+		{
+			name: "modulo and nested addition with spaces",
+			src:  "x=${mlist[ RANDOM % (${#mlist} + 1) ]}\n",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+			index := singleSubscriptIndex(t, file.AST())
+			if _, ok := index.(*syntax.BinaryArithm); !ok {
+				t.Fatalf("Index = %T, want *syntax.BinaryArithm", index)
+			}
 		})
 	}
 }

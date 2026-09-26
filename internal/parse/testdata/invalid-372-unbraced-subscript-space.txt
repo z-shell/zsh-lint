@@ -1,0 +1,2 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Subscripts
+print $Z[a b]
