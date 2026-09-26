@@ -27,6 +27,14 @@ func TestParseRedundantSeparatorZshAccepts(t *testing.T) {
 		"print 'quoted;' ; ;",
 		`print "also;" ; ;`,
 		"while true;\n;",
+		// A `\` line continuation is removed before the line is read, so it
+		// leaves the `;` after it in command position (#467).
+		"print a; \\\n;",
+		"print a || \\\n;",
+		"{ print a || \\\n; }",
+		"print a & \\\n;",
+		"print a; \\\n\\\n;",
+		"\\\n;\nprint a",
 	}
 
 	for _, src := range sources {
@@ -43,6 +51,8 @@ func TestParseRedundantSeparatorZshRejects(t *testing.T) {
 		"if true; ;",
 		"true | ;",
 		"true; &",
+		"print a && \\\n&",
+		"print a | \\\n;",
 	}
 
 	for _, src := range sources {
@@ -77,6 +87,16 @@ func TestScanRedundantSeparatorSitesSkipsCaseTerminators(t *testing.T) {
 		{name: "ordinary terminator", src: "print a; print b", want: 0},
 		{name: "one site", src: "print a; ;", want: 1},
 		{name: "run of three", src: "; ; ;", want: 3},
+		// A line continuation neither ends nor starts a word (#467).
+		{name: "continuation then separator", src: "print a; \\\n;", want: 1},
+		{name: "continuation before a word", src: "print a; \\\nb;", want: 0},
+		{name: "continuation inside a word", src: "print a\\\nb;\n;", want: 1},
+		// A `\` before any other byte is still an escaped word character, so
+		// the `;` after `a\;` follows a word and is an ordinary terminator.
+		{name: "escaped separator then separator", src: "print a\\; ;", want: 0},
+		// A `\` as the last byte has no newline to join, and must not be read
+		// past the end of the source.
+		{name: "trailing backslash", src: "; \\", want: 1},
 	}
 
 	for _, test := range tests {
