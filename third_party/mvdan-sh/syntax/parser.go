@@ -3097,7 +3097,12 @@ func (p *Parser) caseClause(s *Stmt) {
 		p.followErr(cc.Case, "case", noQuote("a word"))
 	}
 	end := "esac"
-	p.got(_Newl)
+	if p.lang.in(LangZsh) {
+		for p.got(semicolon) || p.got(_Newl) {
+		}
+	} else {
+		p.got(_Newl)
+	}
 	if pos, ok := p.gotRsrv("{"); ok {
 		cc.In = pos
 		cc.Braces = true

@@ -3088,3 +3088,58 @@ func TestZshFuncNameWord(t *testing.T) {
 		qt.Check(t, qt.IsNotNil(err), qt.Commentf("%v", lang))
 	}
 }
+
+func TestParseCaseSeparatorBeforeIn(t *testing.T) {
+	t.Parallel()
+	// Native Zsh accepts one or more semicolons and newlines (with optional
+	// blanks between) between the case word and `in` (#485).
+	for _, src := range []string{
+		"case $x; in a) print a ;; esac",
+		"case $x ; in a) print a ;; esac",
+		"case $x; ; in a) print a ;; esac",
+		"case $x ; ; in a) print a ;; esac",
+		"case $x ; ; ; in a) print a ;; esac",
+		"case $x; ; ; ; in a) print a ;; esac",
+		"case $x;\n; in a) print a ;; esac",
+		"case $x\n;\nin a) print a ;; esac",
+		"case $x ;\n;\nin a) print a ;; esac",
+		"case $x ;\nin a) print a ;; esac",
+		"case $x;\nin\na) print a ;; esac",
+		"case $x; # note\nin a) print a ;; esac",
+		"case $x; # note\n; in a) print a ;; esac",
+		"case $x; in esac",
+		// Control forms that already parse:
+		"case $x\nin a) print a ;; esac",
+		"case $x in a) print a ;; esac",
+	} {
+		_, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(src), "")
+		qt.Check(t, qt.IsNil(err), qt.Commentf("%q", src))
+	}
+
+	// Must stay rejected: native Zsh rejects each of these.
+	for _, src := range []string{
+		"case $x;; in a) print a ;; esac",
+		"case $x &; in a) print a ;; esac",
+		"case $x & in a) print a ;; esac",
+		"case $x | in a) print a ;; esac",
+		"case $x || in a) print a ;; esac",
+		"case $x && in a) print a ;; esac",
+		"case ; in a) print a ;; esac",
+		"case in a) print a ;; esac",
+		"case $x ;;; in a) print a ;; esac",
+		"case $x ;;\n; in a) print a ;; esac",
+	} {
+		_, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(src), "")
+		qt.Check(t, qt.IsNotNil(err), qt.Commentf("%q", src))
+	}
+
+	// Outside Zsh, a semicolon before `in` stays a parse error.
+	for _, src := range []string{
+		"case $x; in a) echo a ;; esac",
+		"case $x; ; in a) echo a ;; esac",
+		"case $x ;\n; in a) echo a ;; esac",
+	} {
+		_, err := NewParser(Variant(LangBash)).Parse(strings.NewReader(src), "")
+		qt.Check(t, qt.ErrorMatches(err, `1:1: .case x. must be followed by .in.`), qt.Commentf("%q", src))
+	}
+}
