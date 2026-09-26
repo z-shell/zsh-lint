@@ -3561,6 +3561,21 @@ loop:
 				ce.Assigns = append(ce.Assigns, p.getAssign(true))
 				break
 			}
+			// Zsh keeps command position after an assignment prefix, so a
+			// reserved word there is the reserved word, not a command name
+			// (zsh-lint #278): one that ends a list ends this command and
+			// leaves the enclosing list to accept or reject it, and one that
+			// starts a complex command or a pipeline cannot follow the prefix.
+			if p.lang.in(LangZsh) && len(ce.Args) == 0 && len(ce.Assigns) > 0 {
+				switch p.val {
+				case "then", "elif", "else", "fi", "do", "done", "esac", "end":
+					break loop
+				case "!", "[[", "{", "time", "coproc", "if", "case", "while", "until",
+					"for", "select", "foreach", "function":
+					p.curErr("%#q cannot follow an assignment", p.val)
+					break loop
+				}
+			}
 			// Avoid failing later with the confusing "} can only be used to close a block".
 			if p.val == "{" && w != nil && w.Lit() == "function" {
 				p.checkLang(p.pos, langBashLike, `the "function" builtin`)
@@ -3593,6 +3608,12 @@ loop:
 		case dblLeftParen:
 			p.curErr("%#q can only be used to open an arithmetic cmd", p.tok)
 		case leftParen:
+			// A subshell or glob group cannot follow an assignment prefix
+			// in Zsh either (zsh-lint #278).
+			if p.lang.in(LangZsh) && len(ce.Args) == 0 && len(ce.Assigns) > 0 {
+				p.curErr("%#q cannot follow an assignment", leftParen)
+				break loop
+			}
 			if p.lang.in(LangZsh) && p.r != ')' {
 				ce.Args = append(ce.Args, p.wordAnyNumber())
 				break

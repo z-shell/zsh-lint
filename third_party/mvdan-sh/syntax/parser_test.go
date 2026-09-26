@@ -585,6 +585,8 @@ var errorCases = []errorCase{
 	errCase(
 		"a=b { foo; }",
 		langErr("1:12: `}` can only be used to close a block"),
+		// zsh-lint #278: Zsh rejects the reserved word after the prefix.
+		langErr("1:5: `{` cannot follow an assignment", LangZsh),
 	),
 	errCase(
 		"a=b foo() { bar; }",
@@ -593,6 +595,7 @@ var errorCases = []errorCase{
 	errCase(
 		"a=b if foo; then bar; fi",
 		langErr("1:13: `then` can only be used in an `if`"),
+		langErr("1:5: `if` cannot follow an assignment", LangZsh),
 	),
 	errCase(
 		">f { foo; }",
@@ -3141,5 +3144,84 @@ func TestParseCaseSeparatorBeforeIn(t *testing.T) {
 	} {
 		_, err := NewParser(Variant(LangBash)).Parse(strings.NewReader(src), "")
 		qt.Check(t, qt.ErrorMatches(err, `1:1: .case x. must be followed by .in.`), qt.Commentf("%q", src))
+	}
+}
+
+// Zsh keeps command position after an assignment prefix, so a reserved word
+// there is the reserved word (zsh-lint #278). Each row was judged by
+// `zsh -f -n` on Zsh 5.9.2.
+func TestZshReservedWordAfterAssignment(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ src, want string }{
+		{"x=1 ! true", "1:5: `!` cannot follow an assignment"},
+		{"x=1 !", "1:5: `!` cannot follow an assignment"},
+		{"x=1 y=2 ! true", "1:9: `!` cannot follow an assignment"},
+		{"x+=1 ! true", "1:6: `!` cannot follow an assignment"},
+		{"x=1 [[ a == a ]]", "1:5: `[[` cannot follow an assignment"},
+		{"x=1 2>/dev/null [[ a ]]", "1:17: `[[` cannot follow an assignment"},
+		{"x=1 time true", "1:5: `time` cannot follow an assignment"},
+		{"x=1 time -p true", "1:5: `time` cannot follow an assignment"},
+		{"x=1 coproc true", "1:5: `coproc` cannot follow an assignment"},
+		{"x=1 ( : )", "1:5: `(` cannot follow an assignment"},
+		{"x=1 (a|b)", "1:5: `(` cannot follow an assignment"},
+		{"x=1 >f ( : )", "1:8: `(` cannot follow an assignment"},
+		{"x=1 {", "1:5: `{` cannot follow an assignment"},
+		{"x=1 case", "1:5: `case` cannot follow an assignment"},
+		{"x=1 select", "1:5: `select` cannot follow an assignment"},
+		{"x=1 foreach", "1:5: `foreach` cannot follow an assignment"},
+		{"x=1 function", "1:5: `function` cannot follow an assignment"},
+		{"{ x=1 ! true }", "1:7: `!` cannot follow an assignment"},
+		{"x=$(y=1 [[ a ]])", "1:9: `[[` cannot follow an assignment"},
+		{"true && x=1 time true", "1:13: `time` cannot follow an assignment"},
+		// A closing word ends the command, and at the top level nothing
+		// accepts it.
+		{"x=1 then", "1:5: statements must be separated by &, ; or a newline"},
+		{"x=1 done", "1:5: statements must be separated by &, ; or a newline"},
+		{"x=1 end", "1:5: statements must be separated by &, ; or a newline"},
+	} {
+		_, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(tc.src), "")
+		qt.Check(t, qt.ErrorMatches(err, regexp.QuoteMeta(tc.want)), qt.Commentf("%q", tc.src))
+	}
+
+	// A closing reserved word ends the prefix-only command, and the
+	// enclosing construct accepts it, as Zsh does.
+	for _, src := range []string{
+		"if x=1 then :; fi",
+		"if true; then x=1 fi",
+		"if true; then :; else x=1 fi",
+		"if true; then :; elif x=1 then :; fi",
+		"while x=1 do :; done",
+		"for a in b; do x=1 done",
+		"foreach a (b) x=1 end",
+		"case a in a) x=1 esac",
+		// Words that only look reserved stay arguments.
+		"x=1 !x",
+		"x=1 [[a",
+		"x=1 \"!\" true",
+		"x=1 \\time true",
+		"x=1 timeout 1 true",
+		"x=1 time=2 true",
+		"x=1 true !",
+		"x=1 print [[",
+		"x=1 nocorrect true",
+		"x=1 noglob [[ a ]]",
+		"x=1 command time true",
+		"x=1 exec ( : )",
+		"x=1 [ a ]",
+		"x=1 ]]",
+		"x=1 in",
+		"x=1 always",
+		"x=1; ! true",
+		"x=1\n[[ a ]]",
+		"{ x=1 }",
+	} {
+		_, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(src), "")
+		qt.Check(t, qt.IsNil(err), qt.Commentf("%q", src))
+	}
+
+	// Outside Zsh the words stay command arguments, as upstream reads them.
+	for _, src := range []string{"x=1 ! true", "x=1 time true", "x=1 [[ a ]]"} {
+		_, err := NewParser(Variant(LangBash)).Parse(strings.NewReader(src), "")
+		qt.Check(t, qt.IsNil(err), qt.Commentf("%q", src))
 	}
 }
