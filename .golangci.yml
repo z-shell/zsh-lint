@@ -6,6 +6,13 @@ version: "2"
 linters:
   default: standard
 
+# `run` reports a file the formatter would change as a finding, so an
+# unformatted Go file fails Go CI instead of reaching main (#494). Trunk's
+# gofmt covers changed lines only and is advisory.
+formatters:
+  enable:
+    - gofmt
+
 issues:
   # Report every finding. The defaults (50 per linter, 3 with the same text)
   # hid two of the five QF1003 findings behind #380.

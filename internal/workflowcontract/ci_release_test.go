@@ -518,6 +518,11 @@ func TestGoCIBuildTestLintsTheWholeModule(t *testing.T) {
 			t.Fatalf(".golangci.yml must set %s to 0 so no finding is hidden (#380); got %d matching lines", setting, got)
 		}
 	}
+	formatters := workflowBlock(t, config, "formatters:", 0)
+	enabled := workflowBlock(t, formatters, "enable:", 2)
+	if got := len(exactWorkflowLineSpans(enabled, "    - gofmt")); got != 1 {
+		t.Fatalf(".golangci.yml must enable the gofmt formatter so Go CI rejects unformatted files (#494); got %d matching lines", got)
+	}
 }
 
 // A matrix job reports one check run per leg, so zsh-n's contexts are named
