@@ -27,6 +27,7 @@ They are history, not policy; read the newest first and do not update older ones
 - [2026-09-27 subscript flag substitution body survey](2026-09-27-subscript-flag-substitution-body-survey.md)
 - [2026-09-27 subscript bracket balance survey](2026-09-27-subscript-bracket-balance-survey.md)
 - [2026-09-27 subscript flag open bracket survey](2026-09-27-subscript-flag-open-bracket-survey.md)
+- [2026-09-27 short subscript flag open bracket survey](2026-09-27-short-subscript-flag-open-bracket-survey.md)
 - [2026-09-27 subscript flag short subscript survey](2026-09-27-subscript-flag-short-subscript-survey.md)
 - [2026-09-27 subscript flag substitution bracket survey](2026-09-27-subscript-flag-substitution-bracket-survey.md)
 - [2026-09-27 empty group survey](2026-09-27-empty-group-survey.md)
