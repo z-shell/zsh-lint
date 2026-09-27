@@ -136,15 +136,19 @@ The restores keep the change scoped to #484's operands, and the field comment sa
 
 Each new `p.lang.in(LangZsh)` predicate was independently replaced with `true` and `false`.
 Every mutant ran `go test ./syntax/` in the fork and `go test ./internal/...` at the root.
-All four were killed by test assertions; none lived or timed out.
+The first revision reported two gates; a third, the `-NAME OP` one-operand form in `testExprBinary`, had no test and both of its mutants lived.
+Rows `[[ -foo == ]]` and `[[ -foo -nt ]]` (valid Zsh, rejected on base) and a Bash/mksh rejection of `[[ -foo == ]]` now kill them.
+All six are killed by test assertions; none lived or timed out.
 The original parser bytes were restored and checked after the mutations.
 
-| Gate   | Forced | Fork syntax suite | Internal suite  | Result |
-| ------ | ------ | ----------------- | --------------- | ------ |
-| infix  | true   | failed (caught)   | passed          | killed |
-| infix  | false  | failed (caught)   | failed (caught) | killed |
-| prefix | true   | failed (caught)   | passed          | killed |
-| prefix | false  | failed (caught)   | failed (caught) | killed |
+| Gate       | Forced | Fork syntax suite | Internal suite  | Result |
+| ---------- | ------ | ----------------- | --------------- | ------ |
+| infix      | true   | failed (caught)   | passed          | killed |
+| infix      | false  | failed (caught)   | failed (caught) | killed |
+| prefix     | true   | failed (caught)   | passed          | killed |
+| prefix     | false  | failed (caught)   | failed (caught) | killed |
+| `-NAME OP` | true   | failed (caught)   | not run         | killed |
+| `-NAME OP` | false  | failed (caught)   | not run         | killed |
 
 ## Verification
 

@@ -49,6 +49,10 @@ func TestZshModuleConditions(t *testing.T) {
 		"[[ -z a ]]",
 		"[[ a == b ]]",
 		"[[ -n == x ]]",
+		// `-NAME OP` with nothing after the operator is a one-operand test
+		// on the operator's text.
+		"[[ -foo == ]]",
+		"[[ -foo -nt ]]",
 		"[[ -prefix a == b ]]",
 		"[[ -prefix a ! b ]]",
 		"[[ -prefix a ( b ) ]]",
@@ -184,7 +188,7 @@ func TestZshModuleConditionsReject(t *testing.T) {
 // Explicit dialect assertions: error-table rows with empty expectations skip.
 func TestModuleConditionsDialectGate(t *testing.T) {
 	for _, lang := range []syntax.LangVariant{syntax.LangBash, syntax.LangMirBSDKorn} {
-		for _, src := range []string{"[[ -prefix - ]]", "[[ a -foo b ]]", "[[ -n a b ]]", "[[ -z ]]", "[[ -n ]]"} {
+		for _, src := range []string{"[[ -prefix - ]]", "[[ a -foo b ]]", "[[ -n a b ]]", "[[ -z ]]", "[[ -n ]]", "[[ -foo == ]]"} {
 			_, err := syntax.NewParser(syntax.Variant(lang)).Parse(strings.NewReader(src+"\n"), "")
 			if err == nil {
 				t.Errorf("%s accepted %q", lang, src)
