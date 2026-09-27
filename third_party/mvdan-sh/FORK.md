@@ -10,6 +10,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 
 | Change | Files | Issue |
 | --- | --- | --- |
+| Module-defined prefix and infix conditions, multi-operand dash conditions, and lone unary-name string tests, with a Zsh-only `ModuleTest` node, positions, walk, printer and typedjson support; in their operands a glob group nests bare parentheses and numeric globs, and `;`, `&` or a bare `<`/`>` inside the group is an error, as Zsh's word lexer reads it | `syntax/parser.go`, `syntax/nodes.go`, `syntax/walk.go`, `syntax/printer.go`, `syntax/typedjson/`, `syntax/module_test.go` | [#484](https://github.com/z-shell/zsh-lint/issues/484) |
 | Brace-form `if`/`elif`/`else` and `while`/`until` bodies (Alternate Forms For Complex Commands) | `syntax/parser.go` | [#446](https://github.com/z-shell/zsh-lint/issues/446) |
 | A `'` in the word of a double-quoted `${...}` is text, not a single-quote opener | `syntax/parser.go`, `syntax/lexer.go` | [#400](https://github.com/z-shell/zsh-lint/issues/400) |
 | In a glob group or glob qualifier, a quoted `)` and the `)` closing a command substitution do not end the group | `syntax/parser.go` | [#439](https://github.com/z-shell/zsh-lint/issues/439) |

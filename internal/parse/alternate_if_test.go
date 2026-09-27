@@ -445,7 +445,9 @@ func TestParseAlternateIfRejectsBraceGluedToDoubleBracket(t *testing.T) {
 	assertParseErrorAt(t, fixture, "not a valid test operator: `]]{`", 1, 15)
 	assertParseErrorAt(t, []byte("while [[ $a == x ]]{ b=1 }\n"), "not a valid test operator: `]]{`", 1, 18)
 	// A word glued to `]]` is not the closing word either, in Zsh or in the parser.
-	assertParseErrorAt(t, []byte("if [[ -n $a]] { b=1 }\n"), "not a valid test operator: `{`", 1, 15)
+	// After `-n` the words `$a]]`, `{` and `b=1` form a Zsh condition's operand
+	// list, so the first error, in Zsh as here, is at the `}` (#484).
+	assertParseErrorAt(t, []byte("if [[ -n $a]] { b=1 }\n"), "not a valid test operator: `}`", 1, 21)
 	assertParseErrorAt(t, []byte("if [[ $a == \"x\"]] { b=1 }\n"), "not a valid test operator: `{`", 1, 19)
 	// An unescaped `)` inside a bracket class is a parse error in Zsh too, so
 	// the adapter leaves the parser's own error in place.

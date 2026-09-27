@@ -1642,7 +1642,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"[[ -n\na ]]",
-		langErr("1:4: `-n` must be followed by a word", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("1:4: `-n` must be followed by a word", LangBash|LangMirBSDKorn),
 	),
 	errCase(
 		"[[ a -ef\nb ]]",
@@ -1694,7 +1694,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"[[ (-e ) ]]",
-		langErr("1:5: `-e` must be followed by a word", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("1:5: `-e` must be followed by a word", LangBash|LangMirBSDKorn),
 	),
 	errCase(
 		"[[ (a) == b ]]",

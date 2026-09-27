@@ -971,16 +971,40 @@ func (t *TestClause) End() Pos { return posAddCol(t.Right, 2) }
 
 // TestExpr represents all nodes that form test expressions.
 //
-// These are [*BinaryTest], [*UnaryTest], [*ParenTest], and [*Word].
+// These are [*BinaryTest], [*UnaryTest], [*ModuleTest], [*ParenTest], and [*Word].
 type TestExpr interface {
 	Node
 	testExprNode()
 }
 
+func (*ModuleTest) testExprNode() {}
 func (*BinaryTest) testExprNode() {}
 func (*UnaryTest) testExprNode()  {}
 func (*ParenTest) testExprNode()  {}
 func (*Word) testExprNode()       {}
+
+// ModuleTest is a Zsh module-defined condition. Name includes the leading
+// dash and retains its source position. Prefix conditions have one or more
+// Args; infix conditions have exactly two Args, on either side of Name.
+type ModuleTest struct {
+	Name  *Word
+	Infix bool
+	Args  []*Word
+}
+
+func (m *ModuleTest) Pos() Pos {
+	if m.Infix && len(m.Args) > 0 {
+		return m.Args[0].Pos()
+	}
+	return m.Name.Pos()
+}
+
+func (m *ModuleTest) End() Pos {
+	if len(m.Args) == 0 {
+		return m.Name.End()
+	}
+	return m.Args[len(m.Args)-1].End()
+}
 
 // BinaryTest represents a binary test expression.
 type BinaryTest struct {

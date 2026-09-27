@@ -410,3 +410,23 @@ func TestAnalyzerReportsMalformedSuppression(t *testing.T) {
 		t.Errorf("malformed suppression severity = %v, want Warning", got[0].Severity)
 	}
 }
+
+// Module conditions retain expansion references and safely visit every rule.
+func TestAnalyzerModuleConditionReferences(t *testing.T) {
+	const src = "[[ -prefix $x ]]\n[[ $left -foo $right ]]\n[[ -n $a $b ]]\n"
+	file, err := parse.Parse(strings.NewReader(src), "module.zsh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	analyzer.New(rules.Default()...).Analyze(file, "module.zsh")
+	diags := analyzer.New(&expansionRule{}).Analyze(file, "module.zsh")
+	want := []string{"expansion x", "expansion left", "expansion right", "expansion a", "expansion b"}
+	if len(diags) != len(want) {
+		t.Fatalf("diagnostics = %v, want %v", diags, want)
+	}
+	for i, d := range diags {
+		if d.Message != want[i] {
+			t.Errorf("diagnostic %d = %q, want %q", i, d.Message, want[i])
+		}
+	}
+}

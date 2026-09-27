@@ -552,6 +552,15 @@ type Parser struct {
 	rxOpenParens int
 	rxFirstPart  bool
 
+	// zshCondOperand is set while reading an operand of a Zsh `-NAME`
+	// condition, where a glob group follows Zsh's word lexer (#484).
+	// Nested substitutions clear it (preNested), and the readers that set
+	// it restore it, so every other word keeps upstream's group lexing.
+	// Zsh lexes a pattern after `==` the same way, so leaking the flag
+	// there only rejects sources Zsh rejects too; the restores keep this
+	// change to the #484 operands rather than guarding a verdict.
+	zshCondOperand bool
+
 	accComs []Comment
 	curComs *[]Comment
 
@@ -712,18 +721,19 @@ const (
 )
 
 type saveState struct {
-	quote       quoteState
-	buriedHdocs int
+	quote          quoteState
+	buriedHdocs    int
+	zshCondOperand bool
 }
 
 func (p *Parser) preNested(quote quoteState) (s saveState) {
-	s.quote, s.buriedHdocs = p.quote, p.buriedHdocs
-	p.buriedHdocs, p.quote = len(p.heredocs), quote
+	s.quote, s.buriedHdocs, s.zshCondOperand = p.quote, p.buriedHdocs, p.zshCondOperand
+	p.buriedHdocs, p.quote, p.zshCondOperand = len(p.heredocs), quote, false
 	return s
 }
 
 func (p *Parser) postNested(s saveState) {
-	p.quote, p.buriedHdocs = s.quote, s.buriedHdocs
+	p.quote, p.buriedHdocs, p.zshCondOperand = s.quote, s.buriedHdocs, s.zshCondOperand
 }
 
 func (p *Parser) unquotedWordBytes(w *Word) ([]byte, bool) {
@@ -1325,6 +1335,64 @@ func (p *Parser) zshGroupRune(nest []byte) []byte {
 	return nest
 }
 
+// zshCondNest reports whether a zshGroupRune stack top belongs to
+// zshCondGroupRune: `g` for a nested bare group, `N` and `M` for a numeric
+// glob before and after its dash.
+func zshCondNest(top byte) bool {
+	return top == 'g' || top == 'N' || top == 'M'
+}
+
+// zshCondGroupRune is zshGroupRune for a glob group in a `-NAME` condition
+// operand (#484), where Zsh lexes the group as part of one word (gettokstr in
+// Src/lex.c). A bare `(` nests, so only its matching `)` closes the group.
+// `;`, `&`, and a `<` or `>` that starts neither a process substitution nor a
+// numeric glob `<m-n>` end the word inside the group, which Zsh reports as a
+// parse error; reporting it here moves p.r to EOF, which ends the caller's
+// loop.
+func (p *Parser) zshCondGroupRune(nest []byte) []byte {
+	var top byte
+	if len(nest) > 0 {
+		top = nest[len(nest)-1]
+	}
+	switch top {
+	case 'N', 'M':
+		switch {
+		case p.r >= '0' && p.r <= '9':
+		case top == 'N' && p.r == '-':
+			nest[len(nest)-1] = 'M'
+		case top == 'M' && p.r == '>':
+			return nest[:len(nest)-1]
+		default:
+			p.zshCondGroupErr()
+		}
+		return nest
+	}
+	switch p.r {
+	case '(':
+		return append(nest, 'g')
+	case ')':
+		return nest[:len(nest)-1]
+	case '<', '>':
+		if p.peek() == '(' {
+			p.rune()
+			return append(nest, '$')
+		}
+		if p.r == '<' {
+			return append(nest, 'N')
+		}
+		p.zshCondGroupErr()
+	case ';', '&':
+		p.zshCondGroupErr()
+	default:
+		return p.zshGroupRune(nest)
+	}
+	return nest
+}
+
+func (p *Parser) zshCondGroupErr() {
+	p.posErr(p.nextPos(), "a condition glob group cannot contain %#q", string(p.r))
+}
+
 func (p *Parser) wordPart() WordPart {
 	switch p.tok {
 	case _Lit, _LitWord, _LitRedir:
@@ -1493,6 +1561,11 @@ func (p *Parser) wordPart() WordPart {
 			// does not end the group (#439).
 			var nest []byte
 			for p.newLit(p.r); p.r != runeEOF && (p.r != ')' || len(nest) > 0); p.rune() {
+				if p.zshCondOperand && (len(nest) == 0 || zshCondNest(nest[len(nest)-1])) {
+					// An error ends the loop: posErr moves p.r to EOF.
+					nest = p.zshCondGroupRune(nest)
+					continue
+				}
 				nest = p.zshGroupRune(nest)
 			}
 			if p.r != ')' {
@@ -3296,6 +3369,25 @@ func (p *Parser) testExprBinary(pastAndOr bool) TestExpr {
 		if p.val == "]]" {
 			return left
 		}
+		if p.lang.in(LangZsh) && len(p.val) > 2 && strings.HasPrefix(p.val, "-") && testBinaryOp(p.val) == 0 {
+			// `a -NAME b` is an infix condition that a module resolves
+			// when it runs (#484). A two-byte `-x` is not one: Zsh
+			// rejects `[[ a -x b ]]` with "condition expected".
+			if word, ok := left.(*Word); ok {
+				name := p.getWord()
+				p.got(_Newl)
+				if p.tok == _LitWord && p.val == "]]" {
+					p.posErr(name.Pos(), "module condition requires a right operand")
+					return left
+				}
+				right := p.zshCondWord()
+				if right == nil {
+					p.posErr(name.Pos(), "module condition requires a right operand")
+					return left
+				}
+				return &ModuleTest{Name: name, Infix: true, Args: []*Word{word, right}}
+			}
+		}
 		if p.tok = token(testBinaryOp(p.val)); p.tok == illegalTok {
 			p.curErr("not a valid test operator: %#q", p.val)
 		}
@@ -3333,12 +3425,143 @@ func (p *Parser) testExprBinary(pastAndOr bool) TestExpr {
 				AndTest, OrTest, dblRightBrack)
 		}
 		p.next()
+		if name, ok := b.X.(*Word); ok && p.lang.in(LangZsh) && b.Op != TsBefore && b.Op != TsAfter && p.atTestEnd() && p.tok != leftParen {
+			if lit := name.Lit(); len(lit) > 1 && strings.HasPrefix(lit, "-") {
+				// Zsh reads `-x OP` with nothing after the operator as a
+				// one-operand condition on the operator's text:
+				// `[[ -n == ]]` is true (#484). `<` and `>` are not words
+				// there, so `[[ -n < ]]` stays an error.
+				op := b.Op.String()
+				return p.zshDashUnary(name, p.wordOne(&Lit{ValuePos: b.OpPos, ValueEnd: posAddCol(b.OpPos, len(op)), Value: op}))
+			}
+		}
 		b.Y = p.followWordTok(token(b.Op), b.OpPos)
 	}
 	return b
 }
 
+// zshDashCondition reads a Zsh condition whose first word is a literal
+// `-NAME` with at least one byte after the dash (#484). It follows par_cond_2
+// in Zsh's Src/parse.c: the number of operand words decides the shape, and a
+// name that is not built in is a module condition resolved only when it runs.
+//
+//   - No operand: a string test, `[[ -foo ]]`, kept as a *Word.
+//   - A known binary operator next (`-x -eq y`, `-x == y`, `-x =~ re`), or
+//     `<`, `>`, `!`, `(` or any other non-word: also returned as a *Word, so
+//     the caller builds the same tree as before.
+//   - One operand: a *UnaryTest for a built-in test, else a *ModuleTest.
+//     A literal two-byte `-x` operand always ends the condition here, as it
+//     does in Zsh, so `[[ -foo -b b ]]` is an error.
+//   - Two operands, the middle starting with `-`: an infix *ModuleTest.
+//   - Otherwise every following word is an operand of a prefix *ModuleTest.
+func (p *Parser) zshDashCondition() TestExpr {
+	name := p.getWord()
+	defer func(old bool) { p.zshCondOperand = old }(p.zshCondOperand)
+	p.zshCondOperand = true
+	p.skipTestNewlines()
+	if p.tok == _LitWord && (p.val == "]]" || p.val == "!" || testBinaryOp(p.val) != 0) {
+		return name
+	}
+	second := p.getWord()
+	if second == nil {
+		return name
+	}
+	if startsWithParen(second) {
+		// Zsh reads a `(` right after the name as a token, not as the
+		// start of a pattern word: `[[ -n (a) ]]` is a parse error.
+		p.posErr(second.Pos(), "a condition operand cannot start with `(`")
+		return name
+	}
+	p.skipTestNewlines()
+	// A `(` group may be the third word, as in `[[ -foo a ( b ) ]]`, but
+	// nowhere later: Zsh rejects `[[ -foo a b ( c ) ]]`.
+	if lit := second.Lit(); len(lit) <= 2 && strings.HasPrefix(lit, "-") || p.atTestEnd() && p.tok != leftParen {
+		return p.zshDashUnary(name, second)
+	}
+	third := p.getWord()
+	if third == nil {
+		return &ModuleTest{Name: name, Args: []*Word{second}}
+	}
+	p.skipTestNewlines()
+	if p.atTestEnd() {
+		if startsWithDash(second) {
+			return &ModuleTest{Name: second, Infix: true, Args: []*Word{name, third}}
+		}
+		return &ModuleTest{Name: name, Args: []*Word{second, third}}
+	}
+	args := []*Word{second, third}
+	// Past the third word Zsh takes only plain words: a `!` ends the list
+	// and is then an error, as in `[[ -foo a b ! ]]`.
+	for !p.atTestEnd() && !(p.tok == _LitWord && p.val == "!") {
+		word := p.getWord()
+		if word == nil {
+			break
+		}
+		args = append(args, word)
+		p.skipTestNewlines()
+	}
+	return &ModuleTest{Name: name, Args: args}
+}
+
+// zshCondWord reads the right operand of an infix `a -NAME b` condition with
+// the condition's glob-group lexing (#484).
+func (p *Parser) zshCondWord() *Word {
+	defer func(old bool) { p.zshCondOperand = old }(p.zshCondOperand)
+	p.zshCondOperand = true
+	return p.getWord()
+}
+
+// zshDashUnary builds the one-operand form of a `-NAME` condition: a
+// *UnaryTest for a built-in test, else a *ModuleTest.
+func (p *Parser) zshDashUnary(name, operand *Word) TestExpr {
+	op := UnTestOperator(testUnaryOp(name.Lit()))
+	if op != 0 && op != TsRefVar {
+		return &UnaryTest{OpPos: name.Pos(), Op: op, X: operand}
+	}
+	return &ModuleTest{Name: name, Args: []*Word{operand}}
+}
+
+// startsWithParen reports whether w begins with a literal `(`.
+func startsWithParen(w *Word) bool {
+	if len(w.Parts) == 0 {
+		return false
+	}
+	lit, ok := w.Parts[0].(*Lit)
+	return ok && strings.HasPrefix(lit.Value, "(")
+}
+
+func (p *Parser) skipTestNewlines() {
+	for p.got(_Newl) {
+	}
+}
+
+// atTestEnd reports whether the current token ends a condition's operand
+// list: `]]`, a `}` word (a parse error in Zsh here, reported by the
+// caller), or a token that cannot start a word, such as `&&`, `||`, `)`,
+// `(`, `<`, `>` or EOF.
+func (p *Parser) atTestEnd() bool {
+	switch p.tok {
+	case _LitWord:
+		return p.val == "]]" || p.val == "}"
+	case andAnd, orOr, rightParen, leftParen, rightBrace, rdrIn, rdrOut, _EOF, illegalTok:
+		return true
+	}
+	return false
+}
+
+// startsWithDash reports whether w begins with a literal `-`.
+func startsWithDash(w *Word) bool {
+	if len(w.Parts) == 0 {
+		return false
+	}
+	lit, ok := w.Parts[0].(*Lit)
+	return ok && strings.HasPrefix(lit.Value, "-")
+}
+
 func (p *Parser) testExprUnary() TestExpr {
+	if p.lang.in(LangZsh) && p.tok == _LitWord && strings.HasPrefix(p.val, "-") && len(p.val) > 1 {
+		return p.zshDashCondition()
+	}
 	switch p.tok {
 	case _EOF, rightParen:
 		return nil
