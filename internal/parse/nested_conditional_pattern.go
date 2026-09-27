@@ -151,11 +151,14 @@ type activePatternState struct {
 	bracketEscaped      bool
 	bracketANSIC        bool
 	bracketANSICOpen    bool
-	numericRangeEnd     int
-	seedOffset          int
-	quotedCloses        []int
-	seed                bool
-	invalid             bool
+	// consumedUntil is the offset the scan skips to without inspecting the
+	// bytes before it: the end of a numeric range `<m-n>`, or of a parameter
+	// expansion `${...}` (#513).
+	consumedUntil int
+	seedOffset    int
+	quotedCloses  []int
+	seed          bool
+	invalid       bool
 }
 
 type legacyBacktickSpan struct {
@@ -835,7 +838,7 @@ func activePatternByteConsumed(
 ) bool {
 	pattern := frame.conditional.pattern
 	b := src[offset]
-	if offset < pattern.numericRangeEnd {
+	if offset < pattern.consumedUntil {
 		return true
 	}
 	if pattern.inBracketExpression {
@@ -922,7 +925,21 @@ func activePatternByteConsumed(
 	}
 	if b == '<' {
 		if end, ok := activeNumericRangeEnd(src, offset); ok {
-			pattern.numericRangeEnd = end
+			pattern.consumedUntil = end
+			return true
+		}
+	}
+	// Zsh counts no parentheses inside a parameter expansion (in_brace_param
+	// in gettokstr, Src/lex.c), so `a(${x:-(})` opens one group, as the
+	// parser fork reads it (#511). Skip the expansion whole, as the
+	// double-quoted branch does; an expansion the shared rule cannot close
+	// leaves the byte to the checks below (#513). The skip only chooses what
+	// this scan counts: the parser still reads the whole source, so dropping
+	// the `{` test, the `+ 1`, or the `ok` test changes no verdict (measured
+	// over a 700-row grid), while the unquoted mode is load-bearing.
+	if b == '$' && offset+1 < len(src) && src[offset+1] == '{' {
+		if end, ok := skipBracedParameter(src, offset+1, false); ok {
+			pattern.consumedUntil = end + 1
 			return true
 		}
 	}
