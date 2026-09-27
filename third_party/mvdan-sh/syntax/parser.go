@@ -1372,6 +1372,7 @@ type zshGroupSubst struct {
 	escs   []int // indexes in p.litBs where a `\` newline was dropped
 	arith  bool  // opened as `$((`, which may be arithmetic
 	bquote bool  // a backquoted command
+	quote  rune  // an open quote, for zshFlagSubstStep
 }
 
 // zshGroupSubstStep follows the substitutions a glob group reader steps
@@ -2398,7 +2399,24 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	inParam := 0
 	var braceOpen Pos
 	var quote rune
-	for p.newLit(p.r); p.r != runeEOF && p.r != ']' && (braces > 0 || quote != 0 || p.r != ','); p.rune() {
+	// A command substitution or backquoted command in the argument is text
+	// here too, so its body is parsed when it closes, as in a glob group
+	// (#519, #526), and a `,` inside it is text. Zsh reads the subscript as
+	// it reads a double-quoted string (dquote_parse), where a `'` is text,
+	// so `'$(done)'` is still a substitution; only a backslash stops one.
+	// An escaped `]` in a backquoted body is text of the body (`\]` in
+	// `` `echo \]` ``), so only an unescaped one ends the argument there.
+	var sub *zshGroupSubst
+	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || sub != nil && sub.bquote && litEscaped(p.litBs)) && (braces > 0 || quote != 0 || sub != nil || p.r != ','); p.rune() {
+		if sub != nil {
+			sub = p.zshFlagSubstStep(sub)
+			continue
+		}
+		if !litEscaped(p.litBs) {
+			if sub = p.zshFlagSubstOpen(); sub != nil {
+				continue
+			}
+		}
 		if !p.zshSubscript {
 			continue
 		}
@@ -2441,6 +2459,83 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	p.quote = old
 	p.next()
 	return zf
+}
+
+// zshFlagSubstOpen reports a command substitution or backquoted command
+// opening at p.r in a raw subscript flag argument, and moves past its `(`.
+// The argument is a pattern, where `<(z)` is `<` and a group, not a process
+// substitution: `${x[(i)<(z)]}` finds an element `<z`.
+func (p *Parser) zshFlagSubstOpen() *zshGroupSubst {
+	bq := p.r == '`'
+	if !bq {
+		if p.r != '$' || p.peek() != '(' {
+			return nil
+		}
+		p.rune()
+	}
+	n := len(p.litBs)
+	return &zshGroupSubst{
+		depth:  1,
+		start:  n,
+		pos:    posAddCol(p.nextPos(), 1),
+		arith:  !bq && n >= 2 && p.litBs[n-2] == '$' && p.peek() == '(',
+		bquote: bq,
+	}
+}
+
+// zshFlagSubstStep follows a substitution opened by zshFlagSubstOpen, with
+// depth counting its parentheses outside quotes, and checks its body when it
+// closes. A quoted or escaped parenthesis does not count: in a short
+// `$x[...]` Zsh reads it so, and in a `${...}` such a subscript fails only
+// when it is expanded, which the parser leaves alone as before.
+func (p *Parser) zshFlagSubstStep(sub *zshGroupSubst) *zshGroupSubst {
+	switch {
+	case p.r == escNewl:
+		sub.escs = append(sub.escs, len(p.litBs))
+		return sub
+	case sub.quote != 0:
+		// A backslash escapes a `"` but not a `'`.
+		if p.r == sub.quote && (sub.quote == '\'' || !litEscaped(p.litBs)) {
+			sub.quote = 0
+		}
+		return sub
+	case litEscaped(p.litBs):
+		// Read the escaped byte in place, so that a `]` still ends the
+		// argument as it did before (the loop tests p.r).
+		return sub
+	case p.r == '\\':
+		return sub
+	case sub.bquote:
+		if p.r != '`' {
+			return sub
+		}
+	case p.r == '\'' || p.r == '"':
+		sub.quote = p.r
+		return sub
+	case p.r == '(':
+		sub.depth++
+		return sub
+	case p.r == ')':
+		if sub.depth--; sub.depth > 0 {
+			return sub
+		}
+	default:
+		return sub
+	}
+	if !sub.arith && len(p.litBs) > sub.start {
+		p.zshGroupSubstCheck(sub, p.litBs[sub.start:len(p.litBs)-1])
+	}
+	return nil
+}
+
+// litEscaped reports whether the last byte of a literal follows an odd run
+// of backslashes.
+func litEscaped(bs []byte) bool {
+	n := 0
+	for i := len(bs) - 2; i >= 0 && bs[i] == '\\'; i-- {
+		n++
+	}
+	return n%2 == 1
 }
 
 func (p *Parser) stopToken() bool {

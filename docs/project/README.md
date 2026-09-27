@@ -24,6 +24,7 @@ They are history, not policy; read the newest first and do not update older ones
 
 - [2026-09-27 group substitution body survey](2026-09-27-group-substitution-body-survey.md)
 - [2026-09-27 subscript brace survey](2026-09-27-subscript-brace-survey.md)
+- [2026-09-27 subscript flag substitution body survey](2026-09-27-subscript-flag-substitution-body-survey.md)
 - [2026-09-27 empty group survey](2026-09-27-empty-group-survey.md)
 - [2026-09-27 regex operand group survey](2026-09-27-regex-operand-group-survey.md)
 - [2026-09-27 parameter expansion word braces survey](2026-09-27-param-expansion-word-braces-survey.md)

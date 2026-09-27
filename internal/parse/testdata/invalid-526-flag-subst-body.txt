@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Issue #526: the body of a command substitution in a subscript flag
+# argument is parsed as commands. Top level; zsh -f -n reports: parse error
+# near `done'.
+print ${x[(r)$(done)]}
