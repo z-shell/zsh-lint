@@ -1762,13 +1762,15 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"a=(x y) foo",
-		langErr("1:1: inline variables cannot be arrays", LangBash|LangZsh),
-		flipConfirmAll, // stringifies
+		langErr("1:1: inline variables cannot be arrays", LangBash),
+		langErr("", LangZsh), // #285: an ordinary Zsh assignment prefix
+		flipConfirmAll,       // stringifies
 	),
 	errCase(
 		"a[2]=x foo",
-		langErr("1:1: inline variables cannot be arrays", LangBash|LangZsh),
-		flipConfirmAll, // stringifies
+		langErr("1:1: inline variables cannot be arrays", LangBash),
+		langErr("", LangZsh), // #285
+		flipConfirmAll,       // stringifies
 	),
 	errCase(
 		"function",
@@ -3222,5 +3224,72 @@ func TestZshReservedWordAfterAssignment(t *testing.T) {
 	for _, src := range []string{"x=1 ! true", "x=1 time true", "x=1 [[ a ]]"} {
 		_, err := NewParser(Variant(LangBash)).Parse(strings.NewReader(src), "")
 		qt.Check(t, qt.IsNil(err), qt.Commentf("%q", src))
+	}
+}
+
+// Zsh applies a subscripted or array assignment before a command word as an
+// ordinary prefix assignment (zsh-lint #285). Each row was judged by
+// `zsh -f -n` on Zsh 5.9.2, and the subscripted form by running it:
+// `a[2]=x true` sets the element in the shell.
+func TestZshArrayAssignmentPrefix(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		src   string
+		index string // the subscript of the first assignment, or ""
+		array int    // elements in the first assignment's array value, or -1
+		args  []string
+	}{
+		{"m[1]=1 true", "1", -1, []string{"true"}},
+		{"a[2]+=x true", "2", -1, []string{"true"}},
+		{"a[2]=x b=1 true arg", "2", -1, []string{"true", "arg"}},
+		{"a[2]=x >/dev/null true", "2", -1, []string{"true"}},
+		{"a[2]=x $cmd", "2", -1, []string{"$cmd"}},
+		{"a=(1 2) true", "", 2, []string{"true"}},
+		{"a+=(1 2) true", "", 2, []string{"true"}},
+		{"a=() true", "", 0, []string{"true"}},
+		{"a[1]=(x y) true", "1", 2, []string{"true"}},
+	} {
+		f, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(tc.src), "")
+		qt.Assert(t, qt.IsNil(err), qt.Commentf("%q", tc.src))
+		qt.Assert(t, qt.HasLen(f.Stmts, 1), qt.Commentf("%q", tc.src))
+		call, ok := f.Stmts[0].Cmd.(*CallExpr)
+		qt.Assert(t, qt.IsTrue(ok), qt.Commentf("%q: %T", tc.src, f.Stmts[0].Cmd))
+		qt.Assert(t, qt.Not(qt.HasLen(call.Assigns, 0)), qt.Commentf("%q", tc.src))
+		first := call.Assigns[0]
+		if tc.index == "" {
+			qt.Check(t, qt.IsNil(first.Index), qt.Commentf("%q", tc.src))
+		} else {
+			qt.Assert(t, qt.IsNotNil(first.Index), qt.Commentf("%q", tc.src))
+			start := int(first.Index.Pos().Offset())
+			end := int(first.Index.End().Offset())
+			qt.Check(t, qt.Equals(tc.src[start:end], tc.index), qt.Commentf("%q", tc.src))
+		}
+		if tc.array < 0 {
+			qt.Check(t, qt.IsNil(first.Array), qt.Commentf("%q", tc.src))
+		} else {
+			qt.Assert(t, qt.IsNotNil(first.Array), qt.Commentf("%q", tc.src))
+			qt.Check(t, qt.HasLen(first.Array.Elems, tc.array), qt.Commentf("%q", tc.src))
+		}
+		var args []string
+		for _, arg := range call.Args {
+			start, end := int(arg.Pos().Offset()), int(arg.End().Offset())
+			args = append(args, tc.src[start:end])
+		}
+		qt.Check(t, qt.DeepEquals(args, tc.args), qt.Commentf("%q", tc.src))
+	}
+
+	// The prefix still ends at a construct that cannot follow an assignment.
+	for _, tc := range []struct{ src, want string }{
+		{"a[2]=x { true }", "1:8: `{` cannot follow an assignment"},
+		{"a=(1) if true; then :; fi", "1:7: `if` cannot follow an assignment"},
+	} {
+		_, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(tc.src), "")
+		qt.Check(t, qt.ErrorMatches(err, regexp.QuoteMeta(tc.want)), qt.Commentf("%q", tc.src))
+	}
+
+	// Bash still forbids the form.
+	for _, src := range []string{"a[2]=x true", "a=(1 2) true", "b=1 a[2]=x true"} {
+		_, err := NewParser(Variant(LangBash)).Parse(strings.NewReader(src), "")
+		qt.Check(t, qt.ErrorMatches(err, `.*inline variables cannot be arrays`), qt.Commentf("%q", src))
 	}
 }
