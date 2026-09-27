@@ -1,0 +1,4 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Command-Substitution
+# Issue #519: the body of a command substitution inside a glob group is
+# parsed as commands. Top level; zsh -f -n reports: parse error near `done'.
+print a($(done))

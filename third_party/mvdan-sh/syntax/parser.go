@@ -1363,6 +1363,109 @@ func (p *Parser) zshGroupRune(nest []byte) []byte {
 	return nest
 }
 
+// zshGroupSubst is a command substitution, backquoted command or process
+// substitution being read as text inside a Zsh glob group (#519).
+type zshGroupSubst struct {
+	depth  int   // length of the zshGroupRune stack with it open
+	start  int   // index in p.litBs of its first body byte
+	pos    Pos   // position of that byte
+	escs   []int // indexes in p.litBs where a `\` newline was dropped
+	arith  bool  // opened as `$((`, which may be arithmetic
+	bquote bool  // a backquoted command
+}
+
+// zshGroupSubstStep follows the substitutions a glob group reader steps
+// over. The reader keeps them as text of the group's literal, so their
+// bodies would never be parsed as commands; Zsh parses them, and rejects
+// `a($(done))` as it rejects `$(done)`. When the outermost substitution
+// closes, its body is parsed on its own and an error in it is reported at
+// its position in the source. A body that begins with `(` after `$(` may be
+// arithmetic and is left as before.
+func (p *Parser) zshGroupSubstStep(sub *zshGroupSubst, before int, nest []byte) *zshGroupSubst {
+	if sub == nil {
+		if len(nest) <= before || nest[len(nest)-1] != '$' && nest[len(nest)-1] != '`' {
+			return nil
+		}
+		n := len(p.litBs)
+		return &zshGroupSubst{
+			depth:  len(nest),
+			start:  n,
+			pos:    posAddCol(p.nextPos(), 1),
+			arith:  n >= 2 && p.litBs[n-2] == '$' && p.litBs[n-1] == '(' && p.peek() == '(',
+			bquote: nest[len(nest)-1] == '`',
+		}
+	}
+	if p.r == escNewl {
+		sub.escs = append(sub.escs, len(p.litBs))
+		return sub
+	}
+	if len(nest) >= sub.depth {
+		return sub
+	}
+	if !sub.arith && len(p.litBs) > sub.start {
+		// An empty body, as in `$()`, is valid; skipping it only saves
+		// a parse.
+		p.zshGroupSubstCheck(sub, p.litBs[sub.start:len(p.litBs)-1])
+	}
+	return nil
+}
+
+func (p *Parser) zshGroupSubstCheck(sub *zshGroupSubst, lit []byte) {
+	body := make([]byte, 0, len(lit)+2*len(sub.escs))
+	last := 0
+	for _, i := range sub.escs {
+		i -= sub.start
+		if i < last || i > len(lit) {
+			continue
+		}
+		body = append(append(body, lit[last:i]...), '\\', '\n')
+		last = i
+	}
+	body = append(body, lit[last:]...)
+	var removed []int // body offsets, after unescaping, where a byte was dropped
+	if sub.bquote {
+		// Inside backquotes a backslash before `$`, `` ` `` or `\` only
+		// quotes that byte for the backquoted command (Command
+		// Substitution in zshexpn), so the body is read without it.
+		unesc := body[:0:0]
+		for i := 0; i < len(body); i++ {
+			if body[i] == '\\' && i+1 < len(body) && bquoteEscaped(body[i+1]) {
+				removed = append(removed, len(unesc))
+				i++
+			}
+			unesc = append(unesc, body[i])
+		}
+		body = unesc
+	}
+	_, err := NewParser(Variant(p.lang)).Parse(bytes.NewReader(body), "")
+	perr, ok := err.(ParseError)
+	if !ok {
+		return
+	}
+	e := perr.Pos
+	// Put back the backslashes dropped above: each one before the error
+	// shifts its offset, and its column when on the error's line.
+	offs, colShift := e.Offset(), uint(0)
+	lineStart := uint(0)
+	if e.Line() > 1 {
+		lineStart = uint(bytes.LastIndexByte(body[:min(int(offs), len(body))], '\n') + 1)
+	}
+	for _, r := range removed {
+		if uint(r) > e.Offset() {
+			break
+		}
+		offs++
+		if uint(r) >= lineStart {
+			colShift++
+		}
+	}
+	line, col := sub.pos.Line()+e.Line()-1, e.Col()+colShift
+	if e.Line() == 1 {
+		col += sub.pos.Col() - 1
+	}
+	p.posErr(NewPos(sub.pos.Offset()+offs, line, col), "%s", perr.Text)
+}
+
 // zshCondNest reports whether a zshGroupRune stack top belongs to
 // zshCondGroupRune: `g` for a nested bare group, `N` and `M` for a numeric
 // glob before and after its dash.
@@ -1697,22 +1800,23 @@ func (p *Parser) wordPart() WordPart {
 			// A `)` that is quoted, or that closes a command substitution,
 			// does not end the group (#439).
 			var nest []byte
+			var sub *zshGroupSubst
 			broke := false
 			for p.newLit(p.r); p.r != runeEOF && (p.r != ')' || len(nest) > 0); p.rune() {
+				before := len(nest)
 				if p.zshCondOperand && (len(nest) == 0 || zshCondNest(nest[len(nest)-1])) {
 					// An error ends the loop: posErr moves p.r to EOF.
 					nest = p.zshCondGroupRune(nest)
-					continue
-				}
-				if len(nest) == 0 {
+				} else if len(nest) == 0 {
 					var ok bool
 					if nest, ok = p.zshWordGroupRune(nest); !ok {
 						broke = true
 						break
 					}
-					continue
+				} else {
+					nest = p.zshGroupRune(nest)
 				}
-				nest = p.zshGroupRune(nest)
+				sub = p.zshGroupSubstStep(sub, before, nest)
 			}
 			if broke {
 				// The word ends inside the group, as in `a(b;c)`: the
