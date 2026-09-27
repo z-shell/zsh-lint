@@ -2747,12 +2747,14 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 			braces--
 		}
 	}
-	// The part after a `,` is parsed elsewhere, so at a `,` only a `]`
-	// that no earlier `[` opened is an error: `$(echo [),$(echo ])` is
-	// valid Zsh, and `$(echo [),2` is accepted, as before.
+	// A `]` right before the expansion's `}` is the subscript's own, so a
+	// `[` still open there is never closed (#534).
 	if top > 0 && topParam == 0 && p.r == ']' && p.peek() == '}' {
 		p.posErr(topOpen, "a `[` in a subscript flag argument must be closed before the subscript's `]`")
 	}
+	// The part after a `,` is parsed elsewhere, so at a `,` only a `]`
+	// that no earlier `[` opened is an error: `$(echo [),$(echo ])` is
+	// valid Zsh, and `$(echo [),2` is accepted, as before.
 	if p.zshBraceIndex && ((brackets != 0 || bqBrackets != 0) && p.r == ']' || brackets < 0 && p.r == ',') {
 		p.posErr(bracketPos, "the `[` and `]` in command substitutions in a subscript must balance")
 	}
