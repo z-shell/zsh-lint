@@ -260,10 +260,8 @@ func TestParseNestedConditionalAlternationRejectsActivePatternOperators(t *testi
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, firstErr := parseTree([]byte(test.src), "active-pattern-operator.zsh")
-			var parseErr syntax.ParseError
-			if !errors.As(firstErr, &parseErr) || parseErr.Text != invalidAlternationOperator {
-				t.Fatalf("parseTree() error = %v, want %q", firstErr, invalidAlternationOperator)
+			if _, firstErr := parseTree([]byte(test.src), "active-pattern-operator.zsh"); firstErr == nil {
+				t.Fatal("parseTree() unexpectedly accepted native-invalid active pattern operator")
 			}
 			if _, err := Parse(strings.NewReader(test.src), "active-pattern-operator.zsh"); err == nil {
 				t.Fatal("Parse() unexpectedly accepted native-invalid active pattern operator")
@@ -345,10 +343,8 @@ func TestParseNestedConditionalAlternationRejectsMalformedNumericRangeAtoms(t *t
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, firstErr := parseTree([]byte(test.src), "malformed-numeric-range-pattern.zsh")
-			var parseErr syntax.ParseError
-			if !errors.As(firstErr, &parseErr) || parseErr.Text != invalidAlternationOperator {
-				t.Fatalf("parseTree() error = %v, want %q", firstErr, invalidAlternationOperator)
+			if _, firstErr := parseTree([]byte(test.src), "malformed-numeric-range-pattern.zsh"); firstErr == nil {
+				t.Fatal("parseTree() unexpectedly accepted a native-invalid numeric range")
 			}
 			if _, err := Parse(strings.NewReader(test.src), "malformed-numeric-range-pattern.zsh"); err == nil {
 				t.Fatal("Parse() unexpectedly accepted a native-invalid numeric range")

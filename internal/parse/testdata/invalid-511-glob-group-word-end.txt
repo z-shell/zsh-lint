@@ -1,0 +1,4 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Glob-Operators
+# Issue #511: a `;` ends the word inside its glob group, so the group's `)`
+# closes nothing. Top level; zsh -f -n reports: parse error near `)'.
+print a(b;c)

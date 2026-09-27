@@ -561,6 +561,12 @@ type Parser struct {
 	// change to the #484 operands rather than guarding a verdict.
 	zshCondOperand bool
 
+	// zshBrokenGroup is the `(` of the last glob group whose word ended
+	// inside it (#511), as in `a(b&&c)`. A `)` that later reaches the end
+	// of a `[[` condition is reported at that `)` rather than at the `[[`.
+	// It is scoped like zshCondOperand.
+	zshBrokenGroup Pos
+
 	accComs []Comment
 	curComs *[]Comment
 
@@ -724,16 +730,17 @@ type saveState struct {
 	quote          quoteState
 	buriedHdocs    int
 	zshCondOperand bool
+	zshBrokenGroup Pos
 }
 
 func (p *Parser) preNested(quote quoteState) (s saveState) {
-	s.quote, s.buriedHdocs, s.zshCondOperand = p.quote, p.buriedHdocs, p.zshCondOperand
-	p.buriedHdocs, p.quote, p.zshCondOperand = len(p.heredocs), quote, false
+	s.quote, s.buriedHdocs, s.zshCondOperand, s.zshBrokenGroup = p.quote, p.buriedHdocs, p.zshCondOperand, p.zshBrokenGroup
+	p.buriedHdocs, p.quote, p.zshCondOperand, p.zshBrokenGroup = len(p.heredocs), quote, false, Pos{}
 	return s
 }
 
 func (p *Parser) postNested(s saveState) {
-	p.quote, p.buriedHdocs, p.zshCondOperand = s.quote, s.buriedHdocs, s.zshCondOperand
+	p.quote, p.buriedHdocs, p.zshCondOperand, p.zshBrokenGroup = s.quote, s.buriedHdocs, s.zshCondOperand, s.zshBrokenGroup
 }
 
 func (p *Parser) unquotedWordBytes(w *Word) ([]byte, bool) {
@@ -1320,7 +1327,10 @@ func (p *Parser) zshGroupRune(nest []byte) []byte {
 			return append(nest, '\'')
 		}
 	case '(':
-		if top == '$' || top == '(' || top == '{' || top == '}' {
+		// Inside a parameter expansion Zsh counts no parentheses
+		// (in_brace_param in gettokstr), so `${x:-(}` opens nothing
+		// (#511).
+		if top == '$' || top == '(' {
 			return append(nest, '(')
 		}
 	case ')':
@@ -1391,6 +1401,59 @@ func (p *Parser) zshCondGroupRune(nest []byte) []byte {
 
 func (p *Parser) zshCondGroupErr() {
 	p.posErr(p.nextPos(), "a condition glob group cannot contain %#q", string(p.r))
+}
+
+// zshWordGroupRune is zshGroupRune for p.r at the top level of a glob group
+// in any other word (#511). Zsh lexes the group as part of the word
+// (gettokstr in Src/lex.c), where `;`, `&`, and a `<` or `>` that starts
+// neither a process substitution nor a numeric glob `<m-n>` end the word
+// even inside the group. It reports false at such a byte, which the caller
+// leaves unread so that it starts the next token, as it does in Zsh:
+// `print a(b;c)` is `print a(b`, `;` and `c)`, a parse error at the `)`,
+// while `print ${x:-$(print a(b;c))}` is valid Zsh because the `)` after `c`
+// closes the substitution. A bare `(` does not nest here yet (#397).
+func (p *Parser) zshWordGroupRune(nest []byte) ([]byte, bool) {
+	switch p.r {
+	case ';', '&':
+		return nest, false
+	case '<', '>':
+		if p.peek() == '(' {
+			p.rune()
+			return append(nest, '$'), true
+		}
+		if p.r == '<' && p.zshNumGlobAhead() {
+			for p.r != '>' {
+				p.rune()
+			}
+			return nest, true
+		}
+		return nest, false
+	}
+	return p.zshGroupRune(nest), true
+}
+
+// zshNumGlobAhead reports whether the bytes after the `<` at p.r complete a
+// numeric glob `<m-n>`, where m and n are optional digit strings, as
+// isnumglob in Zsh's Src/lex.c does. It reads ahead without consuming, and
+// gives up at the end of the read buffer.
+func (p *Parser) zshNumGlobAhead() bool {
+	sep := byte('-')
+	for i := 0; ; i++ {
+		if int(p.bsp)+i >= len(p.bs) {
+			if i >= bufSize-1 || p.fill() == 0 || int(p.bsp)+i >= len(p.bs) {
+				return false
+			}
+		}
+		switch b := p.bs[int(p.bsp)+i]; {
+		case b >= '0' && b <= '9':
+		case b == sep && sep == '-':
+			sep = '>'
+		case b == sep:
+			return true
+		default:
+			return false
+		}
+	}
 }
 
 func (p *Parser) wordPart() WordPart {
@@ -1560,13 +1623,32 @@ func (p *Parser) wordPart() WordPart {
 			// A `)` that is quoted, or that closes a command substitution,
 			// does not end the group (#439).
 			var nest []byte
+			broke := false
 			for p.newLit(p.r); p.r != runeEOF && (p.r != ')' || len(nest) > 0); p.rune() {
 				if p.zshCondOperand && (len(nest) == 0 || zshCondNest(nest[len(nest)-1])) {
 					// An error ends the loop: posErr moves p.r to EOF.
 					nest = p.zshCondGroupRune(nest)
 					continue
 				}
+				if len(nest) == 0 {
+					var ok bool
+					if nest, ok = p.zshWordGroupRune(nest); !ok {
+						broke = true
+						break
+					}
+					continue
+				}
 				nest = p.zshGroupRune(nest)
+			}
+			if broke {
+				// The word ends inside the group, as in `a(b;c)`: the
+				// group stays open and the byte at p.r is lexed as the
+				// next token, which is what Zsh does (#511).
+				p.zshBrokenGroup = pos
+				p.val = p.endLit()
+				l := p.lit(pos, "("+p.val)
+				p.next()
+				return l
 			}
 			if p.r != ')' {
 				p.tok = _EOF // we can only get here due to EOF
@@ -3345,6 +3427,12 @@ func (p *Parser) testClause(s *Stmt) {
 	}
 	tc.Right = p.pos
 	if _, ok := p.gotRsrv("]]"); !ok {
+		if p.tok == rightParen && p.zshBrokenGroup.IsValid() {
+			// `[[ x == a(b&&c) ]]`: the `&&` ended the word inside
+			// its group, so this `)` closes nothing (#511). Zsh
+			// reports it here, not at the `[[`.
+			p.posErr(p.pos, "`)` matches no `(`: the word ended inside the glob group at %s", p.zshBrokenGroup)
+		}
 		p.matchingErr(tc.Left, dblLeftBrack, dblRightBrack)
 	}
 	p.postNested(old)
