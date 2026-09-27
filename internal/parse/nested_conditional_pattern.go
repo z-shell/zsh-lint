@@ -947,6 +947,12 @@ func activePatternByteConsumed(
 	case '&', ';', '<', '>':
 		pattern.invalid = true
 	case '(':
+		// Zsh ends the word at a `(` directly followed by `)` (#522), so
+		// masking the pair would accept a source Zsh rejects.
+		if offset+1 < len(src) && src[offset+1] == ')' {
+			pattern.invalid = true
+			break
+		}
 		pattern.openings = append(pattern.openings, offset)
 	case ')':
 		if len(pattern.openings) == 0 {

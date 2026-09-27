@@ -1389,6 +1389,11 @@ func (p *Parser) zshCondGroupRune(nest []byte) []byte {
 	}
 	switch p.r {
 	case '(':
+		if p.peek() == ')' {
+			// `()` ends the word in Zsh, which is an error here (#522).
+			p.posErr(p.nextPos(), "a condition glob group cannot contain %#q", "()")
+			return nest
+		}
 		return append(nest, 'g')
 	case ')':
 		return nest[:len(nest)-1]
@@ -1426,6 +1431,13 @@ func (p *Parser) zshWordGroupRune(nest []byte) ([]byte, bool) {
 	switch p.r {
 	case ';', '&':
 		return nest, false
+	case '(':
+		// A `(` directly followed by `)` ends the word, and `()` is a
+		// token of its own (the e == ')' test in gettokstr's LX2_INPAR),
+		// so `[[ x == a(()) ]]` is an error (#522).
+		if p.peek() == ')' {
+			return nest, false
+		}
 	case '<', '>':
 		if p.peek() == '(' {
 			p.rune()

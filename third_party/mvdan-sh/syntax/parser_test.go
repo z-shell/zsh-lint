@@ -1710,7 +1710,9 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"[[ a =~ ())",
-		langErr("1:1: reached `)` without matching `[[` with `]]`", LangBash|LangZsh),
+		langErr("1:1: reached `)` without matching `[[` with `]]`", LangBash),
+		// Zsh reads `()` as a token of its own (#522).
+		langErr("1:9: not a valid test operator: `(`", LangZsh),
 	),
 	errCase(
 		"[[ >",
