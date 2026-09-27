@@ -926,6 +926,20 @@ func activePatternByteConsumed(
 			return true
 		}
 	}
+	// Zsh counts no parentheses inside a parameter expansion (in_brace_param
+	// in gettokstr, Src/lex.c), so `a(${x:-(})` opens one group, as the
+	// parser fork reads it (#511). Skip the expansion whole, as the
+	// double-quoted branch does; an expansion the shared rule cannot close
+	// leaves the byte to the checks below (#513). The skip only chooses what
+	// this scan counts: the parser still reads the whole source, so dropping
+	// the `{` test, the `+ 1`, or the `ok` test changes no verdict (measured
+	// over a 700-row grid), while the unquoted mode is load-bearing.
+	if b == '$' && offset+1 < len(src) && src[offset+1] == '{' {
+		if end, ok := skipBracedParameter(src, offset+1, false); ok {
+			pattern.numericRangeEnd = end + 1
+			return true
+		}
+	}
 	switch b {
 	case '&', ';', '<', '>':
 		pattern.invalid = true
