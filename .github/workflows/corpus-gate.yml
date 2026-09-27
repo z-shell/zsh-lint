@@ -18,21 +18,9 @@ on:
       - "go.sum"
       - "internal/**"
       - "third_party/**"
-  pull_request:
-    paths:
-      - ".github/scripts/regression-corpus.sh"
-      - ".github/workflows/corpus-gate.yml"
-      - "cmd/**"
-      - "docs/project/corpus.md"
-      - "docs/project/corpus-paths.txt"
-      - "docs/project/corpus-revisions.txt"
-      - "docs/project/regression-corpus.txt"
-      - "docs/project/corpus-configs/**"
-      - "docs/project/configured-corpus-expected.json"
-      - "go.mod"
-      - "go.sum"
-      - "internal/**"
-      - "third_party/**"
+  # Every PR must emit these checks, including documentation-only and fork PRs.
+  # Workflow-level path filters leave required contexts pending forever.
+  pull_request: {}
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:

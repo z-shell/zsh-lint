@@ -173,3 +173,15 @@ func TestConfiguredCorpusContract(t *testing.T) {
 		}
 	}
 }
+
+// Required contexts must exist even when a PR changes only documentation.
+// Keep the PR event unconditional; push filtering is independent.
+func TestCorpusGateRunsOnEveryPullRequest(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github", "workflows", "corpus-gate.yml")
+	if !regexp.MustCompile(`(?m)^  pull_request: \{\}$`).MatchString(workflow) {
+		t.Fatal("corpus gate must use an unfiltered pull_request event so every PR emits its check contexts")
+	}
+	if strings.Contains(workflow, "pull_request_target:") {
+		t.Fatal("corpus qualification must run fork code with pull_request permissions")
+	}
+}
