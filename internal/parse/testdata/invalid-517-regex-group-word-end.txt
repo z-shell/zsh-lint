@@ -1,0 +1,4 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html
+# Issue #517: an `=~` operand is lexed as an ordinary word, so a `;` ends it
+# inside its group. Top level; zsh -f -n reports: parse error near `;'.
+[[ x =~ a(b;c) ]]
