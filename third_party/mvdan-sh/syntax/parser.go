@@ -2453,7 +2453,15 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	var sub *zshGroupSubst
 	brackets, bqBrackets := 0, 0
 	var bracketPos Pos
-	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || p.r != ','); p.rune() {
+	// A short subscript with flags in the argument, as in `$y[(r)a]`, is
+	// text too, so its `]` does not end the argument (#532). short counts
+	// the unescaped `[` bytes open in it, quoted or not, as dquote_parse
+	// counts them; shortName is set while a `$` and a parameter name are
+	// read, and shortEnd right after its `]`, where a further `[`, as in
+	// `$y[(r)a][1]`, opens another subscript.
+	short := 0
+	shortName, shortEnd := false, false
+	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || short > 0 || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || short > 0 || p.r != ','); p.rune() {
 		if sub != nil {
 			switch {
 			case p.r != '[' && p.r != ']':
@@ -2484,6 +2492,12 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 			if sub = p.zshFlagSubstOpen(); sub != nil {
 				continue
 			}
+		}
+		if p.zshFlagShortRune(&short, &shortName, &shortEnd) && p.zshBraceIndex && p.r == '}' && !litEscaped(p.litBs) && braces == 0 && inParam == 0 && quote == 0 {
+			// In a `${...}` a stray `}` inside a short subscript closes
+			// the outer expansion in Zsh; outside one the argument's own
+			// parse reports it.
+			p.posErr(p.nextPos(), "`}` can only be used to close a block")
 		}
 		if !p.zshSubscript {
 			continue
@@ -2533,6 +2547,45 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	p.quote = old
 	p.next()
 	return zf
+}
+
+// zshFlagShortRune follows a short subscript `$name[(flags)...]` in a raw
+// subscript flag argument (#532), where short counts its open `[` bytes,
+// and reports whether p.r is inside one. Its bytes still go through the
+// caller's quote and brace tracking, since Zsh counts a `{` there with the
+// enclosing expansion: `${x[(r)$y[(r){a]]}` is invalid.
+func (p *Parser) zshFlagShortRune(short *int, name, end *bool) bool {
+	escaped := litEscaped(p.litBs)
+	wasEnd := *end
+	*end = false
+	switch {
+	case *short > 0:
+		switch {
+		case escaped:
+		case p.r == '[':
+			*short++
+		case p.r == ']':
+			if *short--; *short == 0 {
+				*end = true
+			}
+		}
+		return true
+	case *name && p.r == '[' && p.peek() == '(':
+		// Only a flagged one: an unflagged `$y[1]` is left as before,
+		// where the flag-pattern adapters (#382) read what follows it.
+		*name = false
+		*short = 1
+		return true
+	case *name && (asciiLetter(p.r) || asciiDigit(p.r) || p.r == '_'):
+		return false
+	case wasEnd && p.r == '[':
+		// An escaped `[` never reaches here with end set: its `\`
+		// resets it.
+		*short = 1
+		return true
+	}
+	*name = p.r == '$' && !escaped && (asciiLetter(p.peek()) || asciiDigit(p.peek()) || p.peek() == '_')
+	return false
 }
 
 // zshFlagSubstOpen reports a command substitution or backquoted command
