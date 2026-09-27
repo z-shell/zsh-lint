@@ -2,6 +2,7 @@
 
 Issue: [#512](https://github.com/z-shell/zsh-lint/issues/512).
 Base: `8b89d45f2a5b5ddaf59de6fdd14c3a334fdf1f68` (`origin/main`), built with `go build` into a scratch binary.
+After the branch was rebased onto `472f76e0` (#514), every row below was re-checked against that `main` with the same base verdicts.
 Oracle: Zsh 5.9.2, newline-terminated files checked with `timeout 5 zsh -f -n FILE`; empty stderr means valid.
 Manual: [Conditional Expressions](https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html); the rules are `par_cond_2` and `par_cond_multi` in `Src/parse.c` at the `zsh-5.9.2` release.
 
