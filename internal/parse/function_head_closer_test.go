@@ -30,11 +30,8 @@ func TestParseFunctionHeadBeforeCloserTerminates(t *testing.T) {
 			}()
 			select {
 			case err := <-done:
-				if err == nil {
-					t.Fatalf("Parse(%q) succeeded; want the parser error until #479", src)
-				}
-				if !strings.Contains(err.Error(), "must be followed by a statement") {
-					t.Fatalf("Parse(%q) error = %v; want the original parser error", src, err)
+				if err != nil {
+					t.Fatalf("Parse(%q) failed: %v", src, err)
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatalf("Parse(%q) did not return within 5s", src)

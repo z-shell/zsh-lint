@@ -565,10 +565,31 @@ type FuncDecl struct {
 	Names []*Lit // When declaring many func names with [LangZsh].
 
 	Body *Stmt
+
+	// ParensEnd is where the "()" ends when Parens is true and Body is nil
+	// (zsh-lint #479).
+	ParensEnd Pos
 }
 
 func (f *FuncDecl) Pos() Pos { return f.Position }
-func (f *FuncDecl) End() Pos { return f.Body.End() }
+func (f *FuncDecl) End() Pos {
+	if f.Body != nil {
+		return f.Body.End()
+	}
+	if f.Parens && f.ParensEnd.IsValid() {
+		return f.ParensEnd
+	}
+	if len(f.Names) > 0 {
+		return f.Names[len(f.Names)-1].End()
+	}
+	if f.Name != nil {
+		return f.Name.End()
+	}
+	if f.Parens {
+		return posAddCol(f.Position, len("function ()"))
+	}
+	return posAddCol(f.Position, len("function"))
+}
 
 // Word represents a shell word, containing one or more word parts contiguous to
 // each other. The word is delimited by word boundaries, such as spaces,

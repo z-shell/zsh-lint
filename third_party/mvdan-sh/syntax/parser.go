@@ -2426,7 +2426,7 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			if p.lang.in(LangPOSIX) && !ValidName(name.Value) {
 				p.posErr(name.Pos(), "invalid func name")
 			}
-			p.funcDecl(s, name.ValuePos, false, true, name)
+			p.funcDecl(s, name.ValuePos, false, true, Pos{}, name)
 		} else {
 			w := p.wordOne(name)
 			if p.lang.in(LangZsh) && !p.spaced {
@@ -2435,7 +2435,7 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			if p.lang.in(LangZsh) && p.tok == leftParen && p.r == ')' {
 				p.next()
 				p.follow(w.Pos(), "foo(", rightParen)
-				p.funcDecl(s, w.Pos(), false, true, p.wordToLit(w))
+				p.funcDecl(s, w.Pos(), false, true, Pos{}, p.wordToLit(w))
 				break
 			}
 			p.callExpr(s, w, false)
@@ -2456,7 +2456,7 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 		if p.lang.in(LangZsh) && p.tok == leftParen && p.r == ')' {
 			p.next()
 			p.follow(w.Pos(), "foo(", rightParen)
-			p.funcDecl(s, w.Pos(), false, true, p.wordToLit(w))
+			p.funcDecl(s, w.Pos(), false, true, Pos{}, p.wordToLit(w))
 			break
 		}
 		if p.got(leftParen) {
@@ -2471,7 +2471,7 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			if p.tok == _LitWord && p.val == "{" {
 				p.checkLang(fpos, LangZsh, "anonymous functions")
 			}
-			p.funcDecl(s, fpos, false, true)
+			p.funcDecl(s, fpos, false, true, Pos{})
 			break
 		}
 		p.subshell(s)
@@ -3486,8 +3486,12 @@ func (p *Parser) bashFuncDecl(s *Stmt) {
 		// A Zsh name is any word, as in `function _w_${cur} { :; }` (zsh-lint
 		// #234). funcNameWord returns nil at a token that cannot start a word
 		// (a redirect, `&&`, `|`, `(`, `;`, a newline), which ends the names as
-		// the literal loop below ends at a non-literal.
-		for p.tok != _LitWord || p.val != "{" {
+		// the literal loop below ends at a non-literal. In Zsh `}` also closes a
+		// block in any position, so it never starts a name (zsh-lint #479).
+		for {
+			if p.tok == _LitWord && (p.val == "{" || p.val == "}") {
+				break
+			}
 			w := p.funcNameWord()
 			if w == nil {
 				break
@@ -3514,10 +3518,13 @@ func (p *Parser) bashFuncDecl(s *Stmt) {
 	default:
 		p.checkLang(fpos, LangZsh, "multi-name functions")
 	}
+	var parensEnd Pos
 	if hasParens {
+		rpos := p.pos
 		p.follow(fpos, "function foo(", rightParen)
+		parensEnd = posAddCol(rpos, 1)
 	}
-	p.funcDecl(s, fpos, true, hasParens, names...)
+	p.funcDecl(s, fpos, true, hasParens, parensEnd, names...)
 }
 
 func (p *Parser) testDecl(s *Stmt) {
@@ -3717,18 +3724,145 @@ func (p *Parser) wordToLit(w *Word) *Lit {
 	}
 }
 
-func (p *Parser) funcDecl(s *Stmt, pos Pos, long, withParens bool, names ...*Lit) {
+func (p *Parser) isZshFuncClosingToken() bool {
+	switch p.tok {
+	case _EOF, rightParen:
+		return true
+	case dblSemicolon, semiAnd, dblSemiAnd, semiOr:
+		return p.quote == switchCase
+	case bckQuote:
+		return p.backquoteEnd()
+	case _LitWord:
+		switch p.val {
+		case "}", "fi", "done", "esac", "end", "then", "elif", "else", "do":
+			return true
+		}
+	}
+	return false
+}
+
+type zshFuncTrailKind int
+
+const (
+	zshFuncTrailOther  zshFuncTrailKind = iota // regular command body (e.g. `print z`, `function b`)
+	zshFuncTrailBrace                          // brace body `{ ... }`
+	zshFuncTrailClose                          // EOF or closing token (empty body)
+	zshFuncTrailReject                         // invalid opening token (e.g. `always`)
+)
+
+func (p *Parser) zshFuncTrail() zshFuncTrailKind {
+	if int(p.bsp) >= len(p.bs) {
+		p.fill()
+	}
+	var rest []byte
+	if int(p.bsp) < len(p.bs) {
+		rest = p.bs[p.bsp:]
+	}
+	curr := p.r
+
+	skipByte := func(b byte) bool {
+		return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == ';'
+	}
+
+	for {
+		if curr == runeEOF {
+			return zshFuncTrailClose
+		}
+		if curr < utf8.RuneSelf && skipByte(byte(curr)) {
+			if len(rest) == 0 {
+				curr = runeEOF
+				continue
+			}
+			curr = rune(rest[0])
+			rest = rest[1:]
+			continue
+		}
+		if curr == '#' {
+			for len(rest) > 0 && rest[0] != '\n' {
+				rest = rest[1:]
+			}
+			if len(rest) > 0 {
+				curr = rune(rest[0])
+				rest = rest[1:]
+			} else {
+				curr = runeEOF
+			}
+			continue
+		}
+		break
+	}
+
+	if curr == runeEOF || curr == '}' || curr == ')' || curr == '`' {
+		return zshFuncTrailClose
+	}
+	if curr == '{' {
+		return zshFuncTrailBrace
+	}
+	if ('a' <= curr && curr <= 'z') || ('A' <= curr && curr <= 'Z') {
+		word := []byte{byte(curr)}
+		for len(rest) > 0 {
+			b := rest[0]
+			if ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z') || ('0' <= b && b <= '9') || b == '_' {
+				word = append(word, b)
+				rest = rest[1:]
+				continue
+			}
+			break
+		}
+		switch string(word) {
+		case "fi", "done", "esac", "end", "then", "elif", "else", "do":
+			return zshFuncTrailClose
+		case "always":
+			return zshFuncTrailReject
+		}
+	}
+	return zshFuncTrailOther
+}
+
+func (p *Parser) funcDecl(s *Stmt, pos Pos, long, withParens bool, parensEnd Pos, names ...*Lit) {
 	fd := &FuncDecl{
-		Position: pos,
-		RsrvWord: long,
-		Parens:   withParens,
+		Position:  pos,
+		RsrvWord:  long,
+		Parens:    withParens,
+		ParensEnd: parensEnd,
 	}
 	if len(names) == 1 {
 		fd.Name = names[0]
 	} else {
 		fd.Names = names
 	}
-	p.got(_Newl)
+	if p.lang.in(LangZsh) {
+		if long && p.err == nil && p.isZshFuncClosingToken() {
+			s.Cmd = fd
+			return
+		}
+		if p.tok == semicolon || p.tok == _Newl {
+			switch p.zshFuncTrail() {
+			case zshFuncTrailClose:
+				if long {
+					for p.tok == semicolon || p.tok == _Newl {
+						p.next()
+					}
+					if p.err == nil && p.isZshFuncClosingToken() {
+						s.Cmd = fd
+						return
+					}
+				} else {
+					p.got(_Newl)
+				}
+			case zshFuncTrailOther:
+				for p.tok == semicolon || p.tok == _Newl {
+					p.next()
+				}
+			case zshFuncTrailBrace, zshFuncTrailReject:
+				p.got(_Newl)
+			}
+		} else {
+			p.got(_Newl)
+		}
+	} else {
+		p.got(_Newl)
+	}
 	// TODO: reject any body which isn't a compound command, like a quoted word
 	if fd.Body = p.getStmt(false, false, true); fd.Body == nil {
 		p.followErr(fd.Pos(), "foo()", noQuote("a statement"))
