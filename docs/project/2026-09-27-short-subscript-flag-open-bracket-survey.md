@@ -54,6 +54,10 @@ All are top-level probes. `$x` and `$y` are arrays in the runtime checks.
 | 22  | `x=$x[(r)a[]`                | accept    | accept | reject | invalid subscript |
 | 23  | `print $(print $x[(r)a[])`   | accept    | accept | reject | invalid subscript |
 
+## Known remaining false accepts
+
+Inside a double-quoted part of the word the read-ahead does not follow nested bodies, so a `]` in a `${...}`, `$(...)` or backquote body there counts as closing the open `[`. `print "$x[(r)a[b]${y:-]}"`, `print "$x[(r)a[b]$(echo ])"`, ``print "$x[(r)a[b]`echo ]`"`` and `print $x[(r)a[b]"${y:-]}"` are rejected by `zsh -f -n` and still accepted, as on the base. Following nested bodies inside double quotes needs their own quoting rules, and a mistake there would reject valid words, so it is left out of this change.
+
 ## Verification
 
 - Corpus: `zsh-lint-survey -compare <base> -native internal/survey/testdata/corpus/*.zsh`: 103 files, all unchanged.
