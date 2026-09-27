@@ -1487,7 +1487,14 @@ func (p *Parser) zshNumGlobConsume() bool {
 		case r == sep:
 			return true
 		default:
-			p.posErr(p.nextPos(), "a numeric glob cannot contain %#q", string(r))
+			byteText := string(r)
+			switch r {
+			case escNewl:
+				byteText = "\\\n"
+			case runeEOF:
+				byteText = "EOF"
+			}
+			p.posErr(p.nextPos(), "a numeric glob cannot contain %#q", byteText)
 			return false
 		}
 	}

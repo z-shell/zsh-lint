@@ -223,6 +223,8 @@ func TestZshGlobGroupLongNumericGlob(t *testing.T) {
 		{"--2>)", "1:1111: a numeric glob cannot contain `-`"},
 		{">)", "1:1110: a numeric glob cannot contain `>`"},
 		{"-2 ; print b)", "1:1112: a numeric glob cannot contain ` `"},
+		// An escaped newline is named, not printed as the lexer's sentinel.
+		{"\\\n-2>)", "1:1110: a numeric glob cannot contain \"\\\\\\n\""},
 	} {
 		t.Run(tc.tail, func(t *testing.T) {
 			src := "print a(<" + digits + tc.tail
