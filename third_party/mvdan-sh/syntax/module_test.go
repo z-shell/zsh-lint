@@ -308,3 +308,98 @@ func TestZshModuleConditionDegenerate(t *testing.T) {
 		}
 	}
 }
+
+// Issue #512: a lone `-` condition, or `!` or `(` after `<` or `>`, must be rejected in Zsh.
+func TestZshIssue512Rejects(t *testing.T) {
+	for _, tc := range []struct{ src, err string }{
+		{"[[ - ]]", "1:4: condition expected: -"},
+		{"[[ ! - ]]", "1:6: condition expected: -"},
+		{"[[ ( - ) ]]", "1:6: condition expected: -"},
+		{"[[ -n a && - ]]", "1:12: condition expected: -"},
+		// A lone `-` before a connective.
+		{"[[ - && x ]]", "1:4: condition expected: -"},
+		{"[[ - || x ]]", "1:4: condition expected: -"},
+		{"[[ x < ! ]]", "1:8: not a valid test operator: `!`"},
+		{"[[ x > ! ]]", "1:8: not a valid test operator: `!`"},
+		{"[[ x < (a) ]]", "1:8: a condition operand cannot start with `(`"},
+		{"[[ x < ( || ) ]]", "1:8: a condition operand cannot start with `(`"},
+		{"[[ x < ! y ]]", "1:8: not a valid test operator: `!`"},
+		{"[[ x < (a)b ]]", "1:8: a condition operand cannot start with `(`"},
+		{"[[ x < ( ]]", "1:8: reached EOF without matching `(` with `)`"},
+		{"[[ x <\n! ]]", "2:1: not a valid test operator: `!`"},
+		{"[[ x >\n! ]]", "2:1: not a valid test operator: `!`"},
+	} {
+		t.Run(tc.src, func(t *testing.T) {
+			_, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(tc.src+"\n"), "")
+			if err == nil || err.Error() != tc.err {
+				t.Fatalf("error = %v, want %s", err, tc.err)
+			}
+		})
+	}
+}
+
+// Issue #512: control rows must continue parsing under Zsh.
+func TestZshIssue512Controls(t *testing.T) {
+	for _, src := range []string{
+		"[[ -- ]]",
+		"[[ x < y ]]",
+		"[[ x < \"!\" ]]",
+		"[[ x == ! ]]",
+		"[[ x < !y ]]",
+		"[[ x < a(b) ]]",
+		"[[ x > '(' ]]",
+		"[[ ! x < y ]]",
+		"[[ x < y && ! z ]]",
+		"[[ x <\ny ]]",
+		"[[ x >\ny ]]",
+	} {
+		t.Run(src, func(t *testing.T) {
+			_, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(src+"\n"), "")
+			if err != nil {
+				t.Fatalf("unexpected parse error: %v", err)
+			}
+		})
+	}
+}
+
+// Issue #512: Bash behavior must remain unchanged.
+func TestZshIssue512BashUnchanged(t *testing.T) {
+	for _, src := range []string{
+		"[[ - ]]",
+		"[[ ! - ]]",
+		"[[ ( - ) ]]",
+		"[[ -n a && - ]]",
+		"[[ - && x ]]",
+		"[[ - || x ]]",
+		"[[ x < ! ]]",
+		"[[ x > ! ]]",
+		"[[ -- ]]",
+		"[[ x < y ]]",
+		"[[ x < \"!\" ]]",
+		"[[ x == ! ]]",
+		"[[ x < !y ]]",
+		"[[ x > '(' ]]",
+		"[[ ! x < y ]]",
+		"[[ x < y && ! z ]]",
+	} {
+		t.Run(src, func(t *testing.T) {
+			_, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(src+"\n"), "")
+			if err != nil {
+				t.Fatalf("Bash unexpectedly failed to parse %s: %v", src, err)
+			}
+		})
+	}
+	for _, tc := range []struct{ src, err string }{
+		{"[[ x < a(b) ]]", "1:9: not a valid test operator: `(`"},
+		{"[[ x < (a) ]]", "1:6: `<` must be followed by a word"},
+		{"[[ x < ( || ) ]]", "1:6: `<` must be followed by a word"},
+		{"[[ x < ( ]]", "1:6: `<` must be followed by a word"},
+	} {
+		t.Run(tc.src, func(t *testing.T) {
+			_, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(tc.src+"\n"), "")
+			if err == nil || err.Error() != tc.err {
+				t.Fatalf("error = %v, want %s", err, tc.err)
+			}
+		})
+	}
+}

@@ -3497,8 +3497,14 @@ func (p *Parser) testExprBinary(pastAndOr bool) TestExpr {
 	p.got(_Newl)
 	switch p.tok {
 	case andAnd, orOr:
+		if p.lang.in(LangZsh) {
+			p.checkZshLoneDash(left)
+		}
 	case _LitWord:
 		if p.val == "]]" {
+			if p.lang.in(LangZsh) {
+				p.checkZshLoneDash(left)
+			}
 			return left
 		}
 		if p.lang.in(LangZsh) && len(p.val) > 2 && strings.HasPrefix(p.val, "-") && testBinaryOp(p.val) == 0 {
@@ -3525,6 +3531,9 @@ func (p *Parser) testExprBinary(pastAndOr bool) TestExpr {
 		}
 	case rdrIn, rdrOut:
 	case _EOF, rightParen:
+		if p.lang.in(LangZsh) {
+			p.checkZshLoneDash(left)
+		}
 		return left
 	case _Lit:
 		p.curErr("test operator words must consist of a single literal")
@@ -3557,6 +3566,9 @@ func (p *Parser) testExprBinary(pastAndOr bool) TestExpr {
 				AndTest, OrTest, dblRightBrack)
 		}
 		p.next()
+		if p.lang.in(LangZsh) && (b.Op == TsBefore || b.Op == TsAfter) {
+			p.skipTestNewlines()
+		}
 		if name, ok := b.X.(*Word); ok && p.lang.in(LangZsh) && b.Op != TsBefore && b.Op != TsAfter && p.atTestEnd() && p.tok != leftParen {
 			if lit := name.Lit(); len(lit) > 1 && strings.HasPrefix(lit, "-") {
 				// Zsh reads `-x OP` with nothing after the operator as a
@@ -3568,6 +3580,13 @@ func (p *Parser) testExprBinary(pastAndOr bool) TestExpr {
 			}
 		}
 		b.Y = p.followWordTok(token(b.Op), b.OpPos)
+		if word, ok := b.Y.(*Word); ok && word != nil && p.lang.in(LangZsh) && (b.Op == TsBefore || b.Op == TsAfter) {
+			if startsWithParen(word) {
+				p.posErr(word.Pos(), "a condition operand cannot start with `(`")
+			} else if word.Lit() == "!" {
+				p.posErr(word.Pos(), "not a valid test operator: `!`")
+			}
+		}
 	}
 	return b
 }
@@ -3655,7 +3674,7 @@ func (p *Parser) zshDashUnary(name, operand *Word) TestExpr {
 
 // startsWithParen reports whether w begins with a literal `(`.
 func startsWithParen(w *Word) bool {
-	if len(w.Parts) == 0 {
+	if w == nil || len(w.Parts) == 0 {
 		return false
 	}
 	lit, ok := w.Parts[0].(*Lit)
@@ -3688,6 +3707,15 @@ func startsWithDash(w *Word) bool {
 	}
 	lit, ok := w.Parts[0].(*Lit)
 	return ok && strings.HasPrefix(lit.Value, "-")
+}
+
+// checkZshLoneDash rejects a lone `-` condition in Zsh (#512). A lone `-`
+// cannot form a condition alone: native Zsh reads it as a condition name
+// with nothing after the dash and reports "condition expected: -".
+func (p *Parser) checkZshLoneDash(left TestExpr) {
+	if w, ok := left.(*Word); ok && w.Lit() == "-" {
+		p.posErr(w.Pos(), "condition expected: -")
+	}
 }
 
 func (p *Parser) testExprUnary() TestExpr {

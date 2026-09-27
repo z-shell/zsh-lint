@@ -1,0 +1,3 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html
+# Issue #512: ! or ( cannot be the right operand of < or >.
+[[ x < ! ]]
