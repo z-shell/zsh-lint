@@ -2647,6 +2647,15 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// `$y[(r)a][1]`, opens another subscript.
 	short := 0
 	shortName, shortEnd := false, false
+	// In a `${...}` subscript Zsh counts the argument's own `[` bytes too,
+	// quoted or not, so a `[` still open where the reader stops, at a `]`
+	// that ends the expansion, never closes (#534): `${x[(r)a[]}` is an
+	// invalid subscript. top counts them, its first at topOpen; a `]` that
+	// the reader does not stop at, as in `a[b]c`, and one inside a nested
+	// `${...}`, as in `[${y[2]}]`, are left to the flag-pattern adapters as
+	// before.
+	top, topParam := 0, 0
+	var topOpen Pos
 	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || short > 0 || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || short > 0 || p.r != ','); p.rune() {
 		if sub != nil {
 			switch {
@@ -2685,6 +2694,26 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 			// parse reports it.
 			p.posErr(p.nextPos(), "`}` can only be used to close a block")
 		}
+		if p.zshBraceIndex && short == 0 && !litEscaped(p.litBs) {
+			// A nested `${...}` has its own subscripts: topParam counts
+			// the ones open, in double quotes too, where inParam below is
+			// not kept.
+			switch {
+			case p.r == '$' && p.peek() == '{':
+				topParam++
+			case topParam > 0 && p.r == '{' && (len(p.litBs) < 2 || p.litBs[len(p.litBs)-2] != '$'):
+				// The `{` of a `${` counted at its `$` above, when the
+				// caller did not step over it.
+				topParam++
+			case topParam > 0 && p.r == '}':
+				topParam--
+			case topParam == 0 && p.r == '[':
+				if top == 0 {
+					topOpen = p.nextPos()
+				}
+				top++
+			}
+		}
 		if !p.zshSubscript {
 			continue
 		}
@@ -2717,6 +2746,11 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 		case p.r == '}' && braces > 0:
 			braces--
 		}
+	}
+	// A `]` right before the expansion's `}` is the subscript's own, so a
+	// `[` still open there is never closed (#534).
+	if top > 0 && topParam == 0 && p.r == ']' && p.peek() == '}' {
+		p.posErr(topOpen, "a `[` in a subscript flag argument must be closed before the subscript's `]`")
 	}
 	// The part after a `,` is parsed elsewhere, so at a `,` only a `]`
 	// that no earlier `[` opened is an error: `$(echo [),$(echo ])` is

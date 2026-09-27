@@ -257,8 +257,9 @@ func TestFlagPatternCutKeepsUnchangedVerdicts(t *testing.T) {
 		src       string
 		wantError bool
 	}{
-		// `zsh -f -n` rejects this one: `invalid subscript`.
-		{"unbalanced bracket in the pattern", "print ${m[(r)a[b]}\n", false},
+		// `zsh -f -n` rejects this one: `invalid subscript`. The parser
+		// rejects it too since #534.
+		{"unbalanced bracket in the pattern", "print ${m[(r)a[b]}\n", true},
 		// Valid Zsh the scanner declines: it cannot bound a command
 		// substitution, which is #237's documented limit. The parser reads
 		// the balanced `[x]` in the body itself since #529, so it accepts.
@@ -284,20 +285,10 @@ func TestFlagPatternCutKeepsUnchangedVerdicts(t *testing.T) {
 
 // `print ${m[(r)a[b]}` is the one row above that native Zsh rejects. The
 // pattern scanner runs off the end looking for the `]` that balances the inner
-// `[`, so it reports false and the parser's own (cut) reading stands. Nothing
-// new is accepted, which is what matters; the tree is still the cut one, and
-// this pins that so a later widening of the scanner has a test to flip.
+// `[`, so it reports false; since #534 the parser reports the `[` left open at
+// the subscript's `]` instead of keeping its cut reading.
 func TestFlagPatternCutLeavesUnbalancedBracketAlone(t *testing.T) {
-	const src = "print ${m[(r)a[b]}\n"
-	file, err := Parse(strings.NewReader(src), "unbalanced.zsh")
-	if err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-	flagged := soleFlagsArithm(t, file)
-	if got := wordSource(src, flagged.X); got != "a[b" {
-		t.Errorf("pattern = %q, want %q (the cut reading native Zsh rejects)", got, "a[b")
-	}
-	t.Log("known limit: an unbalanced bracket keeps the parser's cut reading")
+	assertParseErrorAt(t, []byte("print ${m[(r)a[b]}\n"), "a `[` in a subscript flag argument must be closed before the subscript's `]`", 1, 15)
 }
 
 // The silent cut is repaired after the chain has run, not by an adapter in it,
