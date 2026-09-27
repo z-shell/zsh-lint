@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Issue #534: a `[` never closed in a subscript flag argument of a `${...}`
+# leaves the subscript unclosed. Top level; zsh -f -n reports: invalid
+# subscript.
+print ${x[(r)a[]}
