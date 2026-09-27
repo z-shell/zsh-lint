@@ -32,6 +32,7 @@ They are history, not policy; read the newest first and do not update older ones
 - [2026-09-27 conditional pattern parameter expansion survey](2026-09-27-conditional-pattern-param-expansion-survey.md)
 - [2026-09-27 condition operand survey](2026-09-27-condition-operand-survey.md)
 - [2026-09-27 glob group word survey](2026-09-27-glob-group-word-survey.md)
+- [2026-09-27 nested glob group word survey](2026-09-27-nested-glob-group-word-survey.md)
 - [2026-09-27 module condition operands survey](2026-09-27-module-condition-operands-survey.md)
 - [2026-09-26 regression corpus survey](2026-09-26-regression-corpus-survey.md)
 - [2026-09-26 dangling operator trivia survey](2026-09-26-dangling-operator-trivia-survey.md)

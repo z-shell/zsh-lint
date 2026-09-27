@@ -1551,7 +1551,11 @@ func (p *Parser) zshCondGroupErr() {
 // leaves unread so that it starts the next token, as it does in Zsh:
 // `print a(b;c)` is `print a(b`, `;` and `c)`, a parse error at the `)`,
 // while `print ${x:-$(print a(b;c))}` is valid Zsh because the `)` after `c`
-// closes the substitution. A bare `(` does not nest here yet (#397).
+// closes the substitution. A bare `(` nests, as gettokstr counts it in
+// pct, so only its matching `)` closes it: `print a(b(c)d)` and
+// `f=( (a|(b|c)) )` are single words (#397). The caller hands it p.r
+// while the stack is empty or its top is such a group, which a `[[ ]]`
+// operand never pushes.
 func (p *Parser) zshWordGroupRune(nest []byte) ([]byte, bool) {
 	switch p.r {
 	case ';', '&':
@@ -1563,6 +1567,15 @@ func (p *Parser) zshWordGroupRune(nest []byte) ([]byte, bool) {
 		if p.peek() == ')' {
 			return nest, false
 		}
+		// A `[[ ]]` operand keeps its nested groups to the conditional
+		// pattern adapter (#202), which reads them from the error here.
+		if p.quote != testExpr {
+			return append(nest, 'g'), true
+		}
+	case ')':
+		// Only reached with a nested group open: the caller's loop ends
+		// at a `)` with an empty stack.
+		return nest[:len(nest)-1], true
 	case '<', '>':
 		if p.peek() == '(' {
 			p.rune()
@@ -1821,7 +1834,7 @@ func (p *Parser) wordPart() WordPart {
 				if p.zshCondOperand && (len(nest) == 0 || zshCondNest(nest[len(nest)-1])) {
 					// An error ends the loop: posErr moves p.r to EOF.
 					nest = p.zshCondGroupRune(nest)
-				} else if len(nest) == 0 {
+				} else if len(nest) == 0 || nest[len(nest)-1] == 'g' {
 					var ok bool
 					if nest, ok = p.zshWordGroupRune(nest); !ok {
 						broke = true
