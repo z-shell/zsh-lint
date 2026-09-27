@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Issue #532: a short subscript with flags inside a subscript flag argument
+# is text of the argument, so one left open does not let the outer `]` close
+# it. Top level; zsh -f -n reports: invalid subscript.
+print ${x[(r)$y[(r)a]}
