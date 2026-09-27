@@ -57,6 +57,24 @@ func TestDanglingAndOrParses(t *testing.T) {
 		{"length expansion before operator", "if true; then print ${#x} || \\\nelse print b; fi\n"},
 		{"quoted newline before operator", "if true; then print \"a\nb\" || \\\nelse print b; fi\n"},
 		{"quoted hash line before operator", "if true; then print 'a\n# x' ||\nelse print b; fi\n"},
+		// #469: the backquote that closes the substitution ends its list.
+		{"backquote and", "x=`print a &&`\n"},
+		{"backquote or", "x=`print a ||`\n"},
+		{"backquote blank before closer", "x=`print a || `\n"},
+		{"backquote newline before closer", "x=`print a ||\n`\n"},
+		{"backquote comment before closer", "x=`print a || # c\n`\n"},
+		{"backquote continuation before closer", "x=`print a || \\\n`\n"},
+		{"backquote in double quotes", "x=\"`print a ||`\"\n"},
+		{"backquote as an argument", "print `print a ||` b\n"},
+		{"backquote after a statement", "x=`print a; print b ||`\n"},
+		{"backquote inside substitution", "x=$(print `print a ||`)\n"},
+		{"backquote nested inner", "x=`print \\`print a ||\\``\n"},
+		{"backquote nested outer", "x=`print \\`print a\\` ||`\n"},
+		{"backquote then outer operator", "x=`print a ||` || print c\n"},
+		{"backquote then dangling outer operator", "x=`print a ||` ||\n"},
+		{"two backquotes", "x=`print a ||`; y=`print b &&`\n"},
+		{"backquote in function", "f() { x=`print a ||`; }\n"},
+		{"backquote in parameter default", "print ${x:-`print a ||`}\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,6 +116,17 @@ func TestDanglingAndOrRejectsInvalid(t *testing.T) {
 		{"lone continuation before stray closer", "print a ||\n\\\n}\n"},
 		{"triple bar", "if true; then print a ||| \\\nelse print b; fi\n"},
 		{"brace-form if broken by continuation", "if true { print a || \\\n} else { print b }\n"},
+		// #469: a backquote proves nothing alone. Each row fails `zsh -f`.
+		{"backquote dangling pipe", "x=`print a | `\n"},
+		{"backquote operator then operator", "x=`print a || && b`\n"},
+		{"backquote operator twice", "x=`print a || ||`\n"},
+		{"backquote operator then pipe", "x=`print a || |`\n"},
+		{"backquote operator then background operator", "x=`print a || &`\n"},
+		{"backquote never closed", "x=`print a ||\n"},
+		{"operator before a lone backquote", "print a || `\n"},
+		{"escaped closer for an unescaped opener", "x=`print a ||\\``\n"},
+		{"unescaped closer for an escaped opener", "x=`print \\`print a ||`\\``\n"},
+		{"third-level closer at the second level", "x=`print \\`print \\\\\\`print a ||\\`\\\\\\``\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,6 +155,10 @@ func TestDanglingAndOrLeavesCompleteOperators(t *testing.T) {
 		{"continuation then statement", "print a && \\\nprint b\n"},
 		{"continuation then comment then statement", "print a && \\\n# c\nprint b\n"},
 		{"glued hash is not a comment", "h() { print a && print b#c\n}\n"},
+		// #469: a backquote after an operator may open the right operand.
+		{"backquote operand", "print a && `print b`\n"},
+		{"backquote operand next line", "print a &&\n`print b`\n"},
+		{"backquote operand inside backquotes", "x=`print a && \\`print b\\``\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,6 +209,9 @@ func TestDanglingOperatorEndsList(t *testing.T) {
 		{"escaped backslash is a word", " \\\\\n}\n", false},
 		{"escaped blank is a word", " \\ \n}\n", false},
 		{"background at end of input", "\n&", true},
+		// No operator precedes offset 0, so no backquote can close one.
+		{"lone backquote", "`\n", false},
+		{"lone escaped backquote", "\\`\n", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -311,6 +347,52 @@ func TestSkipTriviaBackward(t *testing.T) {
 	for _, tc := range cases {
 		if got := skipTriviaBackward([]byte(tc.src), tc.end); got != tc.want {
 			t.Errorf("skipTriviaBackward(%q, %d) = %d, want %d", tc.src, tc.end, got, tc.want)
+		}
+	}
+}
+
+// The backquote gate is decided by the parser's reading of the source before
+// the operator, and by matching escape levels (#469). op names the operator by
+// its first occurrence; closer is the first backquote-or-`\` after it.
+func TestBackquoteClosesOperator(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"closes its own substitution", "x=`print a ||`", true},
+		{"closes after blanks", "x=`print a ||  `", true},
+		{"escaped closer at the nested level", "x=`print \\`print a ||\\``", true},
+		{"nested substitution closed before the operator", "x=`print \\`print a\\` ||`", true},
+
+		// With three levels the parser names the second-level opener, so a
+		// third-level substitution left open before the operator is refused
+		// rather than trusted: its closer's level cannot be proved.
+		{"third level left open", "x=`a \\`b \\\\\\`print a ||\\`\\\\\\``", false},
+		{"operator outside any substitution", "print a || `print b`", false},
+		{"operator inside a $( in the backquote", "x=`print $(print a || ` )`", false},
+		{"operator inside double quotes in the backquote", "x=`print \"a || ` \"`", false},
+		{"escaped closer for an unescaped opener", "x=`print a ||\\``", false},
+		{"unescaped closer for an escaped opener", "x=`print \\`print a ||`\\``", false},
+		{"closer is a backslash not before a backquote", "x=`print a ||\\x`", false},
+		// The escape counts match here, so only the byte test refuses it:
+		// `\x` after the operator is a word, the operator's right operand.
+		{"escaped word at the nested level", "x=`print \\`print a ||\\x\\``", false},
+		{"closer is a trailing backslash", "x=`print a ||\\", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte(tc.src)
+			op := strings.Index(tc.src, "||")
+			closer := op + 2 + strings.IndexAny(tc.src[op+2:], "`\\")
+			if got := backquoteClosesOperator(src, op, closer); got != tc.want {
+				t.Fatalf("backquoteClosesOperator(%q) = %v, want %v", tc.src, got, tc.want)
+			}
+		})
+	}
+	for _, op := range []int{-1, 100} {
+		if backquoteClosesOperator([]byte("x=`a ||`"), op, 7) {
+			t.Errorf("accepted out-of-range operator offset %d", op)
 		}
 	}
 }
