@@ -2454,11 +2454,11 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	brackets, bqBrackets := 0, 0
 	var bracketPos Pos
 	// A short subscript with flags in the argument, as in `$y[(r)a]`, is
-	// text too, so its `]` does not end the argument (#532). short counts the `[` bytes
-	// open in it, all unescaped ones counting whether quoted or not, as
-	// dquote_parse counts them; shortName is set while a `$` and a
-	// parameter name are read, and shortEnd right after its `]`, where a
-	// further `[`, as in `$y[1][2]`, opens another subscript.
+	// text too, so its `]` does not end the argument (#532). short counts
+	// the unescaped `[` bytes open in it, quoted or not, as dquote_parse
+	// counts them; shortName is set while a `$` and a parameter name are
+	// read, and shortEnd right after its `]`, where a further `[`, as in
+	// `$y[(r)a][1]`, opens another subscript.
 	short := 0
 	shortName, shortEnd := false, false
 	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || short > 0 || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || short > 0 || p.r != ','); p.rune() {
