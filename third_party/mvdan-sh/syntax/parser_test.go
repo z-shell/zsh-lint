@@ -1253,6 +1253,23 @@ var errorCases = []errorCase{
 		langErr("1:6: reached EOF without matching `${` with `}`", LangZsh),
 	),
 	errCase(
+		"echo ${+$(x)}",
+		langErr("1:6: `${+foo}` is a zsh feature; tried parsing as LANG"),
+		langErr("1:8: `${+name}` requires a parameter name after `+`", LangZsh), // #363
+	),
+	errCase(
+		"echo ${+${x}}",
+		langErr("1:8: `${+name}` requires a parameter name after `+`", LangZsh), // #363
+	),
+	errCase(
+		"echo ${++x}",
+		langErr("1:8: `${+name}` requires a parameter name after `+`", LangZsh), // #363
+	),
+	errCase(
+		"echo ${+@}",
+		langErr("1:8: `${+name}` requires a parameter name after `+`", LangZsh), // #363
+	),
+	errCase(
 		"echo ${#${",
 		langErr("1:9: nested parameter expansions are a zsh feature; tried parsing as LANG"),
 		langErr("1:9: reached EOF without matching `${` with `}`", LangZsh),
