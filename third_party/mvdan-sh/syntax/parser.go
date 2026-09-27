@@ -3641,7 +3641,11 @@ loop:
 	}
 	if len(ce.Args) == 0 {
 		ce.Args = nil
-	} else {
+	} else if !p.lang.in(LangZsh) {
+		// Zsh applies a subscripted or array assignment before a command
+		// word as an ordinary assignment (#285): `a[2]=x cmd` sets the
+		// element in the shell, `a=(x y) cmd` runs cmd without setting a.
+		// Only Bash forbids the form.
 		for _, asgn := range ce.Assigns {
 			if asgn.Index != nil || asgn.Array != nil {
 				p.posErr(asgn.Pos(), "inline variables cannot be arrays")
