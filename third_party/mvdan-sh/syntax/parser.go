@@ -1663,6 +1663,17 @@ zshPrefixLoop:
 				pe.Excl = true
 			}
 		case '+':
+			if p.lang.in(LangZsh) && !pe.Short {
+				// In Zsh a leading `+` always tests whether a named parameter
+				// is set (#363): ${+name}, ${+name[sub]}, ${+1}. Anything else
+				// after it, a nested expansion, a quote, a special parameter
+				// or an operator, is a bad substitution. Non-ASCII names and
+				// EOF keep the path below.
+				if r := p.peek(); r < utf8.RuneSelf && !paramNameRune(r) {
+					p.posErr(p.nextPos(), "`${+name}` requires a parameter name after `+`")
+					break
+				}
+			}
 			if p.paramNameStart(pe) {
 				p.checkLang(pe.Pos(), LangZsh, "`${+foo}`")
 				pe.IsSet = true

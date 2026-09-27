@@ -25,6 +25,7 @@ var invalidFixtureDir = filepath.Join("..", "parse", "testdata")
 var runtimeTierInvalidFixtures = map[string]string{
 	"invalid-233-blank-before-parenthesis.txt":        "bad math expression",
 	"invalid-233-numeric-name.txt":                    "bad math expression",
+	"invalid-363-assignment-context.txt":              "bad substitution",
 	"invalid-368-missing-operand.txt":                 "bad math expression",
 	"invalid-368-operand-after-pattern.txt":           "bad math expression",
 	"invalid-382-assignment-context.txt":              "bad substitution",
