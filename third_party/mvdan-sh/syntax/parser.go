@@ -548,6 +548,14 @@ type Parser struct {
 	zshBraceIndex bool
 	zshShortIndex int
 
+	// zshRec records every byte rune consumes while zshRecOn > 0, so that
+	// a `${...}` subscript can be checked as a whole once parsed, and
+	// zshIndexEnd is the length of zshRec just before the `]` that index
+	// last matched, or -1 (zsh-lint #531).
+	zshRec      []byte
+	zshRecOn    int
+	zshIndexEnd int
+
 	recoveredErrors  int
 	recoverErrorsMax int
 
@@ -2090,10 +2098,17 @@ zshPrefixLoop:
 		p.rune()
 		oldBrace := p.zshBraceIndex
 		p.zshBraceIndex = p.zshShortIndex == 0
+		var rec func()
+		if p.lang.in(LangZsh) && p.zshBraceIndex {
+			rec = p.zshRecordSubscript()
+		}
 		if p.lang.in(LangZsh) && !p.zshDquoteParam {
 			pe.Index = p.zshParamIndex()
 		} else {
 			pe.Index = p.eitherIndex()
+		}
+		if rec != nil {
+			rec()
 		}
 		p.zshBraceIndex = oldBrace
 	}
@@ -2387,6 +2402,172 @@ func (p *Parser) zshParamIndex() ArithmExpr {
 	return expr
 }
 
+// zshRecordSubscript starts recording the subscript of a `${...}` whose
+// first byte is at p.r, and returns the function that stops the record
+// and checks it. Zsh counts the `[` and `]` bytes inside the command
+// substitutions and backquoted commands of such a subscript over the
+// whole subscript, including after a `,` (#531) and in an unflagged one
+// such as `${x[1,$(echo [)]}`, and rejects the expansion unless each kind
+// balances; the flag-argument reader reports most of these at once (#529),
+// and this check catches the rest.
+func (p *Parser) zshRecordSubscript() func() {
+	start := p.nextPos()
+	// p.r is already read: the bytes of one rune, which nextPos points
+	// at, or the newline of a backslash-newline, whose nextPos is past the
+	// backslash. An enclosing record has them already.
+	from := len(p.zshRec)
+	if p.zshRecOn == 0 && p.w > 0 && int(p.bsp) >= p.w {
+		p.zshRec = append(p.zshRec, p.bs[int(p.bsp)-p.w:p.bsp]...)
+	} else if p.zshRecOn > 0 {
+		from -= p.w
+	}
+	p.zshRecOn++
+	p.zshIndexEnd = -1
+	return func() {
+		p.zshRecOn--
+		end := p.zshIndexEnd
+		p.zshIndexEnd = -1
+		defer func() {
+			if p.zshRecOn == 0 {
+				p.zshRec = p.zshRec[:0]
+			}
+		}()
+		if p.err != nil || from < 0 || end < from || end > len(p.zshRec) {
+			return
+		}
+		rec := p.zshRec[from:end]
+		if i, msg := zshSubscriptBrackets(rec); i >= 0 {
+			p.posErr(posAtByte(start, rec, i), "%s", msg)
+		}
+	}
+}
+
+// zshSubscriptBrackets reports the first counted bracket of an unbalanced
+// kind in a subscript's text, with the error to give, or -1. Brackets in a
+// `$(...)` or `$((...))` body all count, quoted or escaped ones included,
+// and so do those of a `${...}` word outside a double-quoted string, which
+// Zsh reads on its own; those of a backquoted body count on their own,
+// unescaped, and a `]` there must close an earlier `[`. A `\` outside a
+// substitution quotes the next byte, while a quote does not stop one, as
+// dquote_parse reads the subscript. A text that ends inside one of these
+// was cut short by an earlier `]`, and is left to the error that follows.
+func zshSubscriptBrackets(s []byte) (int, string) {
+	const balance = "the `[` and `]` in command substitutions in a subscript must balance"
+	subs, bqs := 0, 0
+	subAt, bqAt := -1, -1
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\\':
+			i++
+		case s[i] == '`':
+			for i++; i < len(s) && s[i] != '`'; i++ {
+				switch s[i] {
+				case '\\':
+					i++
+				case '[':
+					if bqAt < 0 {
+						bqAt = i
+					}
+					bqs++
+				case ']':
+					if bqs == 0 {
+						return i, "a `]` in a backquoted command in a subscript must close a `[` before it"
+					}
+					bqs--
+				}
+			}
+			if i >= len(s) {
+				return -1, ""
+			}
+		case s[i] == '$' && i+1 < len(s) && s[i+1] == '{':
+			depth := 1
+			for i += 2; i < len(s) && depth > 0; i++ {
+				switch s[i] {
+				case '\\':
+					i++
+				case '"':
+					for i++; i < len(s) && s[i] != '"'; i++ {
+						if s[i] == '\\' {
+							i++
+						}
+					}
+				case '{':
+					depth++
+				case '}':
+					depth--
+				case '[', ']':
+					subAt, subs = zshBracketAt(subAt, i, subs, s[i])
+				}
+			}
+			if depth > 0 {
+				return -1, ""
+			}
+			i--
+		case s[i] == '$' && i+1 < len(s) && s[i+1] == '(':
+			depth := 1
+			var quote byte
+			for i += 2; i < len(s) && depth > 0; i++ {
+				c := s[i]
+				if c == '\\' && quote != '\'' && i+1 < len(s) {
+					i++
+					c = s[i]
+					if c == '[' || c == ']' {
+						subAt, subs = zshBracketAt(subAt, i, subs, c)
+					}
+					continue
+				}
+				switch {
+				case c == '[' || c == ']':
+					subAt, subs = zshBracketAt(subAt, i, subs, c)
+				case quote != 0:
+					if c == quote {
+						quote = 0
+					}
+				case c == '\'' || c == '"':
+					quote = c
+				case c == '(':
+					depth++
+				case c == ')':
+					depth--
+				}
+			}
+			if depth > 0 {
+				return -1, ""
+			}
+			i--
+		}
+	}
+	switch {
+	case subs != 0:
+		return subAt, balance
+	case bqs != 0:
+		return bqAt, balance
+	}
+	return -1, ""
+}
+
+func zshBracketAt(at, i, n int, c byte) (int, int) {
+	if at < 0 {
+		at = i
+	}
+	if c == '[' {
+		return at, n + 1
+	}
+	return at, n - 1
+}
+
+// posAtByte is the position of byte i of s, where s starts at start.
+func posAtByte(start Pos, s []byte, i int) Pos {
+	line, col := start.Line(), start.Col()
+	for _, b := range s[:i] {
+		if b == '\n' {
+			line, col = line+1, 0
+		}
+		col++
+	}
+	return NewPos(start.Offset()+uint(i), line, col)
+}
+
 func (p *Parser) index() ArithmExpr {
 	old := p.quote
 	lpos := p.pos
@@ -2397,6 +2578,11 @@ func (p *Parser) index() ArithmExpr {
 	}
 	expr := p.followArithm(leftBrack, lpos)
 	p.quote = old
+	if p.tok == rightBrack && p.zshRecOn > 0 {
+		// The `]` is p.pos's token and p.r the byte after it, both
+		// recorded, so the subscript's text ends before those two.
+		p.zshIndexEnd = len(p.zshRec) - p.w - 1
+	}
 	p.matchedArithm(lpos, leftBrack, rightBrack)
 	return expr
 }

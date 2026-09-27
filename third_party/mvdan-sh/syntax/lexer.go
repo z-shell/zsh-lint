@@ -83,6 +83,11 @@ retry:
 	}
 	if b := p.bs[p.bsp]; b < utf8.RuneSelf {
 		p.bsp++
+		if p.zshRecOn > 0 {
+			// Every byte consumed, dropped ones included, so that the
+			// record lines up with source offsets (#531).
+			p.zshRec = append(p.zshRec, b)
+		}
 		switch b {
 		case '\x00':
 			// Ignore null bytes while parsing, like bash.
@@ -97,11 +102,17 @@ retry:
 			if p.r == '\\' {
 			} else if p.peek() == '\n' {
 				p.bsp++
+				if p.zshRecOn > 0 {
+					p.zshRec = append(p.zshRec, '\n')
+				}
 				p.w, p.r = 1, escNewl
 				return escNewl
 			} else if p1, p2 := p.peekTwo(); p1 == '\r' && p2 == '\n' { // \\\r\n turns into \\\n
 				p.col++
 				p.bsp += 2
+				if p.zshRecOn > 0 {
+					p.zshRec = append(p.zshRec, '\r', '\n')
+				}
 				p.w, p.r = 2, escNewl
 				return escNewl
 			}
@@ -138,6 +149,9 @@ decodeRune:
 	}
 	if p.litBs != nil {
 		p.litBs = append(p.litBs, p.bs[p.bsp:p.bsp+uint(w)]...)
+	}
+	if p.zshRecOn > 0 {
+		p.zshRec = append(p.zshRec, p.bs[p.bsp:p.bsp+uint(w)]...)
 	}
 	p.bsp += uint(w)
 	if p.r == utf8.RuneError && w == 1 {
