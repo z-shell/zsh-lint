@@ -27,6 +27,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | A subscripted or array assignment before a command word (`a[2]=x cmd`, `a=(x y) cmd`) is an ordinary prefix assignment; upstream's `inline variables cannot be arrays` error stays for Bash | `syntax/parser.go`, `syntax/parser_test.go` | [#285](https://github.com/z-shell/zsh-lint/issues/285) |
 | A braced `${+` must be followed by a parameter name; a nested expansion, quote, special parameter or operator after it is an error, as in Zsh | `syntax/parser.go`, `syntax/parser_test.go` | [#363](https://github.com/z-shell/zsh-lint/issues/363) |
 | A glob group in any word ends the word at `;`, `&`, or a `<` or `>` that starts neither a process substitution nor a numeric glob `<m-n>`, as Zsh's lexer does; a `(` inside a parameter expansion in the group opens nothing; a `)` left over by such a word in `[[ ]]` is reported where it stands | `syntax/parser.go`, `syntax/glob_group_word_test.go`, `syntax/module_test.go` | [#511](https://github.com/z-shell/zsh-lint/issues/511) |
+| Outside double quotes, braces nest in the word of a `${...}`, so `${x:-{}}` is one expansion and `${x:-{}` is unclosed; a nested expansion keeps its own count; a nested expansion, and a here-document body, count as double-quoted for the #400 quote rule | `syntax/parser.go`, `syntax/lexer.go`, `syntax/param_word_brace_test.go` | [#518](https://github.com/z-shell/zsh-lint/issues/518) |
 
 ## Taking an upstream release
 
