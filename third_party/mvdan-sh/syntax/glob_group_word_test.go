@@ -189,3 +189,47 @@ func TestZshGlobGroupWordEndsOpenGroup(t *testing.T) {
 		})
 	}
 }
+
+// A numeric glob longer than the parser's read buffer is read rather than
+// peeked. Valid shapes of any length parse; a shape that fails past the
+// buffer is an error at the failing byte, since its `<` can no longer be
+// left unread. Each rejected source is also a native parse error.
+func TestZshGlobGroupLongNumericGlob(t *testing.T) {
+	digits := strings.Repeat("1", 1100)
+	for _, src := range []string{
+		"print a(<" + digits + "-2>)",
+		"print a(<" + digits + "->)",
+		"print a(<" + digits + "-2>x)",
+		"print a(<-" + digits + ">)",
+		"print a(b<" + strings.Repeat("1", 5000) + "-2>c)",
+	} {
+		t.Run(src[:12], func(t *testing.T) {
+			f, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(src+"\n"), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var printed bytes.Buffer
+			if err := syntax.NewPrinter().Print(&printed, f); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.TrimSuffix(printed.String(), "\n"); got != src {
+				t.Fatalf("printed %d bytes, want the %d-byte source", len(got), len(src))
+			}
+		})
+	}
+	for _, tc := range []struct{ tail, err string }{
+		{"-2)", "1:1112: a numeric glob cannot contain `)`"},
+		{"x)", "1:1110: a numeric glob cannot contain `x`"},
+		{"--2>)", "1:1111: a numeric glob cannot contain `-`"},
+		{">)", "1:1110: a numeric glob cannot contain `>`"},
+		{"-2 ; print b)", "1:1112: a numeric glob cannot contain ` `"},
+	} {
+		t.Run(tc.tail, func(t *testing.T) {
+			src := "print a(<" + digits + tc.tail
+			_, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(src+"\n"), "")
+			if err == nil || err.Error() != tc.err {
+				t.Fatalf("error = %v, want %s", err, tc.err)
+			}
+		})
+	}
+}

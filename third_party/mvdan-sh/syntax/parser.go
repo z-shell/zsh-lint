@@ -1421,27 +1421,45 @@ func (p *Parser) zshWordGroupRune(nest []byte) ([]byte, bool) {
 			p.rune()
 			return append(nest, '$'), true
 		}
-		if p.r == '<' && p.zshNumGlobAhead() {
-			for p.r != '>' {
-				p.rune()
+		if p.r == '<' {
+			switch p.zshNumGlobAhead() {
+			case numGlobYes:
+				for p.r != '>' {
+					p.rune()
+				}
+				return nest, true
+			case numGlobLong:
+				// Too long to peek: read it. Past the buffer the `<` can no
+				// longer be left unread, so a shape that fails there is
+				// reported as an error at the failing byte.
+				return nest, p.zshNumGlobConsume()
 			}
-			return nest, true
 		}
 		return nest, false
 	}
 	return p.zshGroupRune(nest), true
 }
 
+const (
+	numGlobNo = iota
+	numGlobYes
+	numGlobLong
+)
+
 // zshNumGlobAhead reports whether the bytes after the `<` at p.r complete a
 // numeric glob `<m-n>`, where m and n are optional digit strings, as
-// isnumglob in Zsh's Src/lex.c does. It reads ahead without consuming, and
-// gives up at the end of the read buffer.
-func (p *Parser) zshNumGlobAhead() bool {
+// isnumglob in Zsh's Src/lex.c does. It reads ahead without consuming. When
+// a shape that is valid so far fills the read buffer it reports numGlobLong,
+// and the caller reads the rest with zshNumGlobConsume.
+func (p *Parser) zshNumGlobAhead() int {
 	sep := byte('-')
 	for i := 0; ; i++ {
 		if int(p.bsp)+i >= len(p.bs) {
-			if i >= bufSize-1 || p.fill() == 0 || int(p.bsp)+i >= len(p.bs) {
-				return false
+			if i >= bufSize-1 {
+				return numGlobLong
+			}
+			if p.fill() == 0 || int(p.bsp)+i >= len(p.bs) {
+				return numGlobNo
 			}
 		}
 		switch b := p.bs[int(p.bsp)+i]; {
@@ -1449,8 +1467,27 @@ func (p *Parser) zshNumGlobAhead() bool {
 		case b == sep && sep == '-':
 			sep = '>'
 		case b == sep:
+			return numGlobYes
+		default:
+			return numGlobNo
+		}
+	}
+}
+
+// zshNumGlobConsume reads a numeric glob that is too long to peek, from the
+// `<` at p.r to its `>`, and reports false after posting an error when the
+// shape fails.
+func (p *Parser) zshNumGlobConsume() bool {
+	sep := '-'
+	for {
+		switch r := p.rune(); {
+		case r >= '0' && r <= '9':
+		case r == sep && sep == '-':
+			sep = '>'
+		case r == sep:
 			return true
 		default:
+			p.posErr(p.nextPos(), "a numeric glob cannot contain %#q", string(r))
 			return false
 		}
 	}

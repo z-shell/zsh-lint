@@ -75,12 +75,17 @@ The fixed parser reads them as Zsh's lexer does, so their remaining native error
 Row 23 is valid Zsh because the `)` after `c` closes the command substitution; the substitution runs `print a(b` and then `c`, and the last `)` is literal text.
 Zsh 5.9.2 prints `bad pattern: a(b` followed by `)` when it runs.
 
+A numeric glob is recognized by looking ahead in the parser's 1 KiB read buffer.
+A review of the first head found that one longer than the buffer was read as a bare `<`, so `print a(<` followed by 1022 digits and `-2>)` was rejected although it is valid Zsh.
+A numeric glob that fills the buffer is now read to its end instead: any valid length parses, and a shape that fails past the buffer is reported at the failing byte, as in `` a numeric glob cannot contain `)` ``.
+Every rejected shape in that path is also a native parse error, including `<` followed by more than 1 KiB of digits and `>`, which base accepted.
+
 ## Verification
 
 - Corpus: `zsh-lint-survey -compare <base> -native internal/survey/testdata/corpus/*.zsh`: 99 files compared, 99 unchanged.
 - Workspace: the same comparison over 333 Zsh files under `repos/` of the Z-Shell workspace: 333 unchanged; the known 2 gaps and 1 false accept are pre-existing and untouched.
 - Probe grid: `zsh-lint-probe` over 25 bodies in every scanner context, 650 files: 77 `FIXED`, 278 `REJECTED` (the intended false-accept fixes), 295 unchanged, no `REGRESSED` and no `FALSE-ACCEPT`.
-- Crash probe: 1040 rows with each follow-up token after an open group, under `timeout 5`: no panic and no hang.
-- Hand mutants of the fork change (the mutation script does not reach the fork module): 17 of 18 killed.
+- Crash probe: 1040 rows with each follow-up token after an open group, and 360 rows with numeric globs of 1015 to 2100 digits in five contexts, under `timeout 5`: no panic and no hang.
+- Hand mutants of the fork change (the mutation script does not reach the fork module): 24 of 25 killed.
   The survivor, which lets a `>` start a numeric glob check, is equivalent: a `>` never passes that check with a different verdict, since `>` followed by digits and `-` and `>` is a redirect that Zsh and the fork both reject.
 - `go build ./...`, `go vet ./...`, `go test ./...`, the fork's `go test ./syntax/`, and `golangci-lint` v2.12.2 all pass.
