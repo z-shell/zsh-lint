@@ -530,6 +530,14 @@ type Parser struct {
 	// (zsh-lint #518). Each expansion saves and restores it.
 	zshParamBraces int
 
+	// zshSubscript is set while the subscript of an unquoted Zsh `${...}`
+	// is lexed. Zsh counts braces across the whole expansion (bct in
+	// gettokstr, Src/lex.c), so zshSubBraces counts the `{` bytes still open
+	// in the subscript, the first at zshSubBraceOpen (zsh-lint #521).
+	zshSubscript    bool
+	zshSubBraces    int
+	zshSubBraceOpen Pos
+
 	recoveredErrors  int
 	recoverErrorsMax int
 
@@ -1947,7 +1955,11 @@ zshPrefixLoop:
 		}
 		p.pos = p.nextPos()
 		p.rune()
-		pe.Index = p.eitherIndex()
+		if p.lang.in(LangZsh) && !p.zshDquoteParam {
+			pe.Index = p.zshParamIndex()
+		} else {
+			pe.Index = p.eitherIndex()
+		}
 	}
 	tokRune := p.r
 	p.pos = p.nextPos()
@@ -2208,6 +2220,38 @@ func (p *Parser) paramExpExp() *Expansion {
 }
 
 func (p *Parser) eitherIndex() ArithmExpr {
+	// An index directly inside a Zsh subscript, as in `${x[y[{a}]]}`, shares
+	// its brace count (#521); one inside a substitution, as in
+	// `${x[$((y[{]))]}`, or anywhere else counts none.
+	if p.quote != paramExpArithm {
+		defer func(old bool) { p.zshSubscript = old }(p.zshSubscript)
+		p.zshSubscript = false
+	}
+	return p.index()
+}
+
+// zshParamIndex reads the subscript of an unquoted Zsh `${...}`. Zsh lexes
+// the whole expansion with one brace count (bct in gettokstr, Src/lex.c),
+// so a balanced `{...}` in the subscript is text, blanks and operators
+// included, as in `${h[{a b}]}`, and in `${x[{]}` the `}` closes the `{`
+// and leaves the expansion open (#521). A `{` still open at the `]` is
+// rejected here, although Zsh accepts it when later text of the same word
+// closes it, as in `x=${x[{]}}` or `${x[{]}]}`; the parser has no place for
+// that text. A short `$x[{]` and a double-quoted `"${x[{]}"` count no
+// braces, so this is not used for them.
+func (p *Parser) zshParamIndex() ArithmExpr {
+	defer func(sub bool, n int, open Pos) {
+		p.zshSubscript, p.zshSubBraces, p.zshSubBraceOpen = sub, n, open
+	}(p.zshSubscript, p.zshSubBraces, p.zshSubBraceOpen)
+	p.zshSubscript, p.zshSubBraces = true, 0
+	expr := p.index()
+	if p.zshSubBraces > 0 {
+		p.posErr(p.zshSubBraceOpen, "a `{` in a subscript must be closed before its `]`")
+	}
+	return expr
+}
+
+func (p *Parser) index() ArithmExpr {
 	old := p.quote
 	lpos := p.pos
 	p.quote = paramExpArithm
@@ -2239,8 +2283,53 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	p.rune()
 	// Lex the argument as a raw pattern, stopping at ',' or ']',
 	// since zsh treats it as a pattern rather than an arithmetic expression.
+	// In an unquoted `${...}` Zsh counts the braces of the argument too
+	// (#521), so a `,` inside an open `{` is text, as in `${x[(r){a,b}]}`,
+	// while a `]` still ends the subscript and a `{` open there is an
+	// error. Quoted braces and those of a nested `${...}` are not counted:
+	// a `]` in the nested expansion still ends the argument, as before, and
+	// the flag-pattern adapter (#382) reads it.
 	argPos := p.nextPos()
-	for p.newLit(p.r); p.r != runeEOF && p.r != ',' && p.r != ']'; p.rune() {
+	braces := 0
+	inParam := 0
+	var braceOpen Pos
+	var quote rune
+	for p.newLit(p.r); p.r != runeEOF && p.r != ']' && (braces > 0 || quote != 0 || p.r != ','); p.rune() {
+		if !p.zshSubscript {
+			continue
+		}
+		switch {
+		case quote != 0:
+			if p.r == quote {
+				quote = 0
+			} else if quote == '"' && p.r == '\\' {
+				p.rune()
+			}
+		case p.r == '\\':
+			p.rune()
+		case p.r == '\'' || p.r == '"':
+			quote = p.r
+		case p.r == '$' && p.peek() == '{':
+			p.rune()
+			inParam++
+		case inParam > 0:
+			switch p.r {
+			case '{':
+				inParam++
+			case '}':
+				inParam--
+			}
+		case p.r == '{':
+			if braces == 0 {
+				braceOpen = p.nextPos()
+			}
+			braces++
+		case p.r == '}' && braces > 0:
+			braces--
+		}
+	}
+	if braces > 0 && inParam == 0 && p.r == ']' {
+		p.posErr(braceOpen, "a `{` in a subscript must be closed before its `]`")
 	}
 	if val := p.endLit(); val != "" {
 		zf.X = p.wordOne(p.lit(argPos, val))

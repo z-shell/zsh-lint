@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Subscripts
+# Issue #521: an unquoted ${...} counts braces across its subscript, so this
+# `}` closes the `{` and the expansion is left open.
+# Top level; zsh -f -n reports: closing brace expected.
+print ${x[{]}
