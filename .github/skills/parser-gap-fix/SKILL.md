@@ -41,6 +41,7 @@ go run ./cmd/zsh-lint-survey gap.zsh    # zsh-lint verdict
 - Invalid Zsh that must stay rejected: `internal/parse/testdata/invalid-<issue>-<slug>.txt`, read by a focused parser test that asserts the error family and position.
 - A source `zsh -f -n` accepts but Zsh rejects at run time goes in `runtimeTierInvalidFixtures` (`internal/survey/native_oracle_test.go`) with its runtime error. Never execute an invalid source.
 - `go test ./internal/survey -run TestCorpusFixturesAgreeWithNativeZsh` re-checks every fixture against `zsh -f -n`.
+- `go test ./internal/survey -run TestStructuralOracle` checks that every `ok-*` fixture's tree is the program Zsh reads; a new `ok-*` fixture must pass it, and a fix that makes a fixture listed in `structuralOracleKnownDifferences` agree removes that entry.
 
 ## 4. Implement
 

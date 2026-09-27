@@ -61,6 +61,19 @@ A source that `zsh -f -n` accepts and Zsh rejects only when the line runs (arith
 `TestCorpusFixturesAgreeWithNativeZsh` re-checks every recorded verdict whenever `zsh` is installed, as it is in Go CI: every corpus `.zsh` fixture must pass `zsh -f -n`, and every `invalid-*.txt` source must fail it unless it is listed as runtime-tier.
 Do not add exceptions to the native Zsh syntax gate for ordinary `.zsh` files.
 
+### Structural oracle
+
+The native oracle judges only accept or reject, so a wrong tree for valid Zsh passes it ([#541](https://github.com/z-shell/zsh-lint/issues/541)).
+`TestStructuralOracle` (`internal/survey/structural_oracle_test.go`) asks Zsh for its own tree instead.
+Zsh deparses a function body from its word code in canonical form, turning brace, short and alternate forms into `do`/`done`, `then`/`fi` and `in`/`esac`, one command per line.
+For every `ok-*` fixture the test installs the source as a function body through `$functions`, which parses it without running it, does the same with the printed tree of the fixture parsed by `internal/parse`, and requires the two deparses to match.
+Zsh keeps arithmetic and command substitution bodies as source text, so the comparison deparses each substitution body on its own and ignores blanks inside arithmetic; `TestStructuralOracleComparison` pins which pairs count as the same program.
+
+A difference is a tree defect, a printer defect, or a construct held in `parse.File` metadata that the printer does not see.
+`structuralOracleKnownDifferences` names each fixture that differs today with its cause.
+The list only shrinks: a new `ok-*` fixture must agree, and a fix that makes a listed fixture agree removes its entry in the same change, which the test enforces.
+The test reports the first difference in a file, so fixing one cause can expose a second in the same fixture.
+
 ## 5. Close the loop
 
 When a front-end change (or a front-end swap, [#17](https://github.com/z-shell/zsh-lint/issues/17)) makes a `gap-*` fixture parse, the test fails loudly.
