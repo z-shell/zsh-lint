@@ -393,6 +393,10 @@ skipSpace:
 		// can represent, so in a subscript it starts a literal instead;
 		// it can be part of an associative array key, like in ${args[cmd,#]}.
 		p.advanceLitOther(r)
+	case p.zshSubscriptBrace() && r != ']' && r != '$' && r != '\'' && r != '"' && r != '`':
+		// A `{` of a Zsh subscript is open, as in `${h[{a b}]}`: blanks
+		// and operators are text up to its `}` (#521).
+		p.advanceLitOther(r)
 	case p.quote&allArithmExpr != 0 && arithmOps(r):
 		p.tok = p.arithmToken(r)
 	case p.quote&allParamExp != 0 && paramOps(r):
@@ -1062,6 +1066,10 @@ loop:
 				p.zshParamBraces--
 				continue
 			}
+			if p.zshSubscriptBrace() {
+				p.zshSubBraces--
+				continue
+			}
 			if p.quote&allParamExp != 0 {
 				break loop
 			}
@@ -1069,12 +1077,18 @@ loop:
 			if p.zshParamWord() {
 				p.zshParamBraces++
 			}
+			if p.zshSubscriptWord() {
+				if p.zshSubBraces == 0 {
+					p.zshSubBraceOpen = p.nextPos()
+				}
+				p.zshSubBraces++
+			}
 		case '/':
-			if p.quote != paramExpExp {
+			if p.quote != paramExpExp && !p.zshSubscriptBrace() {
 				break loop
 			}
 		case ':', '=', '%', '^', ',', '?', '!', '~', '*':
-			if p.quote&allArithmExpr != 0 {
+			if p.quote&allArithmExpr != 0 && !p.zshSubscriptBrace() {
 				break loop
 			}
 		case '.':
@@ -1082,12 +1096,15 @@ loop:
 				break loop
 			}
 		case '[', ']':
+			if r == '[' && p.zshSubscriptBrace() {
+				continue // only `]` ends the text of a Zsh subscript (#521)
+			}
 			if p.lang.in(langBashLike|LangMirBSDKorn|LangZsh) && p.quote&allArithmExpr != 0 {
 				break loop
 			}
 			fallthrough
 		case '+', '-', ' ', '\t', ';', '&', '>', '<', '|', '(', ')', '\n', '\r':
-			if p.quote&allKeepSpaces == 0 {
+			if p.quote&allKeepSpaces == 0 && !p.zshSubscriptBrace() {
 				break loop
 			}
 		}
@@ -1106,6 +1123,17 @@ func (p *Parser) zshParamWord() bool {
 // word of an unquoted Zsh parameter expansion rather than the expansion.
 func (p *Parser) zshParamWordBrace() bool {
 	return p.zshParamBraces > 0 && p.zshParamWord()
+}
+
+// zshSubscriptWord reports whether a byte is being lexed in the subscript of
+// an unquoted Zsh `${...}`, where braces are counted (#521).
+func (p *Parser) zshSubscriptWord() bool {
+	return p.zshSubscript && p.quote == paramExpArithm
+}
+
+// zshSubscriptBrace reports whether a `{` of such a subscript is open.
+func (p *Parser) zshSubscriptBrace() bool {
+	return p.zshSubBraces > 0 && p.zshSubscriptWord()
 }
 
 // zshNumRange peeks at the bytes after '<' to check for a zsh numeric
