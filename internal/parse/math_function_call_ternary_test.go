@@ -35,10 +35,10 @@ func TestMathFunctionCallInTernary(t *testing.T) {
 		// these reports the same ternary error, so a gate that looked only at
 		// the operand position immediately after the `?` would miss them.
 		//
-		// A call inside a parenthesized group, `1 ? (sqrt(4)) : 3`, is NOT
-		// here: it reports a third error, ``reached `(` without matching `(`
-		// with `)` ``, which this adapter does not own. That shape fails
-		// without a ternary too (`$(( (sqrt(4)) ))`), so it is a separate gap.
+		// A call inside a parenthesized group, `1 ? (sqrt(4)) : 3`, reports
+		// a third error, ``reached `(` without matching `(` with `)` ``, and
+		// fails without a ternary too; that gate is tested in
+		// math_function_call_group_test.go (#356).
 		{"call after a unary minus", "print $(( 1 ? -sqrt(4) : 3 ))\n"},
 		{"call as a right operand", "print $(( 1 ? 2*sqrt(4) : 3 ))\n"},
 		{"call after a binary operator and a blank", "print $(( 1 ? 2 + sqrt(4) : 3 ))\n"},
