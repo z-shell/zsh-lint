@@ -33,9 +33,9 @@ func TestZshFlagSubstBodyReject(t *testing.T) {
 		{"print ${x[(r)$(echo a \\\n; done)]}", "2:3: `done` can only be used to end a loop"},
 		// An escaped backslash does not stop the substitution.
 		{"print ${x[(r)\\\\$(done)]}", "1:18: `done` can only be used to end a loop"},
-		// Outside a backquoted body, an escaped `]` still ends the argument,
-		// as before.
-		{"print ${x[(r)$(echo \\])]}", "1:23: not a valid parameter expansion operator: `)`"},
+		// Zsh counts an escaped `]` in the body too, so it is unbalanced
+		// (#529).
+		{"print ${x[(r)$(echo \\])]}", "1:22: the `[` and `]` in command substitutions in a subscript must balance"},
 		// A quoted `)` does not close the substitution.
 		{"print ${x[(r)$(echo ')'; done)]}", "1:26: `done` can only be used to end a loop"},
 		// zsh -n parses these bodies only when they run; the parser

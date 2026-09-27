@@ -187,8 +187,9 @@ func TestFlagPatternSubscriptedExpansionKeepsUnchangedVerdicts(t *testing.T) {
 		// rather than guess an extent.
 		{"unbalanced nested brace", "print ${m[(r)${Z[a]]}\n", true},
 		// A command substitution inside the pattern is #237's documented
-		// limit and stays refused.
-		{"command substitution in the pattern", "print ${m[(r)$(echo [x])##]}\n", true},
+		// limit for this scanner; the parser reads its balanced `[x]` itself
+		// since #529, so the row is valid Zsh that parses.
+		{"command substitution in the pattern", "print ${m[(r)$(echo [x])##]}\n", false},
 		// No nested expansion, so nothing new is masked.
 		{"plain flagged pattern", "print ${m[(r)abc]}\n", false},
 		{"bracket expression only", "print ${m[(r)a[^:]##]}\n", false},

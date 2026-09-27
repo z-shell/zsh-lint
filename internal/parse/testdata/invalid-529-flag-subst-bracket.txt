@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Issue #529: a `[` or `]` inside a command substitution in a subscript flag
+# argument must balance over the subscript of a `${...}`. Top level;
+# zsh -f -n reports: bad substitution.
+print ${x[(r)$(echo [)]}

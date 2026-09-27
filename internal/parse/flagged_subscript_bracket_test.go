@@ -241,20 +241,14 @@ func TestFlaggedSubscriptArithmeticRangeEndpointIsMisread(t *testing.T) {
 //
 // None of these reaches the bracket scanner: the retry is seeded by an error
 // whose previous byte is the `]` that closed a pattern early, and each of
-// these fails at the `$` or the backtick first. They are pinned as sources
-// this adapter must not start accepting, not as evidence that the scanner
-// refuses them.
-//
-// The command-substitution rows are native-valid Zsh that the adapter still
-// rejects: deciding their extent is #237's documented limit, unchanged here.
+// these fails at the `$` first. They are pinned as sources this adapter must
+// not start accepting, not as evidence that the scanner refuses them.
 func TestFlaggedSubscriptRejectsUndecidablePatterns(t *testing.T) {
 	tests := []struct {
 		name string
 		src  string
 	}{
 		{"unbalanced nested expansion", "print -r -- ${a[b][(i)[x]${s]}\n"},
-		{"command substitution in a second subscript", "print -r -- ${a[b][(i)$(echo [x])]}\n"},
-		{"backtick in a second subscript", "print -r -- ${a[b][(i)`echo [x]`]}\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -262,5 +256,19 @@ func TestFlaggedSubscriptRejectsUndecidablePatterns(t *testing.T) {
 				t.Errorf("Parse(%q) unexpectedly succeeded", test.src)
 			}
 		})
+	}
+}
+
+// The command-substitution rows are native-valid Zsh. Deciding their extent
+// is #237's documented limit for this adapter, but since #529 the parser
+// reads the balanced `[x]` in the body itself, so they parse.
+func TestFlaggedSubscriptCommandSubstitutionParses(t *testing.T) {
+	for _, src := range []string{
+		"print -r -- ${a[b][(i)$(echo [x])]}\n",
+		"print -r -- ${a[b][(i)`echo [x]`]}\n",
+	} {
+		if _, err := Parse(strings.NewReader(src), "flagged.zsh"); err != nil {
+			t.Errorf("Parse(%q) = %v", src, err)
+		}
 	}
 }

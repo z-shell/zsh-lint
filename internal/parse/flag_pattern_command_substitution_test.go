@@ -179,7 +179,8 @@ func TestFlagPatternCommandSubstitutionKeepsIndexShape(t *testing.T) {
 // and are never executed, per docs/project/parser-gap-workflow.md. The error
 // text and position are asserted, not merely `err != nil`, so a future change
 // cannot keep rejecting them for an unrelated reason and still pass. Every one
-// is the byte-for-byte error main gives.
+// is the byte-for-byte error main gives, except the quoted-close-bracket row,
+// which the parser has rejected with its own bracket-balance error since #529.
 func TestFlagPatternCommandSubstitutionRejectsNativeInvalid(t *testing.T) {
 	tests := []struct {
 		fixture string
@@ -191,7 +192,7 @@ func TestFlagPatternCommandSubstitutionRejectsNativeInvalid(t *testing.T) {
 		{"testdata/invalid-379-bracket-in-substitution.txt", "not a valid parameter expansion operator: `$`", 19},
 		// Quoting does not exempt it: `$(echo "]")` is `bad substitution`
 		// even with no bracket expression in the pattern at all.
-		{"testdata/invalid-379-quoted-close-bracket.txt", "not a valid parameter expansion operator: `\"`", 24},
+		{"testdata/invalid-379-quoted-close-bracket.txt", "the `[` and `]` in command substitutions in a subscript must balance", 23},
 		// A quoted `)` really does close the substitution natively, which
 		// is why any quote refuses rather than being counted through.
 		{"testdata/invalid-379-quoted-paren.txt", "not a valid parameter expansion operator: `$`", 19},
