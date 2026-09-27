@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Issue #531: a `[` inside a command substitution that stays open at the `,`
+# of a subscript leaves the subscript's brackets unbalanced. Top level;
+# zsh -f -n reports: bad substitution.
+print ${x[(r)$(echo [),2]}
