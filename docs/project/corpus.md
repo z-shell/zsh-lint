@@ -107,7 +107,9 @@ Promotion is the same sequence used for the current members: close the parser ga
 Some sources cannot join the strict corpus because they still hold open parser gaps or warning-level findings, yet a parser change must not break the files in them that parse today.
 #461 showed the cost: it made `z-shell/F-Sy-H` `functions/fsh_theme` stop parsing, and no gate saw it because F-Sy-H was in neither corpus ([#466](https://github.com/z-shell/zsh-lint/issues/466), [#470](https://github.com/z-shell/zsh-lint/issues/470)).
 
-The `Regression corpus` job in `corpus-gate.yml` covers them on every pull request that touches the parser.
+The `Regression corpus` job in `corpus-gate.yml` covers them on every pull request, including documentation-only changes and forks.
+The PR trigger has no path filter, so all three corpus check contexts are emitted even when the diff does not affect the analyzer.
+Push path filters remain independent; selecting these contexts as required checks is a separate repository-settings decision.
 It checks out each source listed in `regression-corpus.txt` at its pinned revision, builds `zsh-lint-survey` from the pull request and from its base, and runs `.github/scripts/regression-corpus.sh`, which compares the two builds with `zsh-lint-survey -compare <base> -native`.
 The job fails on a `REGRESSED` file (native Zsh accepts it, the base parsed it, the pull request does not) and on a `FALSE-ACCEPT` file (native Zsh rejects it and the pull request starts parsing it).
 A file that fails on both builds is a known gap and passes; a `FIXED` or `MOVED` file is listed in the job summary for the pull request to record.
