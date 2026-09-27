@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
+# Issue #518: outside double quotes a `{` in the word of a parameter
+# expansion nests, so this `}` closes it and the expansion is left open.
+# Top level; zsh -f -n reports: closing brace expected.
+print ${x:-{}

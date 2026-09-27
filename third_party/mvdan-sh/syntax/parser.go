@@ -523,6 +523,13 @@ type Parser struct {
 	// ordinary character (zsh-lint #400).
 	zshDquoteParam bool
 
+	// zshParamBraces counts the `{` bytes still open in the word of the
+	// unquoted Zsh parameter expansion being lexed. Outside double quotes Zsh
+	// nests braces there (bct in gettokstr, Src/lex.c), so in `${x:-{a}b}`
+	// the first `}` closes the `{` and the second closes the expansion
+	// (zsh-lint #518). Each expansion saves and restores it.
+	zshParamBraces int
+
 	recoveredErrors  int
 	recoverErrorsMax int
 
@@ -1777,9 +1784,28 @@ func (p *Parser) paramExp() *ParamExp {
 	old := p.quote
 	oldDquoteParam := p.zshDquoteParam
 	if p.lang.in(LangZsh) {
-		p.zshDquoteParam = old == dblQuotes || (old&allParamExp != 0 && oldDquoteParam)
+		// A here-document body expands like a double-quoted string (#518).
+		p.zshDquoteParam = old&(dblQuotes|hdocBody|hdocBodyTabs) != 0 || (old&(allParamExp|runeByRune) != 0 && oldDquoteParam)
 	}
 	defer func() { p.zshDquoteParam = oldDquoteParam }()
+	// A nested `${` starts its own brace count, and the count of the
+	// enclosing word resumes when it closes. The restore must happen before
+	// the token after the closing `}` is read, since that token may be a
+	// `}` of the enclosing word (#518); restoreBraces is called at each exit
+	// just before that read, and the defer covers the error paths. A short
+	// `$name` has no word of its own and leaves the count alone.
+	restoreBraces := func() {}
+	if p.tok != dollar {
+		outer, restored := p.zshParamBraces, false
+		restoreBraces = func() {
+			if !restored {
+				restored = true
+				p.zshParamBraces = outer
+			}
+		}
+		defer restoreBraces()
+		p.zshParamBraces = 0
+	}
 	p.quote = runeByRune
 	// [ParamExp.Short] means we are parsing $exp rather than ${exp}.
 	pe := &ParamExp{
@@ -1914,6 +1940,7 @@ zshPrefixLoop:
 	if p.tok == rightBrace {
 		pe.Rbrace = p.pos
 		p.quote = old
+		restoreBraces()
 		p.next()
 		return pe
 	}
@@ -1972,6 +1999,7 @@ zshPrefixLoop:
 		// get reported correctly
 		p.quote = old
 		pe.Rbrace = p.pos
+		restoreBraces()
 		p.matchedArithm(pe.Dollar, dollBrace, rightBrace)
 		return pe
 	case caret, dblCaret, comma, dblComma: // upper/lower case
@@ -2010,6 +2038,7 @@ zshPrefixLoop:
 		p.tok = p.paramToken(p.r)
 	}
 	p.quote = old
+	restoreBraces()
 	pe.Rbrace = p.matched(pe.Dollar, dollBrace, rightBrace)
 	return pe
 }

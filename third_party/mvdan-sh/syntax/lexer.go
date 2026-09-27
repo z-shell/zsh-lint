@@ -226,6 +226,11 @@ func (p *Parser) nextKeepSpaces() {
 	case paramExpExp:
 		switch r {
 		case '}':
+			if p.zshParamWordBrace() {
+				// A `}` that closes a `{` of the word is text (#518).
+				p.advanceLitOther(r)
+				break
+			}
 			p.tok = p.paramToken(r)
 		case '\'':
 			if p.zshDquoteParam {
@@ -1053,8 +1058,16 @@ loop:
 			tok = _Lit
 			break loop
 		case '}':
+			if p.zshParamWordBrace() {
+				p.zshParamBraces--
+				continue
+			}
 			if p.quote&allParamExp != 0 {
 				break loop
+			}
+		case '{':
+			if p.zshParamWord() {
+				p.zshParamBraces++
 			}
 		case '/':
 			if p.quote != paramExpExp {
@@ -1080,6 +1093,19 @@ loop:
 		}
 	}
 	p.tok, p.val = tok, p.endLit()
+}
+
+// zshParamWord reports whether a byte is being lexed as part of the word of
+// an unquoted Zsh parameter expansion, where braces nest (#518). Inside
+// double quotes the first `}` closes the expansion, so they do not.
+func (p *Parser) zshParamWord() bool {
+	return p.lang.in(LangZsh) && !p.zshDquoteParam && p.quote&(paramExpExp|paramExpRepl) != 0
+}
+
+// zshParamWordBrace reports whether a `}` at this point closes a `{` of the
+// word of an unquoted Zsh parameter expansion rather than the expansion.
+func (p *Parser) zshParamWordBrace() bool {
+	return p.zshParamBraces > 0 && p.zshParamWord()
 }
 
 // zshNumRange peeks at the bytes after '<' to check for a zsh numeric
