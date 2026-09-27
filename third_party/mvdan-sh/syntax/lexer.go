@@ -1337,6 +1337,13 @@ func (p *Parser) advanceLitRe(r rune) {
 		case '\\':
 			p.rune()
 		case '(':
+			if p.lang.in(LangZsh) && p.peek() == ')' {
+				// `()` ends the word and is a token of its own, at any
+				// depth (#522); the operator check then reports its `(`.
+				p.tok, p.val = _LitWord, p.endLit()
+				p.quote = testExpr
+				return
+			}
 			if p.rxOpenParens == 0 {
 				p.rxGroupStart = p.nextPos()
 			}
@@ -1355,7 +1362,10 @@ func (p *Parser) advanceLitRe(r rune) {
 				// numeric glob (#517, as #511 for other words).
 				if (r == '<' || r == '>') && p.peek() == '(' {
 					// A process substitution stays text in the group,
-					// as before; its `(` is counted below.
+					// as before. Its `(` is read here, so an empty one,
+					// `<()`, is not taken for a `()` token (#522).
+					p.rune()
+					p.rxOpenParens++
 					continue
 				}
 				if r == '<' {

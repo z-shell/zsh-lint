@@ -1,0 +1,4 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html
+# Issue #522: a `(` directly followed by `)` ends the word, and `()` is a
+# token of its own. Top level; zsh -f -n reports: parse error near `()'.
+[[ x == (a|(b|())) ]]
