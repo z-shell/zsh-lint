@@ -2694,7 +2694,7 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 			// parse reports it.
 			p.posErr(p.nextPos(), "`}` can only be used to close a block")
 		}
-		if p.zshBraceIndex && short == 0 && !litEscaped(p.litBs) {
+		if (p.zshBraceIndex || p.zshShortIndex > 0) && short == 0 && !litEscaped(p.litBs) {
 			// A nested `${...}` has its own subscripts: topParam counts
 			// the ones open, in double quotes too, where inParam below is
 			// not kept.
@@ -2748,8 +2748,11 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 		}
 	}
 	// A `]` right before the expansion's `}` is the subscript's own, so a
-	// `[` still open there is never closed (#534).
-	if top > 0 && topParam == 0 && p.r == ']' && p.peek() == '}' {
+	// `[` still open there is never closed (#534). A short `$x[...]` has
+	// no `}`: the word text after the `]` must close the `[` bytes still
+	// open, as the flag-pattern adapters then read it, before the word
+	// ends (#538).
+	if top > 0 && topParam == 0 && p.r == ']' && (p.zshBraceIndex && p.peek() == '}' || !p.zshBraceIndex && !p.zshShortCloses(top)) {
 		p.posErr(topOpen, "a `[` in a subscript flag argument must be closed before the subscript's `]`")
 	}
 	// The part after a `,` is parsed elsewhere, so at a `,` only a `]`
@@ -2767,6 +2770,151 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	p.quote = old
 	p.next()
 	return zf
+}
+
+// zshShortCloses reports whether the unread bytes after the `]` at p.r
+// close depth open `[` bytes before the word ends, reading ahead without
+// consuming. Zsh counts every unescaped `[` and `]` of the subscript, quoted
+// ones included (dquote_parse in Src/lex.c), and parses a short subscript
+// when the word is expanded, across its quotes, so the whole lexical word
+// counts: in double quotes it goes on past the closing `"`, as in
+// `"$x[(r)[a]"c"]"`. A blank, a newline, `;`, `&`, `|` or a redirection
+// ends the word outside quotes, a glob group, a `${...}` and a numeric glob
+// such as `<1-2>`; a `)` that closes nothing ends it too. A word too long to
+// read ahead is taken to close, so nothing is reported (#538).
+func (p *Parser) zshShortCloses(depth int) bool {
+	// Count the glob groups the argument has left open so far, as Zsh
+	// counts parentheses in pct (gettokstr), and follow them on.
+	parens, braces := 0, 0
+	var quote byte
+	for i := 0; i < len(p.litBs); i++ {
+		b := p.litBs[i]
+		switch {
+		case b == '\\' && quote != '\'':
+			i++
+		case quote != 0:
+			if b == quote {
+				quote = 0
+			}
+		case b == '\'' || b == '"':
+			quote = b
+		case b == '(':
+			parens++
+		case b == ')' && parens > 0:
+			parens--
+		}
+	}
+	quote = 0
+	if p.zshDquoteParam {
+		quote = '"'
+	}
+	// A `]` inside a nested `${...}`, `$(...)` or backquote belongs to that
+	// body, as in `${y:-]}`, so none of their brackets count. cmds holds
+	// the parens depth each open `$(` started at.
+	var cmds []int
+	at := func(i int) (byte, bool) {
+		if int(p.bsp)+i >= len(p.bs) && p.fill() == 0 {
+			return 0, false
+		}
+		if int(p.bsp)+i >= len(p.bs) {
+			return 0, false
+		}
+		return p.bs[int(p.bsp)+i], true
+	}
+	for i := 0; ; i++ {
+		if i >= bufSize-1 {
+			return true
+		}
+		b, ok := at(i)
+		if !ok {
+			return false
+		}
+		switch {
+		case b == '\\' && quote != '\'':
+			i++
+			continue
+		case quote != 0:
+			if b == quote {
+				quote = 0
+			}
+		case b == '\'' || b == '"' || b == '`':
+			quote = b
+		case b == '$':
+			switch c, _ := at(i + 1); c {
+			case '{':
+				braces++
+				i++
+				continue
+			case '(':
+				cmds = append(cmds, parens)
+				parens++
+				i++
+				continue
+			}
+		case b == '}' && braces > 0:
+			braces--
+		case b == '(':
+			parens++
+		case b == ')':
+			if parens == 0 {
+				return false
+			}
+			parens--
+			if len(cmds) > 0 && cmds[len(cmds)-1] == parens {
+				cmds = cmds[:len(cmds)-1]
+			}
+		case parens > 0 || braces > 0:
+		case b == '<' && p.zshNumGlobAt(i) > 0:
+			// The numeric glob's `>` is not a redirection.
+			i += p.zshNumGlobAt(i)
+			continue
+		case b == '<' || b == '>':
+			if c, _ := at(i + 1); c != '(' {
+				return false
+			}
+		case b == ' ' || b == '\t' || b == '\n' || b == ';' || b == '&' || b == '|':
+			return false
+		}
+		if braces > 0 || len(cmds) > 0 || quote == '`' || b == '`' {
+			continue
+		}
+		switch b {
+		case '[':
+			depth++
+		case ']':
+			if depth--; depth == 0 {
+				return true
+			}
+		}
+	}
+}
+
+// zshNumGlobAt returns the offset from i of the `>` ending a numeric glob,
+// `<` digits `-` digits `>` with both numbers optional, that the unread bytes
+// start at offset i, or 0 if they start none.
+func (p *Parser) zshNumGlobAt(i int) int {
+	dash := false
+	for j := i + 1; j < bufSize-1; j++ {
+		if int(p.bsp)+j >= len(p.bs) && p.fill() == 0 {
+			return 0
+		}
+		if int(p.bsp)+j >= len(p.bs) {
+			return 0
+		}
+		switch b := p.bs[int(p.bsp)+j]; {
+		case b >= '0' && b <= '9':
+		case b == '-' && !dash:
+			dash = true
+		case b == '>':
+			if dash {
+				return j - i
+			}
+			return 0
+		default:
+			return 0
+		}
+	}
+	return 0
 }
 
 // zshFlagShortRune follows a short subscript `$name[(flags)...]` in a raw

@@ -54,7 +54,7 @@ All are top-level probes. `$x`, `$y` and `$m` are arrays in the runtime checks.
 | 22  | `print "${m[(i)${y}[]}"`     | reject | accept | reject |
 | 23  | `print "${m[(I)[${y[2]}]]}"` | accept | accept | accept |
 
-Row 16 is the shape of `Functions/Zle/select-bracketed` in the vendored Zsh tree, which an earlier draft rejected; the nested `${...}` is now skipped. Row 20 is a gap left as it was: a short `$x[...]` ends at its first `]`, and the `[` left open before it is not counted.
+Row 16 is the shape of `Functions/Zle/select-bracketed` in the vendored Zsh tree, which an earlier draft rejected; the nested `${...}` is now skipped. Row 20 was left as it was; it is fixed by [#538](https://github.com/z-shell/zsh-lint/issues/538), see the [short subscript flag open bracket survey](2026-09-27-short-subscript-flag-open-bracket-survey.md).
 
 ## Verification
 
