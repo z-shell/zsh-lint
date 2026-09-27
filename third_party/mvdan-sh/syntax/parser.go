@@ -2426,16 +2426,17 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// `` `echo \]` ``), so only an unescaped one ends the argument there.
 	// Any `]` in a `$(...)` or `$((...))` body is text of the body (#529),
 	// and so is an unescaped one in a backquoted body of a `${...}`. In a
-	// short `$x[...]` or an assignment's `a[...]` that is all; in a `${...}` Zsh requires the `[` and
-	// `]` bytes of those bodies to balance over the whole subscript, as in
-	// `$(echo ])$(echo [)`, and rejects the expansion otherwise, so
-	// brackets counts them in `$(...)` bodies, quoted or escaped ones
-	// included, and bqBrackets the unescaped ones in backquoted bodies,
-	// kept apart: Zsh reads a backquoted body itself, where a `]` that no
-	// earlier `[` opened is an error at once, as in `` `echo ][` ``. A
-	// short `$x[...]` counts backquoted brackets as well, so that the `]`
-	// of `` `echo [a]` `` stays in the body, but a `]` that closes nothing
-	// still ends the argument there, as before.
+	// short `$x[...]` or an assignment's `a[...]` that is all. In a
+	// `${...}` Zsh requires the `[` and `]` bytes of those bodies to
+	// balance over the whole subscript, as in `$(echo ])$(echo [)`, and
+	// rejects the expansion otherwise, so brackets counts them in `$(...)`
+	// bodies, quoted or escaped ones included, and bqBrackets the unescaped
+	// ones in backquoted bodies, kept apart: Zsh reads a backquoted body
+	// itself, where a `]` that no earlier `[` opened is an error at once,
+	// as in `` `echo ][` ``. A short `$x[...]` counts backquoted brackets
+	// as well, so that the `]` of `` `echo [a]` `` stays in the body, while
+	// a `]` that closes nothing ends the loop before it reaches this switch
+	// and still ends the argument there, as before.
 	var sub *zshGroupSubst
 	brackets, bqBrackets := 0, 0
 	var bracketPos Pos
