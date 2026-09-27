@@ -983,6 +983,18 @@ func (p *Printer) testExprSameLine(expr TestExpr) {
 	switch expr := expr.(type) {
 	case *Word:
 		p.word(expr)
+	case *ModuleTest:
+		args := expr.Args
+		if expr.Infix && len(args) > 0 {
+			p.word(args[0])
+			p.space()
+			args = args[1:]
+		}
+		p.word(expr.Name)
+		for _, arg := range args {
+			p.space()
+			p.word(arg)
+		}
 	case *BinaryTest:
 		p.testExprSameLine(expr.X)
 		p.space()

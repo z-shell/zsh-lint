@@ -52,7 +52,7 @@ var allNodeNames = []string{
 	"ForClause", "FuncDecl", "IfClause", "LetClause", "Lit", "ParamExp",
 	"ParenArithm", "ParenTest", "ProcSubst", "Redirect", "SglQuoted", "Stmt",
 	"RepeatClause", "Subshell", "TestClause", "TestDecl", "TimeClause", "UnaryArithm",
-	"UnaryTest", "WhileClause", "Word", "WordIter",
+	"ModuleTest", "UnaryTest", "WhileClause", "Word", "WordIter",
 }
 
 // TestRoundtripAnyNode checks that any node can be encoded and decoded,
@@ -90,6 +90,7 @@ coproc foo
 		{syntax.LangZsh, "echo ${a[(r)foo]}\n"},
 		// RepeatClause only appears with zsh (zsh-lint #281).
 		{syntax.LangZsh, "repeat 3 do foo; done\n"},
+		{syntax.LangZsh, "[[ -prefix $x ]]\n[[ a -foo b ]]\n"},
 		// TestDecl only appears with bats.
 		{syntax.LangBats, "@test \"name\" {\n\tfoo\n}\n"},
 	}

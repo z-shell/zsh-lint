@@ -1,0 +1,3 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html
+# Issue #484: an infix module condition cannot take a third operand.
+[[ a -foo b c ]]

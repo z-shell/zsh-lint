@@ -333,6 +333,7 @@ var nodeByName = map[string]reflect.Type{
 	"ParenArithm":  reflect.TypeFor[syntax.ParenArithm](),
 	"FlagsArithm":  reflect.TypeFor[syntax.FlagsArithm](),
 
+	"ModuleTest": reflect.TypeFor[syntax.ModuleTest](),
 	"UnaryTest":  reflect.TypeFor[syntax.UnaryTest](),
 	"BinaryTest": reflect.TypeFor[syntax.BinaryTest](),
 	"ParenTest":  reflect.TypeFor[syntax.ParenTest](),

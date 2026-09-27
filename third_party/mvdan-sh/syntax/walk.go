@@ -122,6 +122,15 @@ func Walk(node Node, f func(Node) bool) {
 	case *BinaryArithm:
 		Walk(node.X, f)
 		Walk(node.Y, f)
+	case *ModuleTest:
+		if node.Infix && len(node.Args) == 2 {
+			Walk(node.Args[0], f)
+			Walk(node.Name, f)
+			Walk(node.Args[1], f)
+		} else {
+			Walk(node.Name, f)
+			walkList(node.Args, f)
+		}
 	case *BinaryTest:
 		Walk(node.X, f)
 		Walk(node.Y, f)
