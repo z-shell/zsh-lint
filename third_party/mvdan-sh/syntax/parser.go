@@ -558,6 +558,9 @@ type Parser struct {
 
 	rxOpenParens int
 	rxFirstPart  bool
+	// rxGroupStart is the `(` that opened the outermost group still open
+	// in an `=~` operand (#517).
+	rxGroupStart Pos
 
 	// zshCondOperand is set while reading an operand of a Zsh `-NAME`
 	// condition, where a glob group follows Zsh's word lexer (#484).

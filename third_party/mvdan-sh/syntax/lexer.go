@@ -1337,6 +1337,9 @@ func (p *Parser) advanceLitRe(r rune) {
 		case '\\':
 			p.rune()
 		case '(':
+			if p.rxOpenParens == 0 {
+				p.rxGroupStart = p.nextPos()
+			}
 			p.rxOpenParens++
 		case ')':
 			if p.rxOpenParens--; p.rxOpenParens < 0 {
@@ -1344,7 +1347,44 @@ func (p *Parser) advanceLitRe(r rune) {
 				p.quote = testExpr
 				return
 			}
-		case ' ', '\t', '\r', '\n', ';', '&', '>', '<':
+		case ';', '&', '>', '<':
+			if p.rxOpenParens > 0 && p.lang.in(LangZsh) {
+				// Zsh lexes the operand as an ordinary word (gettokstr in
+				// Src/lex.c), so these end it even inside a group, unless
+				// `<(`/`>(` starts a process substitution or `<m-n>` is a
+				// numeric glob (#517, as #511 for other words).
+				if (r == '<' || r == '>') && p.peek() == '(' {
+					// A process substitution stays text in the group,
+					// as before; its `(` is counted below.
+					continue
+				}
+				if r == '<' {
+					switch p.zshNumGlobAhead() {
+					case numGlobYes:
+						for p.r != '>' && p.r != runeEOF {
+							p.rune()
+						}
+						continue
+					case numGlobLong:
+						// Too long to peek: read it, as #511 does.
+						if p.zshNumGlobConsume() {
+							continue
+						}
+						p.tok, p.val = _LitWord, p.endLit()
+						return
+					}
+				}
+				p.zshBrokenGroup = p.rxGroupStart
+				p.tok, p.val = _LitWord, p.endLit()
+				p.quote = testExpr
+				return
+			}
+			if p.rxOpenParens <= 0 {
+				p.tok, p.val = _LitWord, p.endLit()
+				p.quote = testExpr
+				return
+			}
+		case ' ', '\t', '\r', '\n':
 			if p.rxOpenParens <= 0 {
 				p.tok, p.val = _LitWord, p.endLit()
 				p.quote = testExpr
