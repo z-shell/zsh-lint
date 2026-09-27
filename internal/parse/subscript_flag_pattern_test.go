@@ -133,9 +133,9 @@ func TestSubscriptFlagBracketPatternRejectsUnbalanced(t *testing.T) {
 	}
 }
 
-// A pattern whose extent the scanner cannot decide (an expansion in the flags,
-// a command substitution in the pattern) keeps the base front end's error at
-// its original position instead of a guessed mask.
+// A pattern whose extent the scanner cannot decide (an expansion in the flags)
+// keeps the base front end's error at its original position instead of a
+// guessed mask.
 func TestSubscriptFlagBracketPatternLeavesUncertainPatternsAlone(t *testing.T) {
 	tests := []struct {
 		name string
@@ -144,13 +144,25 @@ func TestSubscriptFlagBracketPatternLeavesUncertainPatternsAlone(t *testing.T) {
 		col  uint
 	}{
 		{"expansion in flags", []byte("print -r -- ${line[(i${x})[a]]}\n"), "not a valid parameter expansion operator: `]`", 30},
-		{"backtick substitution in pattern", []byte("print -r -- ${line[(i)`echo [x]`]}\n"), "not a valid parameter expansion operator: \"`\"", 32},
-		{"dollar substitution in pattern", []byte("print -r -- ${line[(i)$(echo [x])]}\n"), "not a valid parameter expansion operator: `)`", 33},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			assertParseErrorAt(t, test.src, test.text, 1, test.col)
 		})
+	}
+}
+
+// A command substitution in the pattern is left alone by the scanner, and
+// since #529 the parser reads the balanced `[x]` in its body itself, so this
+// valid Zsh parses.
+func TestSubscriptFlagPatternCommandSubstitutionParses(t *testing.T) {
+	for _, src := range []string{
+		"print -r -- ${line[(i)`echo [x]`]}\n",
+		"print -r -- ${line[(i)$(echo [x])]}\n",
+	} {
+		if _, err := Parse(strings.NewReader(src), "pattern.zsh"); err != nil {
+			t.Errorf("Parse(%q) = %v", src, err)
+		}
 	}
 }
 

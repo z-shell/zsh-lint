@@ -260,9 +260,10 @@ func TestFlagPatternCutKeepsUnchangedVerdicts(t *testing.T) {
 		// `zsh -f -n` rejects this one: `invalid subscript`.
 		{"unbalanced bracket in the pattern", "print ${m[(r)a[b]}\n", false},
 		// Valid Zsh the scanner declines: it cannot bound a command
-		// substitution, which is #237's documented limit.
-		{"command substitution in the pattern", "print ${m[(r)$(echo [x])##]}\n", true},
-		{"backtick in the pattern", "print ${m[(r)`echo [x]`##]}\n", true},
+		// substitution, which is #237's documented limit. The parser reads
+		// the balanced `[x]` in the body itself since #529, so it accepts.
+		{"command substitution in the pattern", "print ${m[(r)$(echo [x])##]}\n", false},
+		{"backtick in the pattern", "print ${m[(r)`echo [x]`##]}\n", false},
 		// No bracket expression, so no cut: the `##` is a real operator.
 		{"plain pattern with an operator", "print ${m[(r)a]##}\n", false},
 		// A flagged pattern with no bracket at all is untouched.

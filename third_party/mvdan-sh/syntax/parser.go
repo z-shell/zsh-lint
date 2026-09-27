@@ -538,6 +538,16 @@ type Parser struct {
 	zshSubBraces    int
 	zshSubBraceOpen Pos
 
+	// zshBraceIndex is set while the subscript of a Zsh `${...}` is lexed.
+	// There Zsh requires the `[` and `]` inside command substitutions in a
+	// flag argument to balance over the subscript, a short `$y[...]` in it
+	// included. In a short `$x[...]` or an assignment's `a[...]` it does not
+	// count them, nor in a `${...}` inside a short subscript, so
+	// zshShortIndex counts the short subscripts open around the lexer
+	// (zsh-lint #529).
+	zshBraceIndex bool
+	zshShortIndex int
+
 	recoveredErrors  int
 	recoverErrorsMax int
 
@@ -1438,7 +1448,10 @@ func (p *Parser) zshGroupSubstCheck(sub *zshGroupSubst, lit []byte) {
 		}
 		body = unesc
 	}
-	_, err := NewParser(Variant(p.lang)).Parse(bytes.NewReader(body), "")
+	bp := NewParser(Variant(p.lang))
+	// A body inside a short subscript is lexed inside it too (#529).
+	bp.zshShortIndex = p.zshShortIndex
+	_, err := bp.Parse(bytes.NewReader(body), "")
 	perr, ok := err.(ParseError)
 	if !ok {
 		return
@@ -2043,7 +2056,9 @@ zshPrefixLoop:
 		if p.lang.in(LangZsh) && p.r == '[' && (len(p.val) != 1 || !positionalRuneParam(p.val[0])) {
 			p.pos = p.nextPos()
 			p.rune()
+			p.zshShortIndex++
 			pe.Index = p.eitherIndex()
+			p.zshShortIndex--
 		}
 		p.quote = old
 		p.next()
@@ -2060,11 +2075,14 @@ zshPrefixLoop:
 		}
 		p.pos = p.nextPos()
 		p.rune()
+		oldBrace := p.zshBraceIndex
+		p.zshBraceIndex = p.zshShortIndex == 0
 		if p.lang.in(LangZsh) && !p.zshDquoteParam {
 			pe.Index = p.zshParamIndex()
 		} else {
 			pe.Index = p.eitherIndex()
 		}
+		p.zshBraceIndex = oldBrace
 	}
 	tokRune := p.r
 	p.pos = p.nextPos()
@@ -2406,9 +2424,45 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// so `'$(done)'` is still a substitution; only a backslash stops one.
 	// An escaped `]` in a backquoted body is text of the body (`\]` in
 	// `` `echo \]` ``), so only an unescaped one ends the argument there.
+	// Any `]` in a `$(...)` or `$((...))` body is text of the body (#529),
+	// and so is an unescaped one in a backquoted body of a `${...}`. In a
+	// short `$x[...]` or an assignment's `a[...]` that is all; in a `${...}` Zsh requires the `[` and
+	// `]` bytes of those bodies to balance over the whole subscript, as in
+	// `$(echo ])$(echo [)`, and rejects the expansion otherwise, so
+	// brackets counts them in `$(...)` bodies, quoted or escaped ones
+	// included, and bqBrackets the unescaped ones in backquoted bodies,
+	// kept apart: Zsh reads a backquoted body itself, where a `]` that no
+	// earlier `[` opened is an error at once, as in `` `echo ][` ``. A
+	// short `$x[...]` counts backquoted brackets as well, so that the `]`
+	// of `` `echo [a]` `` stays in the body, but a `]` that closes nothing
+	// still ends the argument there, as before.
 	var sub *zshGroupSubst
-	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || sub != nil && sub.bquote && litEscaped(p.litBs)) && (braces > 0 || quote != 0 || sub != nil || p.r != ','); p.rune() {
+	brackets, bqBrackets := 0, 0
+	var bracketPos Pos
+	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || p.r != ','); p.rune() {
 		if sub != nil {
+			switch {
+			case p.r != '[' && p.r != ']':
+			case !sub.bquote:
+				if brackets == 0 && bqBrackets == 0 {
+					bracketPos = p.nextPos()
+				}
+				if p.r == '[' {
+					brackets++
+				} else {
+					brackets--
+				}
+			case litEscaped(p.litBs):
+			case p.r == '[':
+				if brackets == 0 && bqBrackets == 0 {
+					bracketPos = p.nextPos()
+				}
+				bqBrackets++
+			case bqBrackets == 0:
+				p.posErr(p.nextPos(), "a `]` in a backquoted command in a subscript must close a `[` before it")
+			default:
+				bqBrackets--
+			}
 			sub = p.zshFlagSubstStep(sub)
 			continue
 		}
@@ -2449,6 +2503,12 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 		case p.r == '}' && braces > 0:
 			braces--
 		}
+	}
+	// The part after a `,` is parsed elsewhere, so at a `,` only a `]`
+	// that no earlier `[` opened is an error: `$(echo [),$(echo ])` is
+	// valid Zsh, and `$(echo [),2` is accepted, as before.
+	if p.zshBraceIndex && ((brackets != 0 || bqBrackets != 0) && p.r == ']' || brackets < 0 && p.r == ',') {
+		p.posErr(bracketPos, "the `[` and `]` in command substitutions in a subscript must balance")
 	}
 	if braces > 0 && inParam == 0 && p.r == ']' {
 		p.posErr(braceOpen, "a `{` in a subscript must be closed before its `]`")
