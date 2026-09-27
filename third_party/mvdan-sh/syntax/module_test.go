@@ -153,7 +153,7 @@ func TestZshModuleConditionsReject(t *testing.T) {
 		{"[[ -foo a b } ]]", "1:13: not a valid test operator: `}`"},
 		{"[[ -prefix ) ]]", "1:1: reached `)` without matching `[[` with `]]`"},
 		{"[[ -prefix ]] ]]", "1:15: statements must be separated by &, ; or a newline"},
-		{"[[ -prefix < ]]", "1:1: reached EOF without matching `[[` with `]]`"},
+		{"[[ -prefix < ]]", "1:12: `<` must be followed by a word"},
 		{"[[ a -foo ]]", "1:6: module condition requires a right operand"},
 		{"[[ -prefix a < b ]]", "1:14: expected `&&`, `||` or `]]` after complex expr"},
 		{"[[ a -foo b -bar c ]]", "1:13: not a valid test operator: `-bar`"},
@@ -328,6 +328,13 @@ func TestZshIssue512Rejects(t *testing.T) {
 		{"[[ x < ( ]]", "1:8: reached EOF without matching `(` with `)`"},
 		{"[[ x <\n! ]]", "2:1: not a valid test operator: `!`"},
 		{"[[ x >\n! ]]", "2:1: not a valid test operator: `!`"},
+		// `]]` is never the operand of `<` or `>`, on the same line or the
+		// next; the error names the operator.
+		{"[[ x <\n]]", "1:6: `<` must be followed by a word"},
+		{"[[ x >\n]]", "1:6: `>` must be followed by a word"},
+		{"[[ x < ]]", "1:6: `<` must be followed by a word"},
+		{"[[ x < ]] ]]", "1:6: `<` must be followed by a word"},
+		{"[[ x <\n]] ]]", "1:6: `<` must be followed by a word"},
 	} {
 		t.Run(tc.src, func(t *testing.T) {
 			_, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(tc.src+"\n"), "")
@@ -352,6 +359,9 @@ func TestZshIssue512Controls(t *testing.T) {
 		"[[ x < y && ! z ]]",
 		"[[ x <\ny ]]",
 		"[[ x >\ny ]]",
+		"[[ x < ]]x ]]",
+		"[[ x < ']]' ]]",
+		"[[ x <\n\\]] ]]",
 	} {
 		t.Run(src, func(t *testing.T) {
 			_, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(src+"\n"), "")

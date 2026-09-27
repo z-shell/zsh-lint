@@ -3568,6 +3568,11 @@ func (p *Parser) testExprBinary(pastAndOr bool) TestExpr {
 		p.next()
 		if p.lang.in(LangZsh) && (b.Op == TsBefore || b.Op == TsAfter) {
 			p.skipTestNewlines()
+			if p.tok == _LitWord && p.val == "]]" {
+				// `]]` is not an operand even after a newline: report the
+				// operator, as a missing operand on its own line is.
+				p.followErr(b.OpPos, token(b.Op), noQuote("a word"))
+			}
 		}
 		if name, ok := b.X.(*Word); ok && p.lang.in(LangZsh) && b.Op != TsBefore && b.Op != TsAfter && p.atTestEnd() && p.tok != leftParen {
 			if lit := name.Lit(); len(lit) > 1 && strings.HasPrefix(lit, "-") {
