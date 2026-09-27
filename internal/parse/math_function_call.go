@@ -19,6 +19,13 @@ const invalidMathFunctionCall = "not a valid arithmetic operator: `(`"
 // branches, so it reports the unfinished ternary rather than the operator.
 const incompleteTernaryMathCall = "ternary operator missing `:` after `?`"
 
+// unmatchedGroupMathCall is the error reported when the call stands directly
+// inside a parenthesized group, `$(( (sqrt(4)) ))` (#356). The parser reads the
+// group's `(`, takes the name as the group's operand, and then finds the call's
+// `(` where the group's `)` should be, so it reports the group as unmatched at
+// the group's own `(`.
+const unmatchedGroupMathCall = "reached `(` without matching `(` with `)`"
+
 // MathFunctionCall pairs a math function call's name with the arguments
 // written inside its parentheses (zshmisc, Arithmetic Evaluation: "It is also
 // possible to use the function call syntax `func(args)`"). mvdan/sh (through
@@ -78,6 +85,13 @@ func parseMathFunctionCall(src []byte, name string, firstErr error) (*syntax.Fil
 		if !ternaryBranchHoldsCall(src, sites, int(parseErr.Pos.Offset())) {
 			return nil, firstErr
 		}
+	case unmatchedGroupMathCall:
+		// The error points at a grouping `(`, and an unbalanced group has
+		// many causes. Retry only when a call stands inside that group, so a
+		// genuinely unbalanced expression keeps its own error.
+		if !groupHoldsCall(src, sites, int(parseErr.Pos.Offset())) {
+			return nil, firstErr
+		}
 	default:
 		return nil, firstErr
 	}
@@ -109,9 +123,8 @@ func parseMathFunctionCall(src []byte, name string, firstErr error) (*syntax.Fil
 // are valid Zsh and report this same error, which a gate looking only at the
 // position right after the `?` would miss.
 //
-// A call inside a parenthesized group, `1 ? (f(2)) : 3`, is not one of these:
-// it reports a different error this adapter does not own, and it fails without
-// a ternary too. That is a separate gap.
+// A call inside a parenthesized group, `1 ? (f(2)) : 3`, reports a different
+// error that its own gate handles (groupHoldsCall, #356).
 //
 // The search is bounded to the `?`'s own arithmetic expression, so a call in
 // an unrelated expression elsewhere in the file cannot make a malformed
@@ -128,6 +141,34 @@ func ternaryBranchHoldsCall(src []byte, sites []mathCallSite, offset int) bool {
 	}
 	for _, site := range sites {
 		if site.nameStart > offset && site.close < span.end {
+			return true
+		}
+	}
+	return false
+}
+
+// groupHoldsCall reports whether a math function call stands inside the
+// parenthesized group whose `(` is at offset, within one arithmetic
+// expression (#356).
+//
+// The group must close inside its arithmetic expression, and the call must
+// lie wholly between the group's parentheses. A group that never closes, or
+// one holding no call, is a real defect and keeps the parser's error. A call
+// in an unrelated group or expression cannot make it retry.
+func groupHoldsCall(src []byte, sites []mathCallSite, offset int) bool {
+	if offset < 0 || offset >= len(src) || src[offset] != '(' {
+		return false
+	}
+	span, ok := arithmeticSpanAt(src, offset)
+	if !ok {
+		return false
+	}
+	// arithmeticEnd balances parentheses outside quotes, so a group almost
+	// always closes inside its span. Where one does not, close stays 0 and
+	// no site can qualify, so the gate declines.
+	close, _ := matchingParen(src, offset, span.end)
+	for _, site := range sites {
+		if site.nameStart > offset && site.close < close {
 			return true
 		}
 	}
