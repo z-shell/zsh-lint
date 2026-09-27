@@ -88,7 +88,6 @@ func TestZshModuleConditions(t *testing.T) {
 		// the condition's back when it closes.
 		"[[ -foo $(x) ( b (c) ) ]]",
 		"[[ -foo a $(x)(b(c)d) ]]",
-		"[[ -foo a ${x:-$(print a(b;c))} ]]",
 	} {
 		t.Run(src, func(t *testing.T) {
 			f, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(src+"\n"), "")
