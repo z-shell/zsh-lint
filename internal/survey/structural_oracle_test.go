@@ -24,17 +24,10 @@ import (
 // first difference in a file, so a listed fixture can hide a second cause
 // until the first is fixed.
 var structuralOracleKnownDifferences = map[string]string{
-	// The printer writes a brace-form `else` as `elif; then`, which is not Zsh.
-	"ok-alternate-closer-same-line-tail.zsh":     "printer: brace-form else",
-	"ok-alternate-if-brace-continuation.zsh":     "printer: brace-form else",
-	"ok-alternate-if-brace-length-expansion.zsh": "printer: brace-form else",
-	"ok-alternate-if-condition-list.zsh":         "printer: brace-form else",
-	"ok-alternate-if-nested-in-classic-if.zsh":   "printer: brace-form else",
-	"ok-cond-group-quoted-paren.zsh":             "printer: brace-form else",
-	"ok-function-keyword-empty-body.zsh":         "printer: `function name` and a non-brace body on one line read as more names",
-	"ok-function-non-brace-body.zsh":             "printer: `function name` and a non-brace body on one line read as more names",
-	"ok-brace-words.zsh":                         "printer: a case pattern holding `}` loses its opening parenthesis",
-	"ok-ansic-heredoc.zsh":                       "printer: a $'...' here-document delimiter is closed by its quoted form",
+	"ok-function-keyword-empty-body.zsh": "printer: `function name` and a non-brace body on one line read as more names",
+	"ok-function-non-brace-body.zsh":     "printer: `function name` and a non-brace body on one line read as more names",
+	"ok-brace-words.zsh":                 "printer: a case pattern holding `}` loses its opening parenthesis",
+	"ok-ansic-heredoc.zsh":               "printer: a $'...' here-document delimiter is closed by its quoted form",
 	// The tree keeps only the first name of a multi-name loop.
 	"ok-foreach-end.zsh":                      "tree: WordIter keeps one loop name",
 	"ok-heredoc-quote-before-brace-forms.zsh": "tree: WordIter keeps one loop name",

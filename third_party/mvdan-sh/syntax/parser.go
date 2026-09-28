@@ -3673,11 +3673,13 @@ func (p *Parser) ifClause(s *Stmt) {
 				els := &IfClause{Position: elsePos}
 				for p.got(_Newl) {
 				}
-				lb, body, bodyLast, rb, ok := p.zshBraceBody()
+				_, body, bodyLast, rb, ok := p.zshBraceBody()
 				if !ok {
 					p.followErr(elsePos, "else", "{")
 				}
-				els.ThenPos, els.Then, els.ThenLast = lb, body, bodyLast
+				// ThenPos stays empty: an `else` has no `then`, and the
+				// printer reads a clause with one as an `elif` (#541).
+				els.Then, els.ThenLast = body, bodyLast
 				curIf.Else = els
 				p.setIfEnd(rootIf, rb)
 				p.setZshIfEnd(rootIf, posAddCol(rb, 1))
