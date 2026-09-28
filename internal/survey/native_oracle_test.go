@@ -33,6 +33,7 @@ var runtimeTierInvalidFixtures = map[string]string{
 	"invalid-382-second-subscript-assignment.txt":     "bad substitution",
 	"invalid-382-single-quote-assignment.txt":         "bad substitution",
 	"invalid-384-single-quoted-bracket-rebalance.txt": "bad substitution",
+	"invalid-540-short-flag-runtime-parens.txt":       "invalid subscript",
 }
 
 // nativeSyntaxError runs `zsh -f -n` on path and returns its diagnostic, or

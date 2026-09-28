@@ -1,0 +1,6 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Issue #540: dquote_parse counts the flag argument's `(` too, so the `)` in
+# `${y:-)}` does not close it and the subscript never closes. zsh -f -n
+# accepts this at top level and in a function body; running it reports:
+# invalid subscript.
+print $x[(r)a[(b]${y:-)}()]

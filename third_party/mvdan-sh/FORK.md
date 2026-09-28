@@ -42,6 +42,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | The `IfClause` of a brace-form `else` leaves `ThenPos` empty, as a classic `else` does, instead of holding the body's `{`; the printer and `IfClause` readers treat a clause with a `ThenPos` as an `elif` | `syntax/parser.go`, `syntax/zsh_brace_else_test.go` | [#541](https://github.com/z-shell/zsh-lint/issues/541) |
 | The printer writes `()` after the names of a `function` keyword definition whose body is not a `{ }` group, since Zsh reads every word before a `{` as another name | `syntax/printer.go`, `syntax/zsh_print_func_test.go` | [#541](https://github.com/z-shell/zsh-lint/issues/541) |
 | The printer writes a case item's optional opening parenthesis when an alternative ends in an unquoted literal `}`, which Zsh would otherwise read as closing a brace group | `syntax/printer.go`, `syntax/zsh_print_case_test.go` | [#541](https://github.com/z-shell/zsh-lint/issues/541) |
+| The #538 read-ahead finds the short subscript's word end by shell quoting, then counts `[`, `]`, `(` and `)` over that text with `dquote_parse` rules: `'` is text outside backquotes, `"` outside a nested `${...}`, a `$(...)` body is skipped and a nested `${...}` does not count brackets; a backquote the subscript's text leaves open when read as a string, as in ``$x[(r)a[b]'`'`echo "]"` ``, is reported at that backquote | `syntax/parser.go`, `syntax/short_flag_dquote_rules_test.go` | [#540](https://github.com/z-shell/zsh-lint/issues/540) |
 
 ## Taking an upstream release
 
