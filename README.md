@@ -173,7 +173,10 @@ It is used for corpus validation and upstream syntax compatibility tracking.
 zsh-lint-survey path/to/*.zsh
 zsh-lint-survey -trace-parses path/to/file.zsh   # also report parse count and adapter depth on stderr
 zsh-lint-survey -compare ./base/zsh-lint-survey -native path/to/*.zsh   # verdict changes against a base build
+zsh-lint-survey -compare ./base/zsh-lint-survey -native -runtime -table rows.md grid/*.zsh   # probe rows, run where zsh -n cannot decide
 zsh-lint-probe -bodies bodies.txt -out grid/   # place construct variants in every scanner context
+zsh-lint-probe -rows rows.txt -out grid/       # one probe file per line
+bash .github/scripts/verify-parser-change.sh --rows rows.txt   # a parser change's whole verification
 ```
 
 </details>

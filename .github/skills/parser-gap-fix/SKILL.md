@@ -55,7 +55,8 @@ go run ./cmd/zsh-lint-survey gap.zsh    # zsh-lint verdict
 Write the construct's valid and invalid variants to a body file, separated by `---` lines, then run every check in one command:
 
 ```sh
-bash .github/scripts/verify-parser-change.sh --bodies bodies.txt [base-ref] <file.zsh ...>
+bash .github/scripts/verify-parser-change.sh --bodies bodies.txt [--rows rows.txt] \
+  [--list files.txt] [--regression-corpus DIR] [base-ref] <file.zsh ...>
 ```
 
 It runs build, vet and tests, the fork's tests, `golangci-lint` with the toolchain `go.mod` names, a base build exported with `git archive` (default `origin/main`), `-compare -native` over the corpus fixtures and the given files (#412), the probe grid with `-known`, `-trace-parses` on both builds (#408), and `.github/scripts/mutation.sh`.
@@ -64,7 +65,18 @@ A file outside the repository appears by its absolute path; shorten it before pa
 It exits 1 when a check fails, 3 when only the mutation run was inconclusive, and 2 when it cannot start.
 `--skip-mutation` leaves out the slowest check while iterating.
 
+- Run it after `git fetch origin` and a rebase: with the default base it refuses to start unless `origin/main` is origin's `main` and the checkout contains it, and it prints both commit ids (#545).
+  A named base-ref skips the remote check but not the containment check.
+- `--rows FILE` adds a grid of complete sources, one per line, for shapes the probe contexts cannot express, such as words in a subscript.
+  `internal/probe/testdata/rows-538.txt` is the grid #539 reported.
+- `--root DIR` and `--list FILE` add consumer or workspace files to the comparison; a listed path that is not a file fails the check.
+  `--regression-corpus DIR`, a directory holding `F-Sy-H/` and `zsh/` at the revisions `regression-corpus.txt` pins, runs the Corpus Gate's own comparison.
+- `--candidate REV` judges another commit's build instead of the working tree, to re-run a merged change's numbers with today's tools; the Go checks and mutation are then skipped.
 - `-compare -native` must show no `REGRESSED` and no `FALSE-ACCEPT`; every `FIXED` and `MOVED` line belongs in the pull request.
+- A grid is also judged with `-runtime`: a row `zsh -f -n` accepts that the change now rejects, and that Zsh rejects when it runs, is `RUNTIME-REJECTED` rather than `REGRESSED` and does not fail the check.
+  These are assignments and command substitution bodies, which `zsh -n` does not check (#519, #539); list the family in the pull request.
+  `-runtime` runs the rows, so the script uses it on grids only.
+- Each grid's changed rows are written as a survey-record table, `probe.md` (or `probe-N.md`) next to the logs.
 - The probe summary counts known gaps and false accepts that the change leaves in place; `-known` lists them, and each one is an issue to file.
 - The mutation check fails when a mutant survives; a mutant that hangs the suite counts as caught, and a run where timeouts outnumber the decided mutants is inconclusive (raise `MUTATION_TIMEOUT_COEFFICIENT`). List the surviving and uncovered lines it prints in the pull request, with a reason for any that stay.
 - `mutation.sh` does not mutate `third_party/mvdan-sh`, and a changed `case` expression line reads as not covered; hand-mutate such a change and report the result.

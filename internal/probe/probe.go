@@ -86,6 +86,39 @@ func ReadBodies(r io.Reader) ([]string, error) {
 	return bodies, nil
 }
 
+// ReadRows reads a row file: one complete source per line, for a grid whose
+// variants are generated outside this package, such as words placed in
+// subscripts (#545). Blank lines and lines starting with "#" are skipped, so
+// the file can name its issue and generator.
+func ReadRows(r io.Reader) ([]string, error) {
+	var rows []string
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		rows = append(rows, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// RowFiles makes one newline-terminated file per row. File names are
+// "r<row>.zsh" with the row's 1-based index zero-padded, so they sort in
+// file order.
+func RowFiles(rows []string) []File {
+	width := len(fmt.Sprint(len(rows)))
+	files := make([]File, 0, len(rows))
+	for i, row := range rows {
+		files = append(files, File{Name: fmt.Sprintf("r%0*d.zsh", width, i+1), Content: row + "\n"})
+	}
+	return files
+}
+
 // File is one generated probe: a body placed in a context.
 type File struct {
 	Name    string
