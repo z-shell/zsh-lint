@@ -1071,7 +1071,10 @@ func (p *Printer) casePatternJoin(pats []*Word) {
 	anyNewline := false
 	for i, w := range pats {
 		// Only valid situation for a literal 'esac' here is with a preceding left paran.
-		if i == 0 && w.Lit() == "esac" {
+		// The same holds for an alternative ending in a literal `}`, which
+		// Zsh would otherwise read as closing a brace group (zsh-lint #541);
+		// the parenthesis is valid in every language the printer serves.
+		if i == 0 && (w.Lit() == "esac" || caseNeedsParen(pats)) {
 			p.w.WriteString("(")
 		}
 		if i > 0 {
@@ -1091,6 +1094,22 @@ func (p *Printer) casePatternJoin(pats []*Word) {
 	if anyNewline {
 		p.decLevel()
 	}
+}
+
+// caseNeedsParen reports whether a case item's patterns must print with the
+// optional opening parenthesis because an alternative ends in an unquoted
+// literal `}` (zsh-lint #541). A `}` that closes an expansion or is quoted
+// is part of another word part, so only a trailing *Lit counts.
+func caseNeedsParen(pats []*Word) bool {
+	for _, w := range pats {
+		if len(w.Parts) == 0 {
+			continue
+		}
+		if lit, ok := w.Parts[len(w.Parts)-1].(*Lit); ok && strings.HasSuffix(lit.Value, "}") && !strings.HasSuffix(lit.Value, `\}`) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Printer) elemJoin(elems []*ArrayElem, last []Comment) {
@@ -1331,7 +1350,7 @@ func (p *Printer) command(cmd Command, redirs []*Redirect) (startRedirs int) {
 				p.spacedString(name.Value, Pos{})
 			}
 		}
-		if !cmd.RsrvWord || cmd.Parens {
+		if !cmd.RsrvWord || cmd.Parens || zshFuncBodyNeedsParens(cmd) {
 			p.w.WriteString("()")
 			p.wantSpace = spaceNotRequired
 		}
@@ -1449,6 +1468,19 @@ func (p *Printer) command(cmd Command, redirs []*Redirect) (startRedirs int) {
 		panic(fmt.Sprintf("syntax.Printer: unexpected node type %T", cmd))
 	}
 	return startRedirs
+}
+
+// zshFuncBodyNeedsParens reports whether a `function` keyword definition
+// must print `()` before its body (zsh-lint #541). Zsh reads the words after
+// `function` up to a `{` as names, so only a `{ }` body may follow the names
+// directly; any other body, such as one that followed on the next line,
+// would otherwise print as more names.
+func zshFuncBodyNeedsParens(fd *FuncDecl) bool {
+	if !fd.RsrvWord || fd.Body == nil {
+		return false
+	}
+	_, block := fd.Body.Cmd.(*Block)
+	return !block
 }
 
 func (p *Printer) ifClause(ic *IfClause, elif bool) {
