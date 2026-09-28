@@ -14,7 +14,7 @@ So `false && ; print b` is the one sublist `false && print b`, and running it pr
 The fork read the operator as having no right operand, and the dangling-operator adapter (#331) then masked it to `;`, which split the sublist into two statements: a rule walking the tree saw `print b` as unconditional.
 
 `getStmt` in the fork now steps over the `;` and newline separators after the operator and reads the next statement as its right operand.
-When a reserved word that closes a list (`}`, `then`, `elif`, `else`, `fi`, `do`, `done`, `esac`, `end`) or a token that cannot start a statement follows the separators, the operator still dangles and the fork reports it at the operator as before, so the adapter handles it unchanged.
+When a reserved word that closes a list (`}`, `then`, `elif`, `else`, `fi`, `do`, `done`, `esac`, `end`) or a stop token (the end of input, `)`, `&`, `;;`, another operator, a closing backquote) follows the separators, the operator still dangles and the fork reports it at the operator as before, so the adapter handles it unchanged.
 Without a `;` nothing changes: `print a &&` then a newline and `print b` was already one sublist.
 Bash, POSIX and mksh keep upstream's error.
 

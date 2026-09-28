@@ -3592,9 +3592,10 @@ func (p *Parser) getStmt(readEnd, binCmd, fnBody bool) *Stmt {
 // par_sublist skips every separator token there before reading the right
 // operand, so `a && ; b` is the sublist `a && b` (zsh-lint #548). A reserved
 // word that closes a list leaves the operator dangling instead; reading it as
-// a statement would report the word rather than the operator. A token that
-// cannot start a statement needs no case here: getStmt reads nothing and the
-// caller reports the operator, as without this function.
+// a statement would report the word rather than the operator. A stop token
+// (the end of input, a `)`, `&`, `;;`, another operator, or a closing
+// backquote) needs no case here: getStmt reads nothing and the caller reports
+// the operator, as without this function.
 func (p *Parser) zshSkipOperandSeparators() bool {
 	for p.tok == semicolon || p.tok == _Newl {
 		p.next()
