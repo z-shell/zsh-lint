@@ -22,6 +22,7 @@ Change them in the same PR as the behavior they describe.
 Point-in-time survey runs and decisions.
 They are history, not policy; read the newest first and do not update older ones.
 
+- [2026-09-28 agent tooling plan](2026-09-28-agent-tooling-plan.md)
 - [2026-09-28 pipe across separators survey](2026-09-28-pipe-across-separators-survey.md)
 - [2026-09-28 and-or across separators survey](2026-09-28-and-or-across-separators-survey.md)
 - [2026-09-28 short subscript flag dquote rules survey](2026-09-28-short-subscript-flag-dquote-rules-survey.md)
