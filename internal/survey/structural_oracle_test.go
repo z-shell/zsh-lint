@@ -24,17 +24,10 @@ import (
 // first difference in a file, so a listed fixture can hide a second cause
 // until the first is fixed.
 var structuralOracleKnownDifferences = map[string]string{
-	// The printer writes a brace-form `else` as `elif; then`, which is not Zsh.
-	"ok-alternate-closer-same-line-tail.zsh":     "printer: brace-form else",
-	"ok-alternate-if-brace-continuation.zsh":     "printer: brace-form else",
-	"ok-alternate-if-brace-length-expansion.zsh": "printer: brace-form else",
-	"ok-alternate-if-condition-list.zsh":         "printer: brace-form else",
-	"ok-alternate-if-nested-in-classic-if.zsh":   "printer: brace-form else",
-	"ok-cond-group-quoted-paren.zsh":             "printer: brace-form else",
-	"ok-function-keyword-empty-body.zsh":         "printer: `function name` and a non-brace body on one line read as more names",
-	"ok-function-non-brace-body.zsh":             "printer: `function name` and a non-brace body on one line read as more names",
-	"ok-brace-words.zsh":                         "printer: a case pattern holding `}` loses its opening parenthesis",
-	"ok-ansic-heredoc.zsh":                       "printer: a $'...' here-document delimiter is closed by its quoted form",
+	"ok-function-keyword-empty-body.zsh": "printer: `function name` and a non-brace body on one line read as more names",
+	"ok-function-non-brace-body.zsh":     "printer: `function name` and a non-brace body on one line read as more names",
+	"ok-brace-words.zsh":                 "printer: a case pattern holding `}` loses its opening parenthesis",
+	"ok-ansic-heredoc.zsh":               "printer: a $'...' here-document delimiter is closed by its quoted form",
 	// The tree keeps only the first name of a multi-name loop.
 	"ok-foreach-end.zsh":                      "tree: WordIter keeps one loop name",
 	"ok-heredoc-quote-before-brace-forms.zsh": "tree: WordIter keeps one loop name",
@@ -131,6 +124,8 @@ func (d *deparser) deparse(src string) (string, error) {
 func (d *deparser) normalize(s string) string {
 	var b strings.Builder
 	double := false // inside double quotes, where `'` is literal
+	braces := 0     // `${` expansions open, whose text keeps its blanks
+	cond := false   // inside `[[ ]]`, where a pattern's blanks are significant
 	for i := 0; i < len(s); {
 		switch {
 		case s[i] == '\\' && i+1 < len(s):
@@ -139,6 +134,28 @@ func (d *deparser) normalize(s string) string {
 		case s[i] == '"':
 			double = !double
 			b.WriteByte('"')
+			i++
+		case strings.HasPrefix(s[i:], "${"):
+			braces++
+			b.WriteString("${")
+			i += 2
+		case s[i] == '}' && braces > 0:
+			braces--
+			b.WriteByte('}')
+			i++
+		case !double && braces == 0 && isWordAt(s, i, "[["):
+			cond = true
+			b.WriteString("[[")
+			i += 2
+		case cond && !double && braces == 0 && isWordAt(s, i, "]]"):
+			cond = false
+			b.WriteString("]]")
+			i += 2
+		case s[i] == '|' && !double && braces == 0 && !cond:
+			// An unquoted `|` outside an expansion and a conditional: a
+			// pipe or a case pattern alternative, whose blanks are layout
+			// only. In `[[ a == (a | b) ]]` they are part of the pattern.
+			b.WriteByte(pipeMark)
 			i++
 		case s[i] == '\'' && !double:
 			// Single-quoted text, or `$'...'` text with backslash escapes,
@@ -169,16 +186,34 @@ func (d *deparser) normalize(s string) string {
 		}
 	}
 	// Zsh's deparse keeps the blanks around `|` in a case pattern that has no
-	// optional opening parenthesis, although matching ignores them.
+	// optional opening parenthesis, although matching ignores them. Only an
+	// unquoted `|` outside an expansion is marked, so `"a | b"` still differs
+	// from `"a|b"`.
 	var lines []string
 	for _, line := range strings.Split(b.String(), "\n") {
 		if line = strings.Join(strings.Fields(line), " "); line != "" {
-			line = strings.ReplaceAll(strings.ReplaceAll(line, " |", "|"), "| ", "|")
-			lines = append(lines, line)
+			mark := string(pipeMark)
+			line = strings.ReplaceAll(strings.ReplaceAll(line, " "+mark, mark), mark+" ", mark)
+			lines = append(lines, strings.ReplaceAll(line, mark, "|"))
 		}
 	}
 	return strings.Join(lines, "\n")
 }
+
+// isWordAt reports whether the word w starts at s[i] and is delimited by
+// blanks, `;`, a line end or the ends of s.
+func isWordAt(s string, i int, w string) bool {
+	if !strings.HasPrefix(s[i:], w) {
+		return false
+	}
+	delim := func(c byte) bool { return strings.IndexByte(" \t\n;", c) >= 0 }
+	end := i + len(w)
+	return (i == 0 || delim(s[i-1])) && (end == len(s) || delim(s[end]))
+}
+
+// pipeMark stands for an unquoted `|` while normalize collapses blanks; no
+// source holds it.
+const pipeMark = '\x01'
 
 // substitution normalizes a command substitution body through Zsh's deparse.
 // The body comes from Zsh's own deparse of a source it accepted, so Zsh
@@ -444,6 +479,7 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"x=$(repeat 2 print a)\n", "x=$(repeat 2; do print a; done)\n"},
 		{"print ${$((print sub) )}\n", "print ${$( (print sub) )}\n"},
 		{"case $x in a | b) : ;; esac\n", "case $x in (a|b) : ;; esac\n"},
+		{"[[ -n a ]]\ncase $x in a | b) : ;; esac\n", "[[ -n a ]]\ncase $x in (a|b) : ;; esac\n"},
 		{"x=$(print a # )\n)\n", "x=$(print a)\n"},
 		{"x=\"$(print \"$(print \"it's\")\")\"\nprint a\n", "x=\"$(print \"$(print \"it's\")\")\"\nprint a\n"},
 		{"x=$(case y in y) print one;; esac)\n", "x=$(case y in (y) print one ;; esac)\n"},
@@ -473,6 +509,10 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"x=\"$(print \"it's\")\"\nprint a b\n", "x=\"$(print \"it's\")\"\nprint ab\n"},
 		{"print '$(print a b)'\n", "print '$(print ab)'\n"},
 		{"print ${x:-;}\n", "print ${x:-}\n"},
+		{"print \"a | b\"\n", "print \"a|b\"\n"},
+		{"print 'a | b'\n", "print 'a|b'\n"},
+		{"print ${x:-a | b}\n", "print ${x:-a|b}\n"},
+		{"[[ a == (a | b) ]]\n", "[[ a == (a|b) ]]\n"},
 	}
 	for _, c := range different {
 		if diff := d.compare(c.src, c.src, c.printed); diff == "" {
