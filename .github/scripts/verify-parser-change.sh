@@ -149,8 +149,8 @@ check lint env GOTOOLCHAIN="go$(go list -m -f '{{.GoVersion}}')" "$lint" run ./.
 
 # The base is an export rather than a second worktree, so nothing is left to
 # clean up in the repository.
-if git archive "$base" | tar -x -C "$work/base" &&
-  (cd "$work/base" && go build -buildvcs=false -o "$work/bin/survey-base" ./cmd/zsh-lint-survey) >"$logs/build.log" 2>&1 &&
+if git archive "$base" 2>"$logs/build.log" | tar -x -C "$work/base" 2>>"$logs/build.log" &&
+  (cd "$work/base" && go build -buildvcs=false -o "$work/bin/survey-base" ./cmd/zsh-lint-survey) >>"$logs/build.log" 2>&1 &&
   go build -o "$work/bin/survey-head" ./cmd/zsh-lint-survey >>"$logs/build.log" 2>&1 &&
   go build -o "$work/bin/probe" ./cmd/zsh-lint-probe >>"$logs/build.log" 2>&1; then
   record build pass
