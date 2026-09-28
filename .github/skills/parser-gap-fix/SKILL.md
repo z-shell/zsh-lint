@@ -52,32 +52,22 @@ go run ./cmd/zsh-lint-survey gap.zsh    # zsh-lint verdict
 
 ## 5. Verify
 
-Run the whole verification with one command, in the foreground, from the task's worktree after `git fetch origin` and a rebase:
+Write the construct's valid and invalid variants to a body file, separated by `---` lines, then run every check in one command:
 
 ```sh
-bash .github/scripts/parser-check.sh --out .ws/scratch/check \
-  --rows rows.txt --bodies bodies.txt \
-  --root <consumer checkout> --regression-corpus <dir holding F-Sy-H/ and zsh/>
+bash .github/scripts/verify-parser-change.sh --bodies bodies.txt [base-ref] <file.zsh ...>
 ```
 
-- It refuses to run unless `origin/main` matches origin's `main` and `HEAD` contains it, and it prints both commit ids.
-  Name another base with `--base COMMIT` (#545).
-- It builds `zsh-lint-survey` from the base and from the worktree, judges every grid with `-compare -native -runtime`, compares the corpus fixtures, every `--root` and `--list` and the regression corpus with `-compare -native`, then runs `go build`, `go vet`, `go test`, the fork's tests and `golangci-lint`.
-- Each step's log is under `<out>/logs`, the step table in `<out>/summary.md`, and each grid's changed rows in `<out>/grid-N.md`, in the shape a survey record's table needs.
-- Exit 0 means every step passed, 1 that a step failed, and 2 that it refused to run or a build failed.
-
-What the steps mean:
+It runs build, vet and tests, the fork's tests, `golangci-lint` with the toolchain `go.mod` names, a base build exported with `git archive` (default `origin/main`), `-compare -native` over the corpus fixtures and the given files (#412), the probe grid with `-known`, `-trace-parses` on both builds (#408), and `.github/scripts/mutation.sh`.
+It prints one line per check, the tail of any failing log, and a table plus the compare, probe, trace and mutation output for the pull request; each check's full log stays in the directory it names.
+A file outside the repository appears by its absolute path; shorten it before pasting.
+It exits 1 when a check fails, 3 when only the mutation run was inconclusive, and 2 when it cannot start.
+`--skip-mutation` leaves out the slowest check while iterating.
 
 - `-compare -native` must show no `REGRESSED` and no `FALSE-ACCEPT`; every `FIXED` and `MOVED` line belongs in the pull request.
-- `RUNTIME-REJECTED` is a row `zsh -f -n` accepts that the fix now rejects and that Zsh rejects when it runs, such as an assignment or a command substitution body `zsh -n` does not check (#519, #539).
-  It does not fail the grid; list the family in the pull request.
-  `-runtime` runs the row, so the script uses it on grids only, never on corpus sources.
-- A grid is a body file (valid and invalid variants separated by `---` lines, placed in every scanner context by `zsh-lint-probe -bodies`) or a row file (one complete source per line, `zsh-lint-probe -rows`) for shapes the contexts do not cover, such as words in a subscript.
-  `internal/probe/testdata/rows-538.txt` is the grid #539 reported.
-  The summary counts known gaps and false accepts that the change leaves in place; `-known` lists them, and each one is an issue to file.
-- To re-run a merged fix's numbers with today's tools, name both commits: `--base <its base> --candidate <its head>`.
-- Retry cost on the files the change touches, before and after (#408): `go run ./cmd/zsh-lint-survey -trace-parses <file.zsh>`.
-- Check the tests are not vacuous: `bash .github/scripts/mutation.sh origin/main` mutates every changed line and exits 1 when a mutant survives; a mutant that hangs the suite counts as caught, and a run where timeouts outnumber the decided mutants exits 3 as inconclusive (raise `MUTATION_TIMEOUT_COEFFICIENT`). List the surviving and uncovered lines it prints in the pull request, with a reason for any that stay.
+- The probe summary counts known gaps and false accepts that the change leaves in place; `-known` lists them, and each one is an issue to file.
+- The mutation check fails when a mutant survives; a mutant that hangs the suite counts as caught, and a run where timeouts outnumber the decided mutants is inconclusive (raise `MUTATION_TIMEOUT_COEFFICIENT`). List the surviving and uncovered lines it prints in the pull request, with a reason for any that stay.
+- `mutation.sh` does not mutate `third_party/mvdan-sh`, and a changed `case` expression line reads as not covered; hand-mutate such a change and report the result.
 - The Parse Cost workflow repeats the retry-cost comparison on the pull request and adds a notice above a 10 percent rise.
 
 ## 6. Record and open the pull request

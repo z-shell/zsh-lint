@@ -165,7 +165,8 @@ It then builds both survey binaries, judges every `--rows` and `--bodies` grid w
 Re-running it for [#539](https://github.com/z-shell/zsh-lint/pull/539) with `--base f536c0c0 --candidate 0186c580` and `--rows internal/probe/testdata/rows-538.txt` reproduces the grid counts that pull request reported: of 9060 rows, 786 are `REJECTED` (false accepts the fix removed), none is a `FALSE-ACCEPT`, and the 620 newly rejected valid-by-`zsh -n` rows are all `RUNTIME-REJECTED`.
 `.github/scripts/mutation.sh [base-ref]` mutates every changed line and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425)).
 It sets gremlins' timeout coefficient explicitly and exits 3 when timeouts outnumber the killed and lived mutants, since a timeout counts as caught and a too-short timeout would otherwise pass every mutant ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
-The parser-gap fix skill (`.github/skills/parser-gap-fix/SKILL.md`) runs these in order.
+`.github/scripts/verify-parser-change.sh [--bodies <file>] [base-ref] [files]` runs these, the tests, and lint in order against one exported base build, and prints a summary table for the pull request ([#560](https://github.com/z-shell/zsh-lint/issues/560)).
+The parser-gap fix skill (`.github/skills/parser-gap-fix/SKILL.md`) calls it.
 
 ### Typed metadata and synthesized nodes
 
