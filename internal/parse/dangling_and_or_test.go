@@ -75,6 +75,17 @@ func TestDanglingAndOrParses(t *testing.T) {
 		{"two backquotes", "x=`print a ||`; y=`print b &&`\n"},
 		{"backquote in function", "f() { x=`print a ||`; }\n"},
 		{"backquote in parameter default", "print ${x:-`print a ||`}\n"},
+		// #548: separators before a closer leave the operator dangling, and
+		// the fork reports it at the operator so this adapter still runs.
+		{"separators before brace", "{ print a && ; }\n"},
+		{"separators before then", "if print a && ; then :; fi\n"},
+		{"separators before elif", "if true; then print a && ; elif true; then :; fi\n"},
+		{"separators before else", "if true; then print a && ; else :; fi\n"},
+		{"separators before fi", "if true; then print a && ; fi\n"},
+		{"separators before do", "while print a && ; do break; done\n"},
+		{"separators before done", "for x in a; do print a || ; done\n"},
+		{"separators before esac", "case x in x) print a && ; esac\n"},
+		{"separators before end", "foreach x (a)\nprint a && ;\nend\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -82,6 +93,57 @@ func TestDanglingAndOrParses(t *testing.T) {
 				t.Fatalf("valid Zsh rejected: %v", err)
 			}
 		})
+	}
+}
+
+// Native Zsh reads a `&&` or `||` across any `;` and newline separators, so
+// `false && ; print b` is the one sublist `false && print b` (#548). The fork
+// joins these itself; the adapter must not see them, since its mask would
+// split the sublist into two statements.
+func TestAndOrAcrossSeparatorsKeepsOneSublist(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"newline semicolon newline", "false &&\n;\nprint b\n"},
+		{"same line", "false && ;\nprint b\n"},
+		{"semicolon then statement", "false && ; print b\n"},
+		{"more than one semicolon", "false && ; ;\n;\nprint b\n"},
+		{"or", "false ||\n;\nprint b\n"},
+		{"in double-quoted substitution", "x=\"$(false && ; print b)\"\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, err := parseWithAdapters([]byte(tc.src), "t.zsh")
+			if err != nil {
+				t.Fatalf("valid Zsh rejected: %v", err)
+			}
+			var bin *syntax.BinaryCmd
+			syntax.Walk(tree, func(n syntax.Node) bool {
+				if b, ok := n.(*syntax.BinaryCmd); ok && bin == nil {
+					bin = b
+				}
+				return true
+			})
+			if bin == nil {
+				t.Fatalf("no BinaryCmd in the tree of %q", tc.src)
+			}
+			if call, ok := bin.Y.Cmd.(*syntax.CallExpr); !ok || len(call.Args) == 0 || call.Args[0].Lit() != "print" {
+				t.Fatalf("right operand of %q is %T, want the call `print b`", tc.src, bin.Y.Cmd)
+			}
+		})
+	}
+	// Inside a function body, where #548 was reported too.
+	tree, err := parseWithAdapters([]byte("f() { false &&\n;\nprint b\n}\n"), "t.zsh")
+	if err != nil {
+		t.Fatalf("valid Zsh rejected: %v", err)
+	}
+	body := tree.Stmts[0].Cmd.(*syntax.FuncDecl).Body.Cmd.(*syntax.Block).Stmts
+	if len(body) != 1 {
+		t.Fatalf("function body has %d statements, want the one sublist", len(body))
+	}
+	if _, ok := body[0].Cmd.(*syntax.BinaryCmd); !ok {
+		t.Fatalf("function body holds a %T, want a BinaryCmd", body[0].Cmd)
 	}
 }
 

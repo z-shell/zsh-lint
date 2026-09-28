@@ -3538,7 +3538,14 @@ func (p *Parser) getStmt(readEnd, binCmd, fnBody bool) *Stmt {
 		}
 		p.next()
 		p.got(_Newl)
-		b.Y = p.getStmt(false, true, false)
+		if p.tok == semicolon && p.lang.in(LangZsh) && !p.zshSkipOperandSeparators() {
+			// Only the end of the list follows the separators, so the
+			// operator dangles: leave b.Y empty and report it where it
+			// stands, as before (zsh-lint #548).
+			b.Y = nil
+		} else {
+			b.Y = p.getStmt(false, true, false)
+		}
 		if b.Y == nil || p.err != nil {
 			if p.recoverError() {
 				b.Y = &Stmt{Position: recoveredPos}
@@ -3578,6 +3585,27 @@ func (p *Parser) getStmt(readEnd, binCmd, fnBody bool) *Stmt {
 		}
 	}
 	return s
+}
+
+// zshSkipOperandSeparators steps over the `;` and newline separators after a
+// `&&` or `||` and reports whether a statement may follow them. Zsh's
+// par_sublist skips every separator token there before reading the right
+// operand, so `a && ; b` is the sublist `a && b` (zsh-lint #548). A reserved
+// word that closes a list leaves the operator dangling instead; reading it as
+// a statement would report the word rather than the operator. A token that
+// cannot start a statement needs no case here: getStmt reads nothing and the
+// caller reports the operator, as without this function.
+func (p *Parser) zshSkipOperandSeparators() bool {
+	for p.tok == semicolon || p.tok == _Newl {
+		p.next()
+	}
+	if p.tok == _LitWord {
+		switch p.val {
+		case "}", "then", "elif", "else", "fi", "do", "done", "esac", "end":
+			return false
+		}
+	}
+	return true
 }
 
 func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {

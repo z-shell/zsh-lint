@@ -17,6 +17,11 @@ import (
 // retry replaces the operator with `; `, leaving the left operand as a complete
 // statement and every later byte position unchanged.
 //
+// A `;` alone does not close the list: Zsh skips every separator after the
+// operator and takes the next statement as its right operand, which the parser
+// fork reads itself (#548). So this adapter only sees an operator whose
+// separators lead to the end of the list, and masking it keeps Zsh's tree.
+//
 // The empty right operand is why this is not the #327 empty-body family: there
 // the operator has both operands and the loop is the left one.
 func parseDanglingAndOr(src []byte, name string, firstErr error) (*syntax.File, error) {
