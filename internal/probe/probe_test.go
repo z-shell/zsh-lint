@@ -110,3 +110,59 @@ func TestWriteRefusesAnExistingDirectory(t *testing.T) {
 		t.Fatalf("written file = %q, %v", got, err)
 	}
 }
+
+func TestReadRowsAndRowFiles(t *testing.T) {
+	input := "# comment\n\nprint $x[(r)a[]\n  x=1  \n#\nprint \"#\"\n"
+	rows, err := ReadRows(strings.NewReader(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"print $x[(r)a[]", "  x=1  ", "print \"#\""}
+	if len(rows) != len(want) {
+		t.Fatalf("ReadRows = %q, want %q", rows, want)
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Fatalf("row %d = %q, want %q", i, rows[i], want[i])
+		}
+	}
+	files := RowFiles(make([]string, 10))
+	if files[0].Name != "r01.zsh" || files[9].Name != "r10.zsh" || files[0].Content != "\n" {
+		t.Fatalf("names = %q ... %q, content %q", files[0].Name, files[9].Name, files[0].Content)
+	}
+	if files := RowFiles(rows); files[1].Content != "  x=1  \n" {
+		t.Fatalf("content = %q", files[1].Content)
+	}
+
+	// A row longer than the scanner's initial 64 KiB buffer is still read.
+	long := "print " + strings.Repeat("a", 100*1024)
+	rows, err = ReadRows(strings.NewReader(long + "\n"))
+	if err != nil || len(rows) != 1 || rows[0] != long {
+		t.Fatalf("long row: %d rows, %v", len(rows), err)
+	}
+}
+
+// The #538 row file is the grid PR #539 reported: 9060 unique rows (#545).
+// Its verdicts need builds of #539 and its base, which a shallow checkout
+// does not hold; parser-gap-workflow.md records the run that reproduces them.
+func TestRows538IsTheReportedGrid(t *testing.T) {
+	source, err := os.Open(filepath.Join("testdata", "rows-538.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = source.Close() }()
+	rows, err := ReadRows(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 9060 {
+		t.Fatalf("rows-538.txt holds %d rows, want the 9060 PR #539 reported", len(rows))
+	}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if seen[row] {
+			t.Fatalf("duplicate row %q", row)
+		}
+		seen[row] = true
+	}
+}

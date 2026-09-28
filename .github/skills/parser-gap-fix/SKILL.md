@@ -52,25 +52,31 @@ go run ./cmd/zsh-lint-survey gap.zsh    # zsh-lint verdict
 
 ## 5. Verify
 
+Run the whole verification with one command, in the foreground, from the task's worktree after `git fetch origin` and a rebase:
+
 ```sh
-go build ./... && go vet ./... && go test ./...
-golangci-lint run ./...    # prefix GOTOOLCHAIN=go<go.mod version> when the setup script says so
-
-# Retry cost on the files the change touches, before and after (#408).
-go run ./cmd/zsh-lint-survey -trace-parses <file.zsh>
-
-# Verdict changes against the base, judged by native Zsh (#412).
-base=$(mktemp -d)                       # an export, not a second worktree
-git archive origin/main | tar -x -C "$base"
-(cd "$base" && go build -o survey-base ./cmd/zsh-lint-survey)
-go run ./cmd/zsh-lint-survey -compare "$base/survey-base" -native \
-  internal/survey/testdata/corpus/*.zsh <workspace Zsh files>
+bash .github/scripts/parser-check.sh --out .ws/scratch/check \
+  --rows rows.txt --bodies bodies.txt \
+  --root <consumer checkout> --regression-corpus <dir holding F-Sy-H/ and zsh/>
 ```
 
+- It refuses to run unless `origin/main` matches origin's `main` and `HEAD` contains it, and it prints both commit ids.
+  Name another base with `--base COMMIT` (#545).
+- It builds `zsh-lint-survey` from the base and from the worktree, judges every grid with `-compare -native -runtime`, compares the corpus fixtures, every `--root` and `--list` and the regression corpus with `-compare -native`, then runs `go build`, `go vet`, `go test`, the fork's tests and `golangci-lint`.
+- Each step's log is under `<out>/logs`, the step table in `<out>/summary.md`, and each grid's changed rows in `<out>/grid-N.md`, in the shape a survey record's table needs.
+- Exit 0 means every step passed, 1 that a step failed, and 2 that it refused to run or a build failed.
+
+What the steps mean:
+
 - `-compare -native` must show no `REGRESSED` and no `FALSE-ACCEPT`; every `FIXED` and `MOVED` line belongs in the pull request.
-- Probe the construct in every context an adapter's scanner can meet: write its valid and invalid variants to a body file (separated by `---` lines), then
-  `go run ./cmd/zsh-lint-probe -bodies bodies.txt -out grid` and `go run ./cmd/zsh-lint-survey -compare "$base/survey-base" -native -known grid/*.zsh`.
+- `RUNTIME-REJECTED` is a row `zsh -f -n` accepts that the fix now rejects and that Zsh rejects when it runs, such as an assignment or a command substitution body `zsh -n` does not check (#519, #539).
+  It does not fail the grid; list the family in the pull request.
+  `-runtime` runs the row, so the script uses it on grids only, never on corpus sources.
+- A grid is a body file (valid and invalid variants separated by `---` lines, placed in every scanner context by `zsh-lint-probe -bodies`) or a row file (one complete source per line, `zsh-lint-probe -rows`) for shapes the contexts do not cover, such as words in a subscript.
+  `internal/probe/testdata/rows-538.txt` is the grid #539 reported.
   The summary counts known gaps and false accepts that the change leaves in place; `-known` lists them, and each one is an issue to file.
+- To re-run a merged fix's numbers with today's tools, name both commits: `--base <its base> --candidate <its head>`.
+- Retry cost on the files the change touches, before and after (#408): `go run ./cmd/zsh-lint-survey -trace-parses <file.zsh>`.
 - Check the tests are not vacuous: `bash .github/scripts/mutation.sh origin/main` mutates every changed line and exits 1 when a mutant survives; a mutant that hangs the suite counts as caught, and a run where timeouts outnumber the decided mutants exits 3 as inconclusive (raise `MUTATION_TIMEOUT_COEFFICIENT`). List the surviving and uncovered lines it prints in the pull request, with a reason for any that stay.
 - The Parse Cost workflow repeats the retry-cost comparison on the pull request and adds a notice above a 10 percent rise.
 
