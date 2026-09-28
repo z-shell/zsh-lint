@@ -74,11 +74,18 @@ var structuralOracleKnownDifferences = map[string]string{
 // `read -d ”` returns 1 at end of input, so its status is not tested.
 const zshDeparseScript = `IFS= read -r -d '' src; functions[f]=$src && print -rn -- "$functions[f]"`
 
-// deparser runs Zsh's deparse and caches it by source.
+// deparser runs Zsh's deparse and caches it by source. harnessError reports
+// a source the comparison cannot split as Zsh does; it is t.Errorf except in
+// the test that checks those reports.
 type deparser struct {
-	t     *testing.T
-	zsh   string
-	cache map[string]deparsed
+	t            *testing.T
+	zsh          string
+	cache        map[string]deparsed
+	harnessError func(format string, args ...any)
+}
+
+func newDeparser(t *testing.T, zsh string) *deparser {
+	return &deparser{t: t, zsh: zsh, cache: map[string]deparsed{}, harnessError: t.Errorf}
 }
 
 type deparsed struct {
@@ -123,11 +130,22 @@ func (d *deparser) deparse(src string) (string, error) {
 // text, so text both sides share normalizes alike.
 func (d *deparser) normalize(s string) string {
 	var b strings.Builder
+	double := false // inside double quotes, where `'` is literal
 	for i := 0; i < len(s); {
 		switch {
 		case s[i] == '\\' && i+1 < len(s):
 			b.WriteString(s[i : i+2])
 			i += 2
+		case s[i] == '"':
+			double = !double
+			b.WriteByte('"')
+			i++
+		case s[i] == '\'' && !double:
+			// Single-quoted text, or `$'...'` text with backslash escapes,
+			// expands nothing.
+			end := singleQuoteEnd(s, i+1, i > 0 && s[i-1] == '$')
+			b.WriteString(s[i:min(end+1, len(s))])
+			i = end + 1
 		case s[i] == '`':
 			end := backquoteEnd(s, i+1)
 			b.WriteString("$(" + d.substitution(unescapeBackquote(s[i+1:end])) + ")")
@@ -139,7 +157,10 @@ func (d *deparser) normalize(s string) string {
 			b.WriteString(s[i:start] + "(" + strings.Map(dropBlankAndSemicolon, d.normalize(inner)) + ")")
 			i = end + 1
 		case strings.HasPrefix(s[i:], "$("):
-			end := commandEnd(s, i+2)
+			end := d.commandEnd(s, i+2)
+			if end >= len(s) {
+				d.harnessError("comparison harness: no closing parenthesis found for the command substitution at %q", s[i:min(len(s), i+60)])
+			}
 			b.WriteString("$(" + d.substitution(s[i+2:min(end, len(s))]) + ")")
 			i = end + 1
 		default:
@@ -160,12 +181,16 @@ func (d *deparser) normalize(s string) string {
 }
 
 // substitution normalizes a command substitution body through Zsh's deparse.
-// A body Zsh rejects keeps its text with blanks and `;` dropped, which still
-// compares equal to the same text on the other side.
+// The body comes from Zsh's own deparse of a source it accepted, so Zsh
+// rejecting it means the scanner cut the body in the wrong place, which would
+// leave the rest of the file compared only coarsely; the test fails instead.
+// A `$( )` body is cut only where Zsh accepts it, so this reports a backquote
+// body.
 func (d *deparser) substitution(body string) string {
 	text, err := d.deparse(body)
 	if err != nil {
-		return "!" + strings.Map(dropBlankAndSemicolon, body)
+		d.harnessError("comparison harness: zsh rejects the command substitution body %q: %v", body[:min(len(body), 60)], err)
+		return strings.Map(dropBlankAndSemicolon, body)
 	}
 	return d.normalize(text)
 }
@@ -176,6 +201,21 @@ func dropBlankAndSemicolon(r rune) rune {
 		return -1
 	}
 	return r
+}
+
+// singleQuoteEnd returns the index of the `'` closing single-quoted text
+// that starts at start, or len(s). In `$'...'` text a backslash escapes the
+// next byte.
+func singleQuoteEnd(s string, start int, ansi bool) int {
+	for i := start; i < len(s); i++ {
+		switch {
+		case ansi && s[i] == '\\':
+			i++
+		case s[i] == '\'':
+			return i
+		}
+	}
+	return len(s)
 }
 
 // backquoteEnd returns the index of the backquote closing a substitution
@@ -233,11 +273,15 @@ func parenEnd(s string, start int) int {
 }
 
 // commandEnd returns the index of the `)` closing a command substitution
-// whose body starts at start, or len(s). Parentheses that are quoted,
-// inside a `${ }` expansion or in a comment do not count, and neither does
-// the `)` ending a case pattern.
-func commandEnd(s string, start int) int {
-	depth, cases, braces := 1, 0, 0
+// whose body starts at start, or len(s). Zsh ends the body at the first `)`
+// that completes a command list, so the candidates are tried in order and
+// the first whose preceding text Zsh accepts as a function body wins; that
+// settles case patterns, subshells and arithmetic without guessing at
+// keywords. A `)` that is quoted, inside a `${ }` expansion or a nested
+// `$( )`, or in a comment is not a candidate, since text Zsh accepts can
+// still end there.
+func (d *deparser) commandEnd(s string, start int) int {
+	braces := 0
 	var quote byte
 	for i := start; i < len(s); i++ {
 		c := s[i]
@@ -247,8 +291,22 @@ func commandEnd(s string, start int) int {
 				quote = 0
 			}
 			continue
+		case quote == 'a':
+			// `$'...'` text, where a backslash escapes the next byte.
+			switch c {
+			case '\\':
+				i++
+			case '\'':
+				quote = 0
+			}
+			continue
 		case c == '\\':
 			i++
+			continue
+		case c == '$' && i+1 < len(s) && s[i+1] == '(':
+			// A nested command substitution, quoted or not, holds its own
+			// quotes and parentheses.
+			i = d.commandEnd(s, i+2)
 			continue
 		case quote == '"' && c == '"':
 			quote = 0
@@ -266,41 +324,23 @@ func commandEnd(s string, start int) int {
 			continue
 		}
 		switch {
-		case c == '#' && (i == start || strings.IndexByte(" 	\n;&|(", s[i-1]) >= 0):
-			// A comment runs to the end of the line and may hold a `)`.
+		case c == '#' && (i == start || strings.IndexByte(" \t\n;&|", s[i-1]) >= 0):
+			// A comment runs to the end of the line and may hold a `)`. A `#`
+			// after `(` is a globbing flag such as `(#b)`, not a comment.
 			for i < len(s) && s[i] != '\n' {
 				i++
 			}
+		case c == '\'' && i > 0 && s[i-1] == '$':
+			quote = 'a'
 		case c == '\'' || c == '"':
 			quote = c
-		case c == '(':
-			depth++
-		case c == ')' && depth == 1 && cases > 0:
-			// A case pattern's closing parenthesis.
 		case c == ')':
-			if depth--; depth == 0 {
+			if _, err := d.deparse(s[start:i]); err == nil {
 				return i
 			}
-		case isWordAt(s, i, start, "case"):
-			cases++
-		case isWordAt(s, i, start, "esac") && cases > 0:
-			cases--
 		}
 	}
 	return len(s)
-}
-
-// isWordAt reports whether the reserved word w starts at s[i] as a whole
-// word.
-func isWordAt(s string, i, start int, w string) bool {
-	if !strings.HasPrefix(s[i:], w) {
-		return false
-	}
-	if i > start && !strings.ContainsRune(" \t\n;&|(", rune(s[i-1])) {
-		return false
-	}
-	end := i + len(w)
-	return end == len(s) || strings.ContainsRune(" \t\n;)", rune(s[end]))
 }
 
 // TestStructuralOracle checks that the parser keeps the structure of every
@@ -316,7 +356,7 @@ func TestStructuralOracle(t *testing.T) {
 	if err != nil {
 		t.Skip("zsh is required for the structural oracle test")
 	}
-	d := &deparser{t: t, zsh: zsh, cache: map[string]deparsed{}}
+	d := newDeparser(t, zsh)
 
 	corpusDir := filepath.Join("testdata", "corpus")
 	seen := map[string]bool{}
@@ -393,7 +433,7 @@ func TestStructuralOracleComparison(t *testing.T) {
 	if err != nil {
 		t.Skip("zsh is required for the structural oracle test")
 	}
-	d := &deparser{t: t, zsh: zsh, cache: map[string]deparsed{}}
+	d := newDeparser(t, zsh)
 
 	same := []struct{ src, printed string }{
 		{"for x (a b) { print $x }\n", "for x in a b; do print $x; done\n"},
@@ -405,6 +445,12 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"print ${$((print sub) )}\n", "print ${$( (print sub) )}\n"},
 		{"case $x in a | b) : ;; esac\n", "case $x in (a|b) : ;; esac\n"},
 		{"x=$(print a # )\n)\n", "x=$(print a)\n"},
+		{"x=\"$(print \"$(print \"it's\")\")\"\nprint a\n", "x=\"$(print \"$(print \"it's\")\")\"\nprint a\n"},
+		{"x=$(case y in y) print one;; esac)\n", "x=$(case y in (y) print one ;; esac)\n"},
+		{"x=$([[ a == (#b)(*) ]] && print \"it's\")\nprint a\n", "x=$([[ a == (#b)(*) ]] && print \"it's\")\nprint a\n"},
+		{"x=$(print '$(')\nprint a\n", "x=$(print '$(')\nprint a\n"},
+		{"print '$(' \"it's $(print ')')\" $'\\'$('\n", "print '$(' \"it's $(print ')')\" $'\\'$('\n"},
+		{"x=$(print $'\\'')\nprint a\n", "x=$(print $'\\'')\nprint a\n"},
 	}
 	for _, c := range same {
 		if diff := d.compare(c.src, c.src, c.printed); diff != "" {
@@ -424,6 +470,9 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"print ';'\n", "print ''\n"},
 		{"x=$(print a; print b)\n", "x=$(print a print b)\n"},
 		{"case $x in (a|b) : ;; esac\n", "case $x in (a) : ;; esac\n"},
+		{"x=\"$(print \"it's\")\"\nprint a b\n", "x=\"$(print \"it's\")\"\nprint ab\n"},
+		{"print '$(print a b)'\n", "print '$(print ab)'\n"},
+		{"print ${x:-;}\n", "print ${x:-}\n"},
 	}
 	for _, c := range different {
 		if diff := d.compare(c.src, c.src, c.printed); diff == "" {
@@ -443,4 +492,25 @@ func firstDifference(want, got string) string {
 	lo := max(i-context, 0)
 	return fmt.Sprintf("at byte %d: zsh reads %q, printed tree reads %q",
 		i, want[lo:min(i+context, len(want))], got[lo:min(i+context, len(got))])
+}
+
+// TestStructuralOracleHarnessErrors checks that a command substitution the
+// comparison cannot split as Zsh does is reported rather than compared
+// coarsely.
+func TestStructuralOracleHarnessErrors(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh is required for the structural oracle test")
+	}
+	for _, s := range []string{"x=$(print a", "x=$(fi)", "x=`fi`"} {
+		d := newDeparser(t, zsh)
+		var reports []string
+		d.harnessError = func(format string, args ...any) {
+			reports = append(reports, fmt.Sprintf(format, args...))
+		}
+		d.normalize(s)
+		if len(reports) == 0 {
+			t.Errorf("%q: the comparison accepted a command substitution Zsh cannot close", s)
+		}
+	}
 }
