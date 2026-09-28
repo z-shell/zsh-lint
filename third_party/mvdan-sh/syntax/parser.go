@@ -2654,7 +2654,7 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// the reader does not stop at, as in `a[b]c`, and one inside a nested
 	// `${...}`, as in `[${y[2]}]`, are left to the flag-pattern adapters as
 	// before.
-	top, topParam := 0, 0
+	top, topParam, topParens, tick := 0, 0, 0, -1
 	var topOpen Pos
 	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || short > 0 || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || short > 0 || p.r != ','); p.rune() {
 		if sub != nil {
@@ -2712,6 +2712,11 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 					topOpen = p.nextPos()
 				}
 				top++
+			// dquote_parse counts the parentheses too (#540).
+			case topParam == 0 && p.r == '(':
+				topParens++
+			case topParam == 0 && p.r == ')' && topParens > 0:
+				topParens--
 			}
 		}
 		if !p.zshSubscript {
@@ -2752,8 +2757,11 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// no `}`: the word text after the `]` must close the `[` bytes still
 	// open, as the flag-pattern adapters then read it, before the word
 	// ends (#538).
-	if top > 0 && topParam == 0 && p.r == ']' && (p.zshBraceIndex && p.peek() == '}' || !p.zshBraceIndex && !p.zshShortCloses(top)) {
+	if top > 0 && topParam == 0 && p.r == ']' && (p.zshBraceIndex && p.peek() == '}' || !p.zshBraceIndex && !p.zshShortCloses(top, topParens, &tick)) {
 		p.posErr(topOpen, "a `[` in a subscript flag argument must be closed before the subscript's `]`")
+	}
+	if tick >= 0 {
+		p.posErr(posAddCol(p.nextPos(), 1+tick), "a backquote in a subscript must be closed before the subscript's `]`")
 	}
 	// The part after a `,` is parsed elsewhere, so at a `,` only a `]`
 	// that no earlier `[` opened is an error: `$(echo [),$(echo ])` is
@@ -2772,22 +2780,164 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	return zf
 }
 
-// zshShortCloses reports whether the unread bytes after the `]` at p.r
-// close depth open `[` bytes before the word ends, reading ahead without
-// consuming. Zsh counts every unescaped `[` and `]` of the subscript, quoted
-// ones included (dquote_parse in Src/lex.c), and parses a short subscript
-// when the word is expanded, across its quotes, so the whole lexical word
-// counts: in double quotes it goes on past the closing `"`, as in
-// `"$x[(r)[a]"c"]"`. A blank, a newline, `;`, `&`, `|` or a redirection
-// ends the word outside quotes, a glob group, a `${...}` and a numeric glob
-// such as `<1-2>`; a `)` that closes nothing ends it too. A word too long to
-// read ahead is taken to close, so nothing is reported (#538).
-func (p *Parser) zshShortCloses(depth int) bool {
-	// Count the glob groups the argument has left open so far, as Zsh
-	// counts parentheses in pct (gettokstr), and follow them on.
-	parens, braces := 0, 0
+// zshShortCloses reports whether a short `$x[...]` subscript whose flag
+// argument has depth `[` bytes and pct `(` bytes of its own open at the `]`
+// at p.r closes before its word ends, reading ahead without consuming
+// (#538, #540). Zsh reads the subscript when the word is expanded, with
+// dquote_parse(']') in Src/lex.c over the word's text, so two sets of rules
+// apply. The word ends where the shell lexer ends it: at a blank, a newline,
+// `;`, `&`, `|` or a redirection outside quotes, a glob group, a nested
+// `${...}` or `$(...)` and a numeric glob such as `<1-2>`, or at a `)` that
+// closes nothing. Within that text dquote_parse counts `[` and `]`, and `(`
+// and `)`, outside a nested `${...}`, inside backquotes too; a `'` is text
+// outside backquotes, a `"` is text outside a `${...}`, a `$(...)` is read as
+// a command, and a backslash quotes a bracket, a parenthesis or a brace. The
+// subscript closes at a `]` with none of them open; a `]` or `)` that closes
+// nothing is an error. A word too long to read ahead is taken to close, so
+// nothing is reported.
+//
+// Zsh then expands the subscript's text as a string, where a backquote is
+// a command substitution again and a `'` quotes it. When that text between
+// p.r and the closing `]` leaves a backquote open, as in
+// `$x[(r)a[b]'`'`echo "]"`, *tick is set to the backquote's offset after
+// p.r; otherwise it is -1.
+func (p *Parser) zshShortCloses(depth, pct int, tick *int) bool {
+	*tick = -1
+	dq := p.zshDquoteParam
+	const eof, tooLong = -1, -2
+	at := func(i int) (byte, int) {
+		if i >= bufSize-1 {
+			return 0, tooLong
+		}
+		if int(p.bsp)+i >= len(p.bs) && p.fill() == 0 {
+			return 0, eof
+		}
+		if int(p.bsp)+i >= len(p.bs) {
+			return 0, eof
+		}
+		return p.bs[int(p.bsp)+i], 0
+	}
+	// Each skip reads from just after an opening quote or `$(`/`${` and
+	// returns the offset after its end, or eof or tooLong.
+	var skipDq, skipCmd func(i int) int
+	var skipBrace func(i int, inDq bool) int
+	// A backslash is text in single quotes but quotes the next byte in
+	// backquotes, as in `echo \``.
+	skipTo := func(i int, end byte) int {
+		for ; ; i++ {
+			c, st := at(i)
+			switch {
+			case st != 0:
+				return st
+			case c == '\\' && end == '`':
+				i++
+			case c == end:
+				return i + 1
+			}
+		}
+	}
+	// nested dispatches a quote or substitution opening at i, returning
+	// the offset after it, or 0 if none opens there.
+	nested := func(i int, inDq bool) int {
+		c, _ := at(i)
+		switch c {
+		case '\'':
+			if !inDq {
+				return skipTo(i+1, '\'')
+			}
+		case '"':
+			return skipDq(i + 1)
+		case '`':
+			return skipTo(i+1, '`')
+		case '$':
+			switch c2, _ := at(i + 1); c2 {
+			case '(':
+				return skipCmd(i + 2)
+			case '{':
+				return skipBrace(i+2, inDq)
+			}
+		}
+		return 0
+	}
+	skipDq = func(i int) int {
+		for {
+			c, st := at(i)
+			switch {
+			case st != 0:
+				return st
+			case c == '\\':
+				i += 2
+			case c == '"':
+				return i + 1
+			case c != '\'':
+				if j := nested(i, true); j != 0 {
+					if j < 0 {
+						return j
+					}
+					i = j
+					continue
+				}
+				i++
+			default:
+				i++
+			}
+		}
+	}
+	skipCmd = func(i int) int {
+		for n := 1; ; {
+			c, st := at(i)
+			switch {
+			case st != 0:
+				return st
+			case c == '\\':
+				i += 2
+				continue
+			case c == '(':
+				n++
+			case c == ')':
+				if n--; n == 0 {
+					return i + 1
+				}
+			default:
+				if j := nested(i, false); j != 0 {
+					if j < 0 {
+						return j
+					}
+					i = j
+					continue
+				}
+			}
+			i++
+		}
+	}
+	skipBrace = func(i int, inDq bool) int {
+		for {
+			c, st := at(i)
+			switch {
+			case st != 0:
+				return st
+			case c == '\\':
+				i += 2
+				continue
+			case c == '}':
+				return i + 1
+			default:
+				if j := nested(i, inDq); j != 0 {
+					if j < 0 {
+						return j
+					}
+					i = j
+					continue
+				}
+			}
+			i++
+		}
+	}
+	// The word's end. Count the glob groups the argument has left open so
+	// far, as Zsh counts parentheses in pct (gettokstr), and follow them on.
+	parens := 0
 	var quote byte
-	for i := 0; i < len(p.litBs); i++ {
+	for i := 0; i < len(p.litBs) && !dq; i++ {
 		b := p.litBs[i]
 		switch {
 		case b == '\\' && quote != '\'':
@@ -2804,89 +2954,174 @@ func (p *Parser) zshShortCloses(depth int) bool {
 			parens--
 		}
 	}
-	quote = 0
-	if p.zshDquoteParam {
-		quote = '"'
+	end := 0
+	if dq {
+		end = skipDq(0)
 	}
-	// A `]` inside a nested `${...}`, `$(...)` or backquote belongs to that
-	// body, as in `${y:-]}`, so none of their brackets count. cmds holds
-	// the parens depth each open `$(` started at.
-	var cmds []int
-	at := func(i int) (byte, bool) {
-		if int(p.bsp)+i >= len(p.bs) && p.fill() == 0 {
-			return 0, false
+word:
+	for end >= 0 {
+		b, st := at(end)
+		if st != 0 {
+			end = st
+			break
 		}
-		if int(p.bsp)+i >= len(p.bs) {
-			return 0, false
-		}
-		return p.bs[int(p.bsp)+i], true
-	}
-	for i := 0; ; i++ {
-		if i >= bufSize-1 {
-			return true
-		}
-		b, ok := at(i)
-		if !ok {
-			return false
+		if j := nested(end, false); j != 0 {
+			end = j
+			continue
 		}
 		switch {
-		case b == '\\' && quote != '\'':
-			i++
-			continue
-		case quote != 0:
-			if b == quote {
-				quote = 0
-			}
-		case b == '\'' || b == '"' || b == '`':
-			quote = b
-		case b == '$':
-			switch c, _ := at(i + 1); c {
-			case '{':
-				braces++
-				i++
-				continue
-			case '(':
-				cmds = append(cmds, parens)
-				parens++
-				i++
-				continue
-			}
-		case b == '}' && braces > 0:
-			braces--
+		case b == '\\':
+			end++
 		case b == '(':
 			parens++
 		case b == ')':
 			if parens == 0 {
-				return false
+				break word
 			}
 			parens--
-			if len(cmds) > 0 && cmds[len(cmds)-1] == parens {
-				cmds = cmds[:len(cmds)-1]
-			}
-		case parens > 0 || braces > 0:
-		case b == '<' && p.zshNumGlobAt(i) > 0:
+		case parens > 0 && (b == ' ' || b == '\t' || b == '|'):
+		case b == '<' && p.zshNumGlobAt(end) > 0:
 			// The numeric glob's `>` is not a redirection.
-			i += p.zshNumGlobAt(i)
-			continue
+			end += p.zshNumGlobAt(end)
 		case b == '<' || b == '>':
-			if c, _ := at(i + 1); c != '(' {
-				return false
+			if c, _ := at(end + 1); c != '(' {
+				break word
 			}
 		case b == ' ' || b == '\t' || b == '\n' || b == ';' || b == '&' || b == '|':
+			break word
+		}
+		end++
+	}
+	if end == tooLong {
+		return true
+	}
+	// dquote_parse over the word's text. The `]` at p.r closed one `[`.
+	brct, bct, intick := depth-1, 0, 0
+	for i := 0; end == eof || i < end; i++ {
+		c, st := at(i)
+		switch {
+		case st == tooLong:
+			return true
+		case st != 0:
 			return false
+		case c == ']' && bct == 0 && pct == 0 && brct == 0 && intick == 0:
+			*tick = p.zshOpenTick(i, skipCmd)
+			return true
 		}
-		if braces > 0 || len(cmds) > 0 || quote == '`' || b == '`' {
-			continue
-		}
-		switch b {
-		case '[':
-			depth++
-		case ']':
-			if depth--; depth == 0 {
-				return true
+		switch c {
+		case '\\':
+			c2, _ := at(i + 1)
+			if strings.IndexByte("\n$\\`[](){}", c2) >= 0 || c2 == '"' && dq {
+				i++
 			}
+		case '$':
+			if intick != 0 {
+				break
+			}
+			switch c2, _ := at(i + 1); c2 {
+			case '(':
+				j := skipCmd(i + 2)
+				if j == tooLong {
+					return true
+				} else if j < 0 {
+					return false
+				}
+				i = j - 1
+			case '{':
+				bct++
+				i++
+			case '$':
+				i++
+			}
+		case '}':
+			if intick == 0 && bct > 0 {
+				bct--
+			}
+		case '`':
+			intick = 1 - min(intick, 1)
+		case '\'':
+			if intick != 0 {
+				intick = 3 - intick
+			}
+		case '(':
+			if bct == 0 {
+				pct++
+			}
+		case ')':
+			if bct == 0 {
+				if pct == 0 {
+					return false
+				}
+				pct--
+			}
+		case '[':
+			if bct == 0 {
+				brct++
+			}
+		case ']':
+			if bct == 0 {
+				if brct == 0 {
+					return false
+				}
+				brct--
+			}
+		case '"':
+			if intick != 0 || bct == 0 {
+				break
+			}
+			j := skipDq(i + 1)
+			if j == tooLong {
+				return true
+			} else if j < 0 {
+				return false
+			}
+			i = j - 1
 		}
 	}
+	return false
+}
+
+// zshOpenTick returns the offset of a backquote the unread bytes before end
+// leave open when read as a string, or -1: a backquote opens a command
+// substitution that runs to the next unescaped backquote, a `'` outside
+// double quotes quotes it, a backslash quotes the next byte, and a
+// `$(...)`, which skipCmd reads, holds its own backquotes. A `'` left open
+// ends the scan, as Zsh accepts that text (#540).
+func (p *Parser) zshOpenTick(end int, skipCmd func(int) int) int {
+	at := func(i int) byte {
+		if int(p.bsp)+i >= len(p.bs) {
+			return 0
+		}
+		return p.bs[int(p.bsp)+i]
+	}
+	open, inDq := -1, false
+	for i := 0; i < end; i++ {
+		switch c := at(i); {
+		case c == '\\':
+			i++
+		case c == '\n':
+			// The position of a later backquote would need a new line.
+			return -1
+		case open >= 0:
+			if c == '`' {
+				open = -1
+			}
+		case c == '`':
+			open = i
+		case c == '"':
+			inDq = !inDq
+		case c == '\'' && !inDq:
+			for i++; i < end && at(i) != '\''; i++ {
+			}
+		case c == '$' && at(i+1) == '(':
+			j := skipCmd(i + 2)
+			if j < 0 || j > end {
+				return -1
+			}
+			i = j - 1
+		}
+	}
+	return open
 }
 
 // zshNumGlobAt returns the offset from i of the `>` ending a numeric glob,

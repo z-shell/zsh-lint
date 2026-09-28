@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Issue #540: the subscript closes at the `]`, and its text, expanded as a
+# string, leaves the second backquote open. Top level; zsh -f -n reports:
+# failed to find end of command substitution.
+print $x[(r)a[b]'`'`echo "]"`

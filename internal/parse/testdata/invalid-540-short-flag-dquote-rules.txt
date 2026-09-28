@@ -1,0 +1,5 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Flags
+# Issue #540: a `]` inside a nested `${...}` does not close a `[` left open in
+# a short subscript's flag argument, in double quotes too. Top level;
+# zsh -f -n reports: invalid subscript.
+print "$x[(r)a[b]${y:-]}"
