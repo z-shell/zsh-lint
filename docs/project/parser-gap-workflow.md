@@ -159,13 +159,12 @@ For a probe grid, `zsh-lint-probe -bodies <file> -out <dir>` places each variant
 It executes the rows, so use it on generated probe rows only, never on corpus or consumer sources.
 `-table <file>` writes the changed rows as a Markdown table in a survey record's shape, and `-candidate <binary>` takes the candidate verdicts from another build, so today's classes can re-judge a merged change.
 
-`.github/scripts/parser-check.sh` runs a fix's whole verification in one foreground command ([#545](https://github.com/z-shell/zsh-lint/issues/545)).
-It refuses to run unless `origin/main` matches origin's `main` and the checkout contains it, or a base is named with `--base`, and it prints both commit ids.
-It then builds both survey binaries, judges every `--rows` and `--bodies` grid with `-runtime` and `-table`, compares the corpus fixtures, every `--root` and `--list` and, with `--regression-corpus`, the Corpus Gate's own `regression-corpus.sh`, and runs the Go checks.
-Re-running it for [#539](https://github.com/z-shell/zsh-lint/pull/539) with `--base f536c0c0 --candidate 0186c580` and `--rows internal/probe/testdata/rows-538.txt` reproduces the grid counts that pull request reported: of 9060 rows, 786 are `REJECTED` (false accepts the fix removed), none is a `FALSE-ACCEPT`, and the 620 newly rejected valid-by-`zsh -n` rows are all `RUNTIME-REJECTED`.
 `.github/scripts/mutation.sh [base-ref]` mutates every changed line and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425)).
 It sets gremlins' timeout coefficient explicitly and exits 3 when timeouts outnumber the killed and lived mutants, since a timeout counts as caught and a too-short timeout would otherwise pass every mutant ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
 `.github/scripts/verify-parser-change.sh [--bodies <file>] [base-ref] [files]` runs these, the tests, and lint in order against one exported base build, and prints a summary table for the pull request ([#560](https://github.com/z-shell/zsh-lint/issues/560)).
+With the default base it refuses to start unless `origin/main` matches origin's `main` and the checkout contains it, and it prints both commit ids ([#545](https://github.com/z-shell/zsh-lint/issues/545)).
+`--rows` adds a row-file grid, judged like a bodies grid with `-runtime` and `-table`; `--root`, `--list` and `--regression-corpus` add consumer files and the Corpus Gate's own comparison; `--candidate <rev>` judges another commit's build.
+Re-running it for [#539](https://github.com/z-shell/zsh-lint/pull/539) with `--candidate 0186c580 --skip-mutation --rows internal/probe/testdata/rows-538.txt f536c0c0` reproduces the grid counts that pull request reported: of 9060 rows, 786 are `REJECTED` (false accepts the fix removed), none is a `FALSE-ACCEPT`, and the 620 newly rejected valid-by-`zsh -n` rows are all `RUNTIME-REJECTED`.
 The parser-gap fix skill (`.github/skills/parser-gap-fix/SKILL.md`) calls it.
 
 ### Typed metadata and synthesized nodes
