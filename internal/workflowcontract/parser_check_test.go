@@ -53,10 +53,10 @@ func TestParserCheckRefusesAStaleBase(t *testing.T) {
 	git(work, "switch", "-q", "-c", "feature")
 	feature := commit(work, "feature")
 
-	check := func(args ...string) (int, string) {
+	checkIn := func(dir string, args ...string) (int, string) {
 		t.Helper()
 		cmd := exec.Command(bash, append([]string{"--noprofile", "--norc", script, "--check-base"}, args...)...)
-		cmd.Dir = work
+		cmd.Dir = dir
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		status := 0
@@ -67,6 +67,7 @@ func TestParserCheckRefusesAStaleBase(t *testing.T) {
 		}
 		return status, string(out)
 	}
+	check := func(args ...string) (int, string) { t.Helper(); return checkIn(work, args...) }
 
 	status, out := check()
 	if status != 0 || !strings.Contains(out, "base:      "+first+" (origin/main, current with origin)") ||
@@ -111,6 +112,24 @@ func TestParserCheckRefusesAStaleBase(t *testing.T) {
 	status, out = check("--base", first)
 	if status != 0 || !strings.Contains(out, "(HEAD plus uncommitted changes)") {
 		t.Fatalf("uncommitted candidate: status %d, output:\n%s", status, out)
+	}
+
+	// A path argument is relative to the caller's directory, not the
+	// repository root the script moves to.
+	sub := filepath.Join(work, "sub")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "rows.txt"), []byte("print a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status, out = checkIn(sub, "--base", first, "--rows", "rows.txt")
+	if status != 0 {
+		t.Fatalf("relative --rows from a subdirectory: status %d, output:\n%s", status, out)
+	}
+	status, out = checkIn(work, "--base", first, "--rows", "rows.txt")
+	if status != 2 || !strings.Contains(out, "no such file or directory: rows.txt") {
+		t.Fatalf("missing --rows: status %d, output:\n%s", status, out)
 	}
 }
 

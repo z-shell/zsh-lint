@@ -121,11 +121,10 @@ while (($#)); do
 done
 [[ -n $check_base_only || -n $out ]] || usage
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a Git checkout"
-cd "$root" || die "cannot enter $root"
-
-# Resolve every input path before the script changes directory.
+# Resolve every path argument against the caller's directory before the
+# script moves to the repository root.
 absolute() { [[ $1 == /* ]] && printf '%s\n' "$1" || printf '%s/%s\n' "$PWD" "$1"; }
+[[ -z $out ]] || out=$(absolute "$out")
 for list in rows bodies roots lists; do
   declare -n entries=$list
   for i in "${!entries[@]}"; do
@@ -138,6 +137,9 @@ if [[ -n $regression_corpus ]]; then
   [[ -d $regression_corpus ]] || die "no such directory: $regression_corpus"
   regression_corpus=$(absolute "$regression_corpus")
 fi
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a Git checkout"
+cd "$root" || die "cannot enter $root"
 
 # Step 1: the base guard.
 if [[ -n $base_ref ]]; then
