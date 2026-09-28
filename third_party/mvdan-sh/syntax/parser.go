@@ -3588,14 +3588,15 @@ func (p *Parser) getStmt(readEnd, binCmd, fnBody bool) *Stmt {
 }
 
 // zshSkipOperandSeparators steps over the `;` and newline separators after a
-// `&&` or `||` and reports whether a statement may follow them. Zsh's
-// par_sublist skips every separator token there before reading the right
-// operand, so `a && ; b` is the sublist `a && b` (zsh-lint #548). A reserved
-// word that closes a list leaves the operator dangling instead; reading it as
-// a statement would report the word rather than the operator. A stop token
-// (the end of input, a `)`, `&`, `;;`, another operator, or a closing
-// backquote) needs no case here: getStmt reads nothing and the caller reports
-// the operator, as without this function.
+// `&&`, `||`, `|` or `|&` and reports whether a statement may follow them.
+// Zsh's par_sublist and par_pline skip every separator token there before
+// reading the right operand, so `a && ; b` is the sublist `a && b` (zsh-lint
+// #548) and `a | ; b` the pipeline `a | b` (zsh-lint #553). A reserved
+// word that closes a list leaves the operator without a right operand
+// instead; reading it as a statement would report the word rather than the
+// operator. A stop token (the end of input, a `)`, `&`, `;;`, another
+// operator, or a closing backquote) needs no case here: the caller reads
+// nothing and reports the operator, as without this function.
 func (p *Parser) zshSkipOperandSeparators() bool {
 	for p.tok == semicolon || p.tok == _Newl {
 		p.next()
@@ -3805,7 +3806,15 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 		b := &BinaryCmd{OpPos: p.pos, Op: BinCmdOperator(p.tok), X: s}
 		p.next()
 		p.got(_Newl)
-		if b.Y = p.gotStmtPipe(&Stmt{Position: p.pos}, true); b.Y == nil || p.err != nil {
+		if p.tok == semicolon && p.lang.in(LangZsh) && !p.zshSkipOperandSeparators() {
+			// Zsh's par_pline skips separators after `|` and `|&` too,
+			// but a pipe never dangles: a closing reserved word after
+			// them is reported at the operator, as before (zsh-lint #553).
+			b.Y = nil
+		} else {
+			b.Y = p.gotStmtPipe(&Stmt{Position: p.pos}, true)
+		}
+		if b.Y == nil || p.err != nil {
 			if p.recoverError() {
 				b.Y = &Stmt{Position: recoveredPos}
 			} else {
