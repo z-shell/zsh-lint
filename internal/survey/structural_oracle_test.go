@@ -35,7 +35,6 @@ var structuralOracleKnownDifferences = map[string]string{
 	"ok-multi-name-loop.zsh":                  "tree: WordIter keeps one loop name",
 	"ok-multi-name-paren-for.zsh":             "tree: WordIter keeps one loop name",
 	"ok-select-paren-list.zsh":                "tree: `select o () list` is read as an empty word list, not an anonymous-function body",
-	"ok-dangling-and-or.zsh":                  "tree: the dangling-operator adapter drops the `&&` that Zsh joins across `;`",
 	// The try/always block loses its always keyword (#273).
 	"ok-alternate-if-while-try-always.zsh":       "tree: always keyword lost (#273)",
 	"ok-brace-decl-termination.zsh":              "tree: always keyword lost (#273)",
