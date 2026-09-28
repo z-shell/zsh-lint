@@ -8,7 +8,8 @@ import (
 // TestZshPrintFunctionKeywordBody checks that a `function` keyword
 // definition whose body is not a `{ }` group prints with `()` (zsh-lint
 // #541). Without them Zsh reads every word up to a `{` as another function
-// name, so `function f print hi` defines three functions with empty bodies.
+// name, so `function f print hi` defines functions f, print and hi, whose
+// body is the next command or nothing at the end of the input.
 func TestZshPrintFunctionKeywordBody(t *testing.T) {
 	t.Parallel()
 
