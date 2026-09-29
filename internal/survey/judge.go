@@ -103,15 +103,22 @@ func nativeMessage(name, diagnostic string) string {
 // `zsh -n` exits 1 without a diagnostic for a valid negated pipeline such as
 // `! true`. The file is judged as a file, not a `-c` string, since an
 // unterminated loop header at end of input is valid only in a file; it is
-// never run. A file that cannot be opened is an error, not a diagnostic,
-// so a missing file is not judged invalid Zsh.
+// never run. A file that cannot be opened, or a directory, is an error, not
+// a diagnostic, so it is not judged invalid Zsh.
 func NativeZshDiagnostic(zsh string) func(string) (string, error) {
 	return func(name string) (string, error) {
 		f, err := os.Open(name)
 		if err != nil {
 			return "", err
 		}
+		info, err := f.Stat()
 		_ = f.Close()
+		if err != nil {
+			return "", err
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("%s: is a directory", name)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var stderr bytes.Buffer

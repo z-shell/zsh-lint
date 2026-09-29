@@ -159,6 +159,9 @@ func TestNativeZshMissingFileIsAnError(t *testing.T) {
 	if valid, err := native(missing); err == nil {
 		t.Fatalf("missing file judged valid=%v with no error", valid)
 	}
+	if valid, err := native(t.TempDir()); err == nil {
+		t.Fatalf("directory judged valid=%v with no error", valid)
+	}
 	// A file that went from OK to FAIL is judged natively; the missing file's
 	// open error must end the comparison, not classify it.
 	var out bytes.Buffer

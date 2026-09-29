@@ -356,8 +356,8 @@ func ParseReport(r io.Reader) (map[string]Verdict, error) {
 // `zsh -f -n`. A file is valid when zsh writes nothing to standard error; the
 // exit status is not used, because `zsh -n` exits 1 without a diagnostic for
 // a valid negated pipeline such as `! true`. It judges through
-// NativeZshDiagnostic, so a file that cannot be opened is an error, not
-// invalid Zsh.
+// NativeZshDiagnostic, so a file that cannot be opened, or a directory, is
+// an error, not invalid Zsh.
 func NativeZsh(zsh string) func(string) (bool, error) {
 	diagnostic := NativeZshDiagnostic(zsh)
 	return func(name string) (bool, error) {
