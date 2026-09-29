@@ -12,6 +12,15 @@
 // and reports the ones Zsh rejects when run as RUNTIME-REJECTED; -table
 // <file> writes the changed files as a Markdown table for a survey record
 // (#545).
+//
+// With -judge it prints, per file, whether it is a parser gap (valid Zsh that
+// zsh-lint rejects), a false accept (invalid Zsh that zsh-lint accepts) or
+// agrees, with both verdicts; `zsh -f -n` decides validity by empty standard
+// error, and no file is run (#562). With -reduce it shrinks one gap or false
+// accept to a smaller source that keeps its first message, writes the source
+// to standard output and a report to standard error; -fixed <binary> also
+// keeps each candidate fixed by that build. -candidate <binary> takes
+// zsh-lint's verdict from that build for either mode.
 package main
 
 import (
@@ -29,6 +38,8 @@ func main() {
 	flags.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: zsh-lint-survey [-trace-parses] <file.zsh> [file.zsh ...]")
 		fmt.Fprintln(os.Stderr, "       zsh-lint-survey -compare <base-binary> [-candidate <binary>] [-native [-known] [-runtime] [-table <file>]] <file.zsh> [file.zsh ...]")
+		fmt.Fprintln(os.Stderr, "       zsh-lint-survey -judge [-candidate <binary>] <file.zsh> [file.zsh ...]")
+		fmt.Fprintln(os.Stderr, "       zsh-lint-survey -reduce [-candidate <binary>] [-fixed <binary>] [-max-tests <n>] <file.zsh> > reduced.zsh")
 		flags.PrintDefaults()
 	}
 	traceParses := flags.Bool("trace-parses", false,
@@ -40,16 +51,69 @@ func main() {
 	known := flags.Bool("known", false,
 		"with -compare -native, also list unchanged files that disagree with zsh -f -n")
 	candidate := flags.String("candidate", "",
-		"with -compare, take the candidate verdicts from this zsh-lint-survey `binary` instead of this build")
+		"with -compare, -judge or -reduce, take the zsh-lint verdicts from this zsh-lint-survey `binary` instead of this build")
 	runtime := flags.Bool("runtime", false,
 		"with -compare -native, run each regressed file with zsh -f and count the ones Zsh rejects when run as runtime-rejected; runs the files, so use it on probe rows only")
 	table := flags.String("table", "",
 		"with -compare -native, write the changed files as a Markdown table to this `file`")
+	judge := flags.Bool("judge", false,
+		"classify each file as a gap, a false accept or agreeing, by zsh -f -n and zsh-lint (needs zsh on PATH)")
+	reduceFile := flags.Bool("reduce", false,
+		"shrink one gap or false accept while its first message stays the same, and write the result to standard output (needs zsh on PATH)")
+	fixed := flags.String("fixed", "",
+		"with -reduce, keep only candidates that this zsh-lint-survey `binary` fixes")
+	maxTests := flags.Int("max-tests", 0,
+		"with -reduce, cap the candidates judged (default 5000)")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
 	}
 	if flags.NArg() < 1 {
 		flags.Usage()
+		os.Exit(2)
+	}
+
+	if *judge || *reduceFile {
+		if *judge && *reduceFile {
+			fmt.Fprintln(os.Stderr, "zsh-lint-survey: -judge and -reduce do not combine")
+			os.Exit(2)
+		}
+		if *traceParses || *compare != "" || *native || *known || *runtime || *table != "" {
+			fmt.Fprintln(os.Stderr, "zsh-lint-survey: -judge and -reduce take only -candidate, -fixed and -max-tests")
+			os.Exit(2)
+		}
+		if (*maxTests != 0 || *fixed != "") && !*reduceFile {
+			fmt.Fprintln(os.Stderr, "zsh-lint-survey: -fixed and -max-tests need -reduce")
+			os.Exit(2)
+		}
+		zsh, err := exec.LookPath("zsh")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "zsh-lint-survey: -judge and -reduce need zsh on PATH")
+			os.Exit(2)
+		}
+		var lint func(string) (survey.Verdict, error)
+		if *candidate != "" {
+			lint = survey.BinaryVerdict(*candidate)
+		}
+		if *judge {
+			os.Exit(survey.JudgeFiles(flags.Args(), os.Stdout, survey.NativeZshDiagnostic(zsh), lint))
+		}
+		if flags.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "zsh-lint-survey: -reduce takes one file")
+			os.Exit(2)
+		}
+		opts := survey.ReduceOptions{
+			Native:   survey.NativeZshDiagnostic(zsh),
+			Lint:     lint,
+			MaxTests: *maxTests,
+			Out:      os.Stdout,
+		}
+		if *fixed != "" {
+			opts.Fixed = survey.BinaryVerdict(*fixed)
+		}
+		os.Exit(survey.ReduceFile(flags.Arg(0), os.Stderr, opts))
+	}
+	if *maxTests != 0 || *fixed != "" {
+		fmt.Fprintln(os.Stderr, "zsh-lint-survey: -fixed and -max-tests need -reduce")
 		os.Exit(2)
 	}
 
