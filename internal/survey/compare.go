@@ -355,23 +355,17 @@ func ParseReport(r io.Reader) (map[string]Verdict, error) {
 // NativeZsh returns a CompareOptions.Native that judges a file with
 // `zsh -f -n`. A file is valid when zsh writes nothing to standard error; the
 // exit status is not used, because `zsh -n` exits 1 without a diagnostic for
-// a valid negated pipeline such as `! true`.
+// a valid negated pipeline such as `! true`. It judges through
+// NativeZshDiagnostic, so a file that cannot be opened, or a directory, is
+// an error, not invalid Zsh.
 func NativeZsh(zsh string) func(string) (bool, error) {
+	diagnostic := NativeZshDiagnostic(zsh)
 	return func(name string) (bool, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var stderr bytes.Buffer
-		cmd := exec.CommandContext(ctx, zsh, "-f", "-n", name)
-		cmd.Stderr = &stderr
-		err := cmd.Run()
-		if ctx.Err() != nil {
-			return false, fmt.Errorf("zsh -f -n did not finish: %w", ctx.Err())
-		}
-		var exit *exec.ExitError
-		if err != nil && !errors.As(err, &exit) {
+		message, err := diagnostic(name)
+		if err != nil {
 			return false, err
 		}
-		return strings.TrimSpace(stderr.String()) == "", nil
+		return message == "", nil
 	}
 }
 

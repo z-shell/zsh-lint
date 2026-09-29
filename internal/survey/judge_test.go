@@ -157,6 +157,15 @@ func TestNativeZshDiagnosticIgnoresTheExitStatus(t *testing.T) {
 	if code := JudgeFiles([]string{missing}, &out, native, BuildVerdict); code != 2 {
 		t.Fatalf("exit code = %d for a missing file, want 2; output:\n%s", code, out.String())
 	}
+
+	// A directory opens but is no source file; zsh reports it as unopenable too.
+	if message, err := native(dir); err == nil {
+		t.Fatalf("directory judged %q with no error", message)
+	}
+	out.Reset()
+	if code := JudgeFiles([]string{dir}, &out, native, BuildVerdict); code != 2 {
+		t.Fatalf("exit code = %d for a directory, want 2; output:\n%s", code, out.String())
+	}
 }
 
 func TestBuildVerdictRecoversAPanic(t *testing.T) {

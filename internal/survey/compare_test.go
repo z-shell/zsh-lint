@@ -144,6 +144,36 @@ func TestCompareReportsMissingVerdicts(t *testing.T) {
 	}
 }
 
+// Zsh reports a file it cannot open on standard error, which NativeZsh must
+// not read as a rejection: a missing file is an error, not invalid Zsh.
+func TestNativeZshMissingFileIsAnError(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh is required to judge a file")
+	}
+	native := NativeZsh(zsh)
+	if valid, err := native(okFile); err != nil || !valid {
+		t.Fatalf("%s judged valid=%v, %v; want valid", okFile, valid, err)
+	}
+	missing := filepath.Join(t.TempDir(), "missing.zsh")
+	if valid, err := native(missing); err == nil {
+		t.Fatalf("missing file judged valid=%v with no error", valid)
+	}
+	if valid, err := native(t.TempDir()); err == nil {
+		t.Fatalf("directory judged valid=%v with no error", valid)
+	}
+	// A file that went from OK to FAIL is judged natively; the missing file's
+	// open error must end the comparison, not classify it.
+	var out bytes.Buffer
+	code := Compare([]string{missing}, &out, CompareOptions{
+		Base:   fixedBase(map[string]Verdict{missing: {OK: true}}),
+		Native: native,
+	})
+	if code != 2 {
+		t.Fatalf("missing file: code = %d, want 2; output:\n%s", code, out.String())
+	}
+}
+
 // ParseReport must read back exactly what Run writes, since the base build
 // is an older copy of this command.
 func TestParseReportReadsRunOutput(t *testing.T) {
