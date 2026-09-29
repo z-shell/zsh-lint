@@ -146,6 +146,17 @@ func TestNativeZshDiagnosticIgnoresTheExitStatus(t *testing.T) {
 	if err != nil || !strings.HasPrefix(message, invalid+":1: ") || !strings.Contains(message, "parse error") {
 		t.Fatalf("invalid source judged %q, %v; want its first diagnostic", message, err)
 	}
+
+	// Zsh reports a file it cannot open on standard error too; that is no
+	// verdict, not invalid Zsh.
+	missing := filepath.Join(dir, "missing.zsh")
+	if message, err := native(missing); err == nil {
+		t.Fatalf("missing file judged %q with no error", message)
+	}
+	var out bytes.Buffer
+	if code := JudgeFiles([]string{missing}, &out, native, BuildVerdict); code != 2 {
+		t.Fatalf("exit code = %d for a missing file, want 2; output:\n%s", code, out.String())
+	}
 }
 
 func TestBuildVerdictRecoversAPanic(t *testing.T) {
