@@ -23,12 +23,22 @@ Label new issues `parser-gap` + `corpus`.
 
 ## 3. Minimize
 
-Starting from the failing real file, delete everything unrelated until the smallest script that still reproduces the same parse error remains.
-Validate both directions:
+Starting from the failing real file, reduce it to the smallest script that still reproduces the same parse error:
+
+    go run ./cmd/zsh-lint-survey -reduce <file> > reduced.zsh
+    go run ./cmd/zsh-lint-survey -judge reduced.zsh
+
+`-reduce` removes lines, then shell tokens, whole blocks (`{ ... }`, `if ... fi`, `do ... done`) and their wrappers, and shortens words, while the candidate keeps its class and first message and the error stays on the same byte of the original file (for a false accept, on the same line).
+Keeping the position is what stops it from walking onto a second defect with the same message.
+Each candidate is judged with `zsh -f -n` only, never run, and `-max-tests` caps the calls (default 5000); the report gives the sizes before and after and the calls it took.
+`-judge` prints both verdicts: `GAP`, `FALSE-ACCEPT`, or `AGREE`.
+It replaces these two manual checks:
 
     go run ./cmd/zsh-lint-survey <file>   # must FAIL with the same family
-    zsh -n <file>                         # must pass — the gap is real Zsh
+    zsh -f -n <file>                      # must pass: the gap is real Zsh
 
+`-judge` reads `zsh -f -n` by its standard error, not its exit status, since `! true` exits 1 without a diagnostic.
+Read the reduced source before filing it: the reducer keeps the smallest source with the same message and position, which can be a narrower or different construct than the one in the real file.
 A fixture that `zsh -n` rejects is a broken script, not a parser gap; never commit one to the native-valid survey corpus.
 
 `zsh -n` is not a pure syntax check, and its verdict depends on where a line sits ([#287](https://github.com/z-shell/zsh-lint/issues/287)).

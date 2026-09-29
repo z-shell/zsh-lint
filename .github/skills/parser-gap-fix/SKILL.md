@@ -19,12 +19,15 @@ It installs `zsh` when it is missing, installs `golangci-lint` v2.12.2 built wit
 Write the smallest script that shows the construct, as a file (not a `-c` string: an unterminated loop header at end of input is valid only in a file).
 
 ```sh
-zsh -f -n gap.zsh                       # native verdict: valid when stderr is empty
-go run ./cmd/zsh-lint-survey gap.zsh    # zsh-lint verdict
+go run ./cmd/zsh-lint-survey -judge gap.zsh                      # GAP, FALSE-ACCEPT or AGREE, with both verdicts
+go run ./cmd/zsh-lint-survey -reduce big.zsh > gap.zsh           # shrink a real file to the construct
 ```
 
-- Valid Zsh that zsh-lint rejects is a parser gap; invalid Zsh that zsh-lint accepts is a false accept.
-- Judge `zsh -f -n` by stderr, not exit status: `! true` exits 1 with no diagnostic.
+- `-judge` prints the `zsh -f -n` diagnostic and the zsh-lint diagnostic and classifies the file: valid Zsh that zsh-lint rejects is a parser gap (`GAP`); invalid Zsh that zsh-lint accepts is a false accept (`FALSE-ACCEPT`).
+  It judges `zsh -f -n` by stderr, not exit status (`! true` exits 1 with no diagnostic), and never runs the file.
+- `-reduce` shrinks one gap or false accept by lines, then shell tokens and blocks, keeping a candidate only while the class, the first message and the error's place in the original file stay the same; it never runs a candidate.
+  `-fixed <binary>` also keeps only candidates that build fixes, to stay on the defect a fix addresses; `-candidate <binary>` judges with another build.
+  Check the result by hand: the smallest source with the same message can still be a different construct, and a leftover word shortened to `a` may deserve a meaningful name in the issue.
 - `zsh -f -n` skips arithmetic evaluation and assignment-word expansion (#287); a source Zsh rejects only when it runs is runtime-tier (step 3).
 - Name the language feature from the released manual (`zshmisc`, `zshexpn`, `zshparam`, `zshoptions`), not from memory, another shell, or what mvdan/sh accepts, and keep one feature per issue.
 - Keep the section's URL, `https://zsh.sourceforge.io/Doc/Release/<Page>.html#<Section>`: the issue body and every fixture cite it. When the manual and `zsh -f -n` disagree, the binary decides; record both and `zsh --version` in the issue.

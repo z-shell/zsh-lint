@@ -176,6 +176,8 @@ zsh-lint-survey -compare ./base/zsh-lint-survey -native path/to/*.zsh   # verdic
 zsh-lint-survey -compare ./base/zsh-lint-survey -native -runtime -table rows.md grid/*.zsh   # probe rows, run where zsh -n cannot decide
 zsh-lint-probe -bodies bodies.txt -out grid/   # place construct variants in every scanner context
 zsh-lint-probe -rows rows.txt -out grid/       # one probe file per line
+zsh-lint-survey -judge path/to/file.zsh        # gap, false accept or agree, by zsh -f -n and zsh-lint
+zsh-lint-survey -reduce path/to/file.zsh > reduced.zsh   # shrink a gap or false accept, keeping its message and place
 bash .github/scripts/verify-parser-change.sh --rows rows.txt   # a parser change's whole verification
 ```
 
