@@ -22,6 +22,10 @@ type Symbol struct {
 	Pos      syntax.Pos  // The start position of the declaration
 	Exported bool        // True if 'export' was used
 	Local    bool        // True if 'local' or 'typeset' was used inside a function
+	// Associative is true when this declaration gave the name the
+	// associative-array attribute (-A). A name's type can change within a
+	// file, so a rule should ask Map.MayBeAssociative, not one Symbol.
+	Associative bool
 }
 
 // Map tracks all declarations found in Pass 1 of the analysis.
@@ -37,13 +41,20 @@ type Map struct {
 
 	// The current function context during Pass 1 (nil if at top-level)
 	currentFunc *syntax.FuncDecl
+
+	// associative holds every name any declaration in the file made
+	// associative, in any scope; anyAssociative is set by an associative
+	// declaration whose name the indexer cannot read.
+	associative    map[string]bool
+	anyAssociative bool
 }
 
 // NewMap creates an empty scope map.
 func NewMap() *Map {
 	return &Map{
-		Globals: make(map[string]Symbol),
-		Locals:  make(map[*syntax.FuncDecl]map[string]Symbol),
+		Globals:     make(map[string]Symbol),
+		Locals:      make(map[*syntax.FuncDecl]map[string]Symbol),
+		associative: make(map[string]bool),
 	}
 }
 
@@ -73,4 +84,18 @@ func (m *Map) IsDeclared(name string, context *syntax.FuncDecl) bool {
 	}
 	_, exists := m.Globals[name]
 	return exists
+}
+
+// MayBeAssociative reports whether any declaration in the file may make
+// name an associative array, in any scope and at any position.
+//
+// The answer is deliberately file-wide. The attribute sticks through a
+// plain reassignment, but unset clears it and a later declaration can
+// give the same name another type, so a name's type depends on position
+// and execution path, which this index does not model. A rule that
+// rejects source only when this returns false therefore never rejects
+// code that is valid on an associative array, at the cost of staying
+// silent on a name that is associative somewhere else in the file.
+func (m *Map) MayBeAssociative(name string) bool {
+	return m.anyAssociative || m.associative[name]
 }

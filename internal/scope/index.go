@@ -61,19 +61,45 @@ func (m *Map) Index(node syntax.Node) {
 			}
 			isExport := cmdName == "export"
 			isLocal := cmdName == "local" || cmdName == "typeset" || cmdName == "declare"
+			// export rejects -A at run time, so only these four commands
+			// can make a name associative. Options apply to every name after
+			// them; Zsh rejects an option placed after a name ("not valid in
+			// this context"), so the scan need not track where options end.
+			canAssoc := isLocal || cmdName == "readonly"
+			isAssoc := false
 
 			for _, assign := range x.Args {
-				if assign.Name != nil {
-					sym := Symbol{
-						Name:     assign.Name.Value,
-						Kind:     KindVariable,
-						Node:     assign,
-						Pos:      assign.Pos(),
-						Exported: isExport,
-						Local:    isLocal,
+				if assign.Name == nil {
+					word := nakedLiteral(assign)
+					switch {
+					case strings.HasPrefix(word, "-"):
+						if canAssoc && strings.ContainsRune(word, 'A') {
+							isAssoc = true
+						}
+					case strings.HasPrefix(word, "+"):
+						if strings.ContainsRune(word, 'A') {
+							isAssoc = false
+						}
+					case word == "" && isAssoc:
+						// Quoted or computed name (typeset -A "$n"): with
+						// -A it may be any name.
+						m.anyAssociative = true
 					}
-					m.Add(sym)
+					continue
 				}
+				sym := Symbol{
+					Name:        assign.Name.Value,
+					Kind:        KindVariable,
+					Node:        assign,
+					Pos:         assign.Pos(),
+					Exported:    isExport,
+					Local:       isLocal,
+					Associative: isAssoc,
+				}
+				if isAssoc {
+					m.associative[sym.Name] = true
+				}
+				m.Add(sym)
 			}
 			return false
 		case *syntax.CallExpr:
@@ -134,6 +160,20 @@ func (m *Map) processAliasArg(arg *syntax.Word) {
 			break
 		}
 	}
+}
+
+// nakedLiteral returns the text of a name-less declaration argument that is
+// one unquoted literal word, such as an option (-gA) or a terminator (--),
+// and "" for anything else: a quoted or computed word the indexer cannot
+// read. Such an argument is always Naked, so Naked is not checked.
+func nakedLiteral(assign *syntax.Assign) string {
+	if assign == nil || assign.Value == nil || len(assign.Value.Parts) != 1 {
+		return ""
+	}
+	if lit, ok := assign.Value.Parts[0].(*syntax.Lit); ok {
+		return lit.Value
+	}
+	return ""
 }
 
 // extractLiteral attempts to pull the literal text out of a Word node safely.
