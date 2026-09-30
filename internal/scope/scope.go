@@ -89,20 +89,30 @@ func (m *Map) IsDeclared(name string, context *syntax.FuncDecl) bool {
 // MayBeAssociative reports whether name may be an associative array at
 // some point in this file: a special parameter that is associative in Zsh
 // itself (options, commands, parameters, terminfo and the like), or a name
-// any construct in the file may make associative, in any scope and at any
-// position.
+// a construct the index recognises may make associative, in any scope and
+// at any position.
 //
-// The answer is deliberately file-wide. The attribute sticks through a
-// plain reassignment, but unset clears it and a later declaration can
-// give the same name another type, so a name's type depends on position
-// and execution path, which this index does not model.
+// The answer is advisory. A true answer is a reason to stay silent; a
+// false answer is not a reason to reject. A rule that would reject a
+// subscript only an associative array accepts must also find a
+// declaration in scope that gives the name another type (a scalar,
+// integer, float or normal array), because the index cannot see every way
+// a name becomes associative:
 //
-// It is also file-local: a global declared associative in another file,
-// such as a plugin's entry point, is invisible here. A false answer
-// therefore means only that nothing in this file makes the name
-// associative. A rule must not reject a subscript on that alone; it also
-// needs evidence that the name is not associative, such as a declaration
-// of another type in scope, or project-wide context.
+//   - Other files: a global declared associative in a plugin's entry point
+//     is invisible to the index of an autoloaded function file.
+//   - Code built from strings and run later: an alias expanded inside eval
+//     (alias T='typeset -A'; eval 'T v'), a function body assigned through
+//     functions[name]=, a trap body, or a sourced file.
+//   - Code whose text is only known at run time: eval or emulate -c of a
+//     computed body, and ${(P)...} indirection (these make every name
+//     possibly associative).
+//   - Rare command forms the index does not read: a declaration behind
+//     the - precommand modifier (- typeset -A v), or behind command when
+//     POSIX_BUILTINS is set (command typeset -A v).
+//   - Position and path: the attribute sticks through a plain
+//     reassignment, but unset clears it and a later declaration can give
+//     the name another type, so the answer is file-wide, not positional.
 func (m *Map) MayBeAssociative(name string) bool {
 	return m.anyAssociative || m.associative[name] || specialAssociative[name]
 }

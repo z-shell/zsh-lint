@@ -19,8 +19,10 @@ var associativeCommands = map[string]bool{
 }
 
 // precommandModifiers may stand before a declaration command without
-// changing what it declares. command is not one: it runs only external
-// commands, so "command typeset" is "command not found".
+// changing what it declares. command is not one by default: it runs only
+// external commands unless POSIX_BUILTINS is set, so "command typeset" is
+// normally "command not found". The - modifier is not read either; both
+// are listed as limits on Map.MayBeAssociative.
 var precommandModifiers = map[string]bool{
 	"builtin":   true,
 	"noglob":    true,
@@ -29,13 +31,16 @@ var precommandModifiers = map[string]bool{
 
 // associativeTools are the other builtins that can create an associative
 // array, each measured under zsh 5.9.2: zparseopts -A, zstat -H (and its
-// stat alias) from zsh/stat, ztie from zsh/db/gdbm, and eval.
+// stat alias) from zsh/stat, zselect -A from zsh/zselect, ztie from
+// zsh/db/gdbm, eval, and emulate -c.
 var associativeTools = map[string]bool{
 	"zparseopts": true,
 	"zstat":      true,
 	"stat":       true,
+	"zselect":    true,
 	"ztie":       true,
 	"eval":       true,
+	"emulate":    true,
 }
 
 // specialAssociative lists the special parameters that are associative
@@ -109,10 +114,15 @@ func (m *Map) noteAssociative(canAssoc bool, args []declArg) []bool {
 		case isDigits(a.text):
 			// An option argument (typeset -L 5 v).
 		default:
-			// A word that expands to names Zsh decides later, such as a
-			// brace expansion (typeset -A {v,w}).
+			// A word that expands to names or options Zsh decides later,
+			// such as a brace expansion (typeset -A {v,w}, or the flag
+			// typeset {-A,-g} v). Under -A it may be any name; if it holds
+			// an A it may itself be -A for the names after it.
 			if isAssoc {
 				m.anyAssociative = true
+			}
+			if canAssoc && strings.ContainsRune(a.text, 'A') {
+				isAssoc = true
 			}
 		}
 	}
@@ -134,13 +144,21 @@ func (m *Map) noteAssociativeCall(cmd string, args []*syntax.Word) {
 		m.noteEval(args)
 	case "zparseopts":
 		// zparseopts -A NAME (also -ANAME) stores the options in an
-		// associative array. Its own options end at the first word that
-		// is not one, or at - / --.
-		m.noteOptionName(args, 'A', true)
+		// associative array. -a takes an argument too; its own options
+		// end at the first other word (zsh 5.9.2 reads -v as a spec), or
+		// at - / --.
+		m.noteOptionName(args, 'A', "aA", true)
 	case "zstat", "stat":
 		// zsh/stat: -H NAME (also -HNAME, or bundled as -nH NAME) fills an
 		// associative array.
-		m.noteOptionName(args, 'H', false)
+		m.noteOptionName(args, 'H', "", false)
+	case "zselect":
+		// zsh/zselect: -A NAME (also -ANAME) fills an associative array.
+		// The scan reads every word, so the arguments of -a, -r, -w, -e
+		// and -t need no special handling.
+		m.noteOptionName(args, 'A', "", false)
+	case "emulate":
+		m.noteEmulate(args)
 	case "ztie":
 		// zsh/db/gdbm ties its final argument to an associative array.
 		m.noteLastName(args)
@@ -158,11 +176,13 @@ func (m *Map) noteAssociativeCall(cmd string, args []*syntax.Word) {
 
 // noteOptionName marks the name that follows letter in a command's
 // options, either as the rest of the same word (-ANAME) or as the next
-// word (-A NAME, -nA NAME). An unreadable option word may hold the letter,
-// and an unreadable name may be any name, so either makes every name a
-// possible associative array. stopAtOperand ends the scan at the first
-// word that is not an option.
-func (m *Map) noteOptionName(args []*syntax.Word, letter byte, stopAtOperand bool) {
+// word (-A NAME, -nA NAME). withArg lists the option letters that take an
+// argument, so the scan skips that argument instead of reading it as an
+// operand (zparseopts -a x -A v). An unreadable option word may hold the
+// letter, and an unreadable name may be any name, so either makes every
+// name a possible associative array. stopAtOperand ends the scan at the
+// first word that is not an option.
+func (m *Map) noteOptionName(args []*syntax.Word, letter byte, withArg string, stopAtOperand bool) {
 	for i := 0; i < len(args); i++ {
 		text, ok := wordText(args[i])
 		if !ok {
@@ -178,20 +198,47 @@ func (m *Map) noteOptionName(args []*syntax.Word, letter byte, stopAtOperand boo
 			}
 			continue
 		}
-		at := strings.IndexByte(text[1:], letter)
-		if at < 0 || text[0] != '-' {
+		if text[0] != '-' {
 			continue
 		}
-		if rest := text[at+2:]; rest != "" {
+		// The first letter that takes an argument ends the option word:
+		// the rest of the word, or the next word, is its argument.
+		at := strings.IndexAny(text[1:], withArg+string(letter))
+		if at < 0 {
+			continue
+		}
+		opt, rest := text[1+at], text[at+2:]
+		if rest == "" {
+			if i+1 >= len(args) {
+				return
+			}
+			i++
+			if opt != letter {
+				continue
+			}
+			name, ok := wordText(args[i])
+			m.markName(name, ok)
+			continue
+		}
+		if opt == letter {
 			m.markName(rest, true)
-			continue
 		}
-		if i+1 >= len(args) {
+	}
+}
+
+// noteEmulate indexes the body of emulate ... -c BODY like an eval body.
+func (m *Map) noteEmulate(args []*syntax.Word) {
+	for i, word := range args {
+		text, ok := wordText(word)
+		if !ok {
+			// A computed word may be -c, and the body after it unknown.
+			m.anyAssociative = true
 			return
 		}
-		i++
-		name, ok := wordText(args[i])
-		m.markName(name, ok)
+		if text == "-c" && i+1 < len(args) {
+			m.noteEval(args[i+1 : i+2])
+			return
+		}
 	}
 }
 
@@ -219,6 +266,10 @@ func (m *Map) markName(name string, readable bool) {
 func (m *Map) noteEval(args []*syntax.Word) {
 	if len(args) == 0 {
 		return
+	}
+	// eval's own - or -- ends its options and is not part of the body.
+	if text, ok := wordText(args[0]); ok && (text == "-" || text == "--") {
+		args = args[1:]
 	}
 	parts := make([]string, 0, len(args))
 	for _, word := range args {
@@ -255,17 +306,22 @@ func (m *Map) noteAssociativeFlags(node syntax.Node) {
 	})
 }
 
-// noteAssociativeFlag marks the name an ${(AA)name::=...} or
-// ${(AA)=name::=...} expansion assigns as an associative array. Any other
+// noteAssociativeFlag marks the name an ${(AA)name::=...},
+// ${(AA)name:=...} or ${(AA)name=...} expansion (with or without = before
+// the name) assigns as an associative array. With the P flag the name
+// assigned is the value of the parameter, so any name may be. Any other
 // assignment flag leaves the name alone.
 func (m *Map) noteAssociativeFlag(pe *syntax.ParamExp) {
-	if pe == nil || pe.Flags == nil || pe.Exp == nil || pe.Exp.Op != syntax.AssignUnsetOrNull {
+	if pe == nil || pe.Flags == nil || pe.Exp == nil {
+		return
+	}
+	if pe.Exp.Op != syntax.AssignUnsetOrNull && pe.Exp.Op != syntax.AssignUnset {
 		return
 	}
 	if strings.Count(pe.Flags.Value, "A") < 2 {
 		return
 	}
-	if pe.Param == nil || pe.Param.Value == "" {
+	if strings.ContainsRune(pe.Flags.Value, 'P') || pe.Param == nil || pe.Param.Value == "" {
 		m.anyAssociative = true
 		return
 	}
