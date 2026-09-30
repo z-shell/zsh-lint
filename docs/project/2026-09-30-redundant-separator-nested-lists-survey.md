@@ -18,7 +18,10 @@ The scanner also no longer reads the `&` or `|` of a redirection operator (`>&`,
 Before this change that was a false accept whenever a file also held a redundant `;` the adapter could fix; with nested sites it would have been reachable from any quoted or backquoted `$( ; )`.
 The nested sites are masked in their own pass, when the parser reports one of them, without the top-level sites.
 The top-level scan still misreads a `;` in a glob group, a `[[ ]]` pattern or after `> (`, and inside `${...}` and `$'...'` ([#572](https://github.com/z-shell/zsh-lint/issues/572)); masking both sets together let a fixed substitution reach those.
-When the parser reports a top-level `;`, the nested sites join the existing one-pass top-level mask, which gives the verdict base gives the file without them.
+When the parser reports a top-level `;`, the nested sites are tried on top of the existing one-pass top-level mask, and dropped when they do not hold, which leaves base's own retry.
+A nested body is scanned with the same scanner, so it can take a `;` inside a glob group, a quoted string, `${...}` or a comment for a site.
+After each nested retry the tree is checked: a blank that lands inside a literal, a single-quoted string or a comment is text, its byte is put back, and the source is parsed once more; a retry that still holds a blank inside text is refused.
+A `;` that really ends an empty sublist owns no node, so this keeps every word, string and comment as written.
 No adapter, gate or existing test changed.
 
 ## Rows
@@ -44,11 +47,16 @@ All are top-level probes unless the source says otherwise.
 | 15  | `; print a >& ; print b`                  | reject | accept | reject                     |
 | 16  | `echo "$( ; )"; print a(;)`               | reject | reject | reject                     |
 | 17  | `echo "$( ; )"; print ${x:-` newline `;}` | accept | reject | accept, `${...}` text kept |
+| 18  | ``echo `; print a(;)` ``                  | reject | reject | reject                     |
+| 19  | `; echo "$( [[ a == (;) ]] )"`            | reject | reject | reject                     |
+| 20  | `echo "$( ; print ${x:-` newline `;} )"`  | accept | reject | accept, `${...}` text kept |
+| 21  | `; echo "$( print a # (;` newline `)"`    | accept | accept | accept, comment kept       |
 
 Rows 10 and 11 stay open under #569: they fail with the opener's own error before the adapter sees the `;`, and `gap-569-leading-separator-after-opener.zsh` records them.
 Row 12 is [#571](https://github.com/z-shell/zsh-lint/issues/571), and row 13 is a substitution nested in a parameter expansion inside double quotes; both fail identically on base and fixed.
 Row 14 is the shape the redirection rule keeps rejected, and row 15 is a base false accept it removes.
-Rows 16 and 17 are the review shapes the separate nested pass keeps at base's verdict for the rest of the file; `; print a(;)` itself stays a base false accept, [#572](https://github.com/z-shell/zsh-lint/issues/572).
+Rows 16 to 21 are the review shapes: a #572-class `;` beside or inside a nested body keeps base's verdict for it, and every word and comment keeps its text.
+`; print a(;)` itself stays a base false accept, [#572](https://github.com/z-shell/zsh-lint/issues/572), and so does `; echo "$( ; )"; print a(;)`, whose twin without the nested `;` base also accepts.
 
 ## Verification
 
@@ -57,14 +65,20 @@ Rows 16 and 17 are the review shapes the separate nested pass keeps at base's ve
 - Probe grid (8 bodies in every `zsh-lint-probe` context): 208 files, 203 unchanged, 5 fixed, no regression and no false accept.
 - Row grid (70 sources): 45 unchanged, 23 fixed, 2 rejected, no regression and no false accept.
   The two rejected rows, `; print a >& ; print b` and `echo $( ; ); print a >& ; print b`, are false accepts on base that the redirection rule removes.
-- Two independent review grids (247 rows, including a fixed nested `;` beside an invalid `;` in a glob group, `[[ ]]` pattern, process substitution, redirection, `${...}` or `$'...'`), judged native, base, fixed: 73 fixed, 3 base false accepts removed, 7 pre-existing false accepts left, no regression.
+- Three independent review grids (357 rows, including a fixed nested `;` beside or inside a body with an invalid `;` in a glob group, `[[ ]]` pattern, process substitution, redirection, `${...}`, `$'...'`, a quoted string or a comment), judged native, base, fixed: no regression, 3 base false accepts removed, the pre-existing false accepts left.
   Three rows change from rejected to accepted although top-level `zsh -f -n` rejects them: `echo "$( ; )"; print ${(;)x}`, its backquoted twin and `echo "$( ; )"; print $x[(r);]`.
   `zsh -f -n` reports those only through expansion at the top level (`error in flags`, section 3 of `parser-gap-workflow.md`); the same text inside a function body passes it, and base already accepts `print ${(;)x}` alone.
+  Two more, `; echo "$( ; )"; print a(;)` and its backquoted twin, are accepted because base accepts the same file without the nested `;` (#572).
+- Stripped-twin grid (352 generated rows: each of four fixed nested bodies beside 22 other constructs, with and without a leading `;`, in both orders): the fixed build never accepts a row that base rejects with its nested `;` blanked, and every text-bearing node keeps its bytes.
+  Where it rejects a row that such a twin passes, the twin passes only through #572: a `;` after `>&` or inside a glob group that base's top-level mask blanks, or a `$'...'` string beside the body whose `;` base's top-level mask blanks, changing the string (`print $'a\'; ;'`); the fixed build keeps base's rejection of the row.
 - Redirection grid (54 rows: 18 operators including `>>`, `&>`, `>!`, `<>`, `>&-`, `&|`, `&!` and process substitution, each alone, after a leading `;` and after a fixed `$( ; )`): no introduced false accept, no regression.
+- Tree text: a generated grid of 261 rows placing quoted strings, `${...}`, glob groups and comments holding `;` in nested bodies, and tests that compare every tree with the tree of the source with only its real sites blanked.
 - Workspace: 1367 Zsh files under `repos/` of the Z-Shell workspace, including `zpmod`'s vendored Zsh trees: all unchanged.
 - Mutation (`mutation.sh`): every decided mutant killed; the backquote `case` line reads as not covered, as `case` expressions do.
 - Parse cost (`-trace-parses` over the corpus): 625 parses before and 626 after, the difference being the fixed `ok-redundant-separator-nested.zsh`, which now takes the adapter's one retry (2 parses, adapter depth 1); a test pins one retry for a file with several nested sites.
-- Hand mutants of the change (30): 28 killed.
+  A nested retry that finds text parses once more, and a failed nested attempt on the top-level path adds one parse before base's own retry.
+- Hand mutants of the change (41): 37 killed.
   One starts the nested scan one byte early on the `(`, which the scan reads as an opener and the offset shift cancels.
-  The other changes the redirection rule's `index == 0` bound, which only guards reading `src[-1]`.
-  No source tells either apart.
+  One changes the redirection rule's `index == 0` bound, which only guards reading `src[-1]`.
+  Two remove a restore check that no measured source reaches: skipping the check after the second parse, and not restoring a single-quoted string, whose `;` the scanner already skips as a quote; a 261-row generated grid gives identical verdicts and trees for both.
+  No source tells any of the four apart.

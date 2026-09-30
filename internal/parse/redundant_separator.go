@@ -52,29 +52,16 @@ func parseRedundantSeparatorWithParser(
 
 	top, nested := scanSeparatorSites(src)
 
-	// Sites inside nested lists (#569) are masked together, in one pass,
-	// when the parser reports one of them, and without the top-level sites.
-	// Masking both sets there let a fixed substitution unblock the
+	// Sites inside nested lists (#569) are masked in a pass of their own
+	// when the parser reports one of them, without the top-level sites.
+	// Masking both sets together let a fixed substitution unblock the
 	// top-level mask on a file base rejects for an unrelated reason: after
 	// `print a(;)` or `print a >& ;` the top-level scan also finds a `;`
 	// Zsh rejects (#572).
 	if reported := int(parseErr.Pos.Offset()); slices.Contains(nested, reported) {
-		masked := bytes.Clone(src)
-		for _, offset := range nested {
-			masked[offset] = ' '
+		if tree, ok := retryNestedSites(src, nested, name, parse); ok {
+			return tree, nil
 		}
-		tree, err := parse(masked, name)
-		if err != nil {
-			return nil, firstErr
-		}
-		return tree, nil
-	}
-
-	// When the parser reports a top-level `;`, base already runs this
-	// one-pass mask over the whole file, so the nested sites join it: the
-	// verdict is base's verdict on the file without them, in one retry.
-	sites := append(top, nested...)
-	if len(sites) == 0 {
 		return nil, firstErr
 	}
 
@@ -85,16 +72,82 @@ func parseRedundantSeparatorWithParser(
 	// "`;;` can only be used in a case clause" or a case-pattern error).
 	// A membership check here would be unreachable, so it is left out
 	// rather than shipped as a guard no test can pin.
+	if len(top) == 0 {
+		return nil, firstErr
+	}
 	masked := bytes.Clone(src)
-	for _, offset := range sites {
+	for _, offset := range top {
 		masked[offset] = ' '
 	}
 
+	// When the parser reports a top-level `;`, the nested sites join this
+	// pass, so one retry covers both and the tree is what base gives the
+	// file without them. When the nested sites do not hold, the pass is
+	// base's own.
+	if tree, ok := retryNestedSites(masked, nested, name, parse); ok {
+		return tree, nil
+	}
 	tree, err := parse(masked, name)
 	if err != nil {
 		return nil, firstErr
 	}
 	return tree, nil
+}
+
+// retryNestedSites blanks the nested sites in ref and parses it. A `;` that
+// ends an empty sublist owns no node, so a real site falls between
+// statements. A site inside a literal, a quoted string or a comment of the
+// retried tree is text the scanner took for a separator (#572): its byte is
+// put back and the source is parsed once more. The result is kept only when
+// no blanked byte lies inside text, so the tree holds ref's bytes wherever a
+// word, string or comment stands (#570 review).
+func retryNestedSites(
+	ref []byte,
+	nested []int,
+	name string,
+	parse func([]byte, string) (*syntax.File, error),
+) (*syntax.File, bool) {
+	masked := bytes.Clone(ref)
+	for _, offset := range nested {
+		masked[offset] = ' '
+	}
+	tree, err := parse(masked, name)
+	if err != nil {
+		return nil, false
+	}
+	if !restoreText(tree, ref, masked) {
+		return tree, true
+	}
+	if tree, err = parse(masked, name); err != nil || restoreText(tree, ref, masked) {
+		return nil, false
+	}
+	return tree, true
+}
+
+// restoreText copies ref's bytes back into masked over every literal,
+// single-quoted string and comment of tree whose bytes differ between the
+// two, and reports whether it restored any.
+func restoreText(tree *syntax.File, ref, masked []byte) bool {
+	restored := false
+	restore := func(from, to syntax.Pos) {
+		a, b := from.Offset(), to.Offset()
+		if !bytes.Equal(ref[a:b], masked[a:b]) {
+			copy(masked[a:b], ref[a:b])
+			restored = true
+		}
+	}
+	syntax.Walk(tree, func(node syntax.Node) bool {
+		switch node := node.(type) {
+		case *syntax.Lit:
+			restore(node.ValuePos, node.ValueEnd)
+		case *syntax.SglQuoted:
+			restore(node.Left, node.Right)
+		case *syntax.Comment:
+			restore(node.Hash, node.End())
+		}
+		return true
+	})
+	return restored
 }
 
 // scanRedundantSeparatorSites returns the offset of every `;` that stands in

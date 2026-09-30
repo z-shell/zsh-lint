@@ -249,6 +249,15 @@ func TestParseRedundantSeparatorNestedSiteDoesNotUnblockOthers(t *testing.T) {
 		`f() { echo "$( ; )"; print a(;); }`,
 		"f() { echo `;`; print a > ( ; print b); }",
 		`f() { echo "$( ; )"; print *(|;); }`,
+		// Review of fdc29dc: the same `;` inside the nested body, where the
+		// scanner reads the glob group or pattern `(` as a list opener.
+		"echo `; print a(;)`",
+		`echo "$( ; [[ a == (;) ]] )"`,
+		"echo \"`; print a(;)`\"",
+		"echo `;` `print a(;)`",
+		`echo "$( ; [[ a == (|;) ]] )"`,
+		`; echo "$( [[ a == (;) ]] )"`,
+		`; x="$( [[ a == (;) ]] )"`,
 	}
 	for _, src := range sources {
 		if err := parseString(t, src); err == nil {
@@ -282,23 +291,109 @@ func TestParseRedundantSeparatorTopLevelPassIncludesNestedSites(t *testing.T) {
 	}
 }
 
-// Masking the nested sites leaves every other byte as written: a `;` inside
-// `${...}` or `$'...'` elsewhere in the file keeps its text.
-func TestParseRedundantSeparatorNestedSiteKeepsOtherBytes(t *testing.T) {
-	for src, want := range map[string]string{
-		"echo \"$( ; )\"; print ${x:-\n;}": "${x:-\n;}",
-		`echo "$( ; )"; print $'a\'; ;'`:   `$'a\'; ;'`,
-	} {
+// The nested pass blanks only the nested sites: a top-level `;` the scanner
+// misreads (#572) stays in the retry source, so the file keeps base's
+// verdict for it. The counting parser does not re-enter the adapters, so
+// the retry must fail on that `;`.
+func TestParseRedundantSeparatorNestedPassLeavesTopLevelSites(t *testing.T) {
+	src := []byte(`echo "$( ; print a )"; ; print b`)
+	var seen []byte
+	parse := func(masked []byte, name string) (*syntax.File, error) {
+		seen = masked
+		return syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(bytes.NewReader(masked), name)
+	}
+	_, firstErr := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(bytes.NewReader(src), "t.zsh")
+	if firstErr == nil {
+		t.Fatal("source must fail the unadapted parser for this test to mean anything")
+	}
+	_, _ = parseRedundantSeparatorWithParser(src, "t.zsh", firstErr, parse)
+	if want := []byte(`echo "$(   print a )"; ; print b`); !bytes.Equal(seen, want) {
+		t.Fatalf("nested pass retried %q, want %q", seen, want)
+	}
+}
+
+// Where a nested site turns out to be text (a `;` inside `${...}`, a glob
+// group, a quoted string or a comment in the nested body), its byte is put
+// back and only the real sites stay blanked: the file parses and its tree
+// equals the tree of the source with only the real nested `;` blanked by
+// hand. Each source is valid Zsh that base rejects.
+func TestParseRedundantSeparatorNestedTextSiteRestored(t *testing.T) {
+	printTree := func(src string) string {
 		file, err := Parse(strings.NewReader(src+"\n"), "t.zsh")
 		if err != nil {
-			t.Fatalf("valid Zsh must parse: %q\nerror: %v", src, err)
+			t.Fatalf("must parse: %q\nerror: %v", src, err)
 		}
 		var out strings.Builder
 		if err := syntax.NewPrinter().Print(&out, file.tree); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("tree of %q lost %q:\n%s", src, want, out.String())
+		syntax.Walk(file.tree, func(node syntax.Node) bool {
+			if c, ok := node.(*syntax.Comment); ok {
+				out.WriteString("#" + c.Text + "\n")
+			}
+			return true
+		})
+		return out.String()
+	}
+	for src, blanked := range map[string]string{
+		"echo \"$( ; print ${x:-\n;} )\"": "echo \"$(   print ${x:-\n;} )\"",
+		"echo `; print a # (;`\nprint b":  "echo ` print a # (;`\nprint b",
+		`echo "$( ; print a(;) )"`:        `echo "$(   print a(;) )"`,
+		// The nested pass leaves the later top-level `;` for re-entry, which
+		// masks it as base does.
+		`echo "$( ; print a )"; ; print b`: `echo "$(   print a )";   print b`,
+		// A text site in a single-quoted string: SglQuoted must be restored.
+		`echo "$( ; print 'x; ;' )"`: `echo "$(   print 'x; ;' )"`,
+		// Two text sites in one word: restoring one still leaves a blank in
+		// the other until both are put back.
+		"echo \"$( ; print ${x:-\n; ;} )\"": "echo \"$(   print ${x:-\n; ;} )\"",
+	} {
+		if got, want := printTree(src), printTree(blanked); got != want {
+			t.Errorf("tree of %q:\n got %s\nwant %s", src, got, want)
+		}
+	}
+}
+
+// Masking the nested sites leaves every other byte of a nested body as
+// written: a `;` inside `${...}`, a glob group, a comment, a quoted string
+// or a here-document keeps its text when the top-level pass runs (review of
+// fdc29dc). Each source parses on base, and its tree must equal the tree of
+// the source with only its leading `;` blanked, which is base's retry. A
+// `;` the top-level scan itself misreads beside a substitution is #572 and
+// changes the same way on base.
+func TestParseRedundantSeparatorNestedSiteKeepsOtherBytes(t *testing.T) {
+	print := func(src string) string {
+		file, err := Parse(strings.NewReader(src), "t.zsh")
+		if err != nil {
+			t.Fatalf("reference must parse: %q\nerror: %v", src, err)
+		}
+		var out strings.Builder
+		if err := syntax.NewPrinter().Print(&out, file.tree); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	for _, src := range []string{
+		"; echo \"$( print ${x:-\n;} )\"",
+		"; echo \"$( print a # (;\n)\"",
+		"; echo \"`print \\\"a; ;b\\\"`\"",
+		"; cat <<'A'\n\"$( ; lit )\"\nA",
+		"; echo \"$( print a(;) )\"",
+		"; echo \"$( print a > ( ; print b) )\"",
+	} {
+		file, err := Parse(strings.NewReader(src+"\n"), "t.zsh")
+		if err != nil {
+			t.Fatalf("base parses it, so must this change: %q\nerror: %v", src, err)
+		}
+		var got strings.Builder
+		if err := syntax.NewPrinter().Print(&got, file.tree); err != nil {
+			t.Fatal(err)
+		}
+		// Only the leading `;` is a real site; every other `;` in these
+		// sources is text and must stay.
+		reference := " " + src[1:] + "\n"
+		if want := print(reference); got.String() != want {
+			t.Errorf("tree of %q changed:\n got %s\nwant %s", src, got.String(), want)
 		}
 	}
 }
@@ -378,5 +473,57 @@ func TestParseRedundantSeparatorNestedSitesParseOnce(t *testing.T) {
 	}
 	if n := bytes.Count(seen, []byte(";")); n != 1 {
 		t.Fatalf("retry source %q keeps %d `;`, want only the ordinary terminator", seen, n)
+	}
+}
+
+// No blank a mask put in survives inside text: every comment and
+// single-quoted string of an accepted tree reads the source's own bytes,
+// and a `;` inside `${...}` or a quoted string in a nested body keeps its
+// text (review of fdc29dc). `a(;)` inside a quoted `$( )` is a glob group
+// the fork itself reads as `a`, `(`, ` )` whatever the adapter does (base
+// and a source with no redundant `;` give the same tree), so it is not
+// listed.
+func TestParseRedundantSeparatorTreeTextMatchesSource(t *testing.T) {
+	for _, src := range []string{
+		`echo "$( ; print a(;) )"`,
+		"echo \"$( ; print ${x:-\n;} )\"",
+		"echo `; print a # (;`\nprint b",
+		"; echo \"$( print a # (;\n)\"",
+		"; echo \"$( print a(;) )\"",
+		"; echo \"$( print a > ( ; print b) )\"",
+		"; echo \"`print \\\"a; ;b\\\"`\"",
+		`echo "$( ; print 'x;' )"`,
+	} {
+		text := src + "\n"
+		file, err := Parse(strings.NewReader(text), "t.zsh")
+		if err != nil {
+			t.Fatalf("valid Zsh must parse: %q\nerror: %v", src, err)
+		}
+		syntax.Walk(file.tree, func(node syntax.Node) bool {
+			var from, to syntax.Pos
+			var value string
+			switch node := node.(type) {
+			case *syntax.SglQuoted:
+				from, to, value = node.Left, node.Right, node.Value
+			case *syntax.Comment:
+				from, to, value = node.Hash, node.End(), node.Text
+			default:
+				return true
+			}
+			if a, b := from.Offset(), to.Offset(); a <= b && b <= uint(len(text)) &&
+				!strings.Contains(text[a:b], value) {
+				t.Errorf("text in %q at %d: source %q, tree %q", src, a, text[a:b], value)
+			}
+			return true
+		})
+		var printed strings.Builder
+		if err := syntax.NewPrinter().Print(&printed, file.tree); err != nil {
+			t.Fatal(err)
+		}
+		for _, word := range []string{"${x:-\n;}", "a; ;b", "'x;'"} {
+			if strings.Contains(src, word) && !strings.Contains(printed.String(), word) {
+				t.Errorf("tree of %q lost %q:\n%s", src, word, printed.String())
+			}
+		}
 	}
 }
