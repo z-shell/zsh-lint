@@ -116,12 +116,54 @@ func retryNestedSites(
 		return nil, false
 	}
 	if !restoreText(tree, ref, masked) {
-		return tree, true
+		return tree, sitesInListGaps(tree, nested, ref, masked)
 	}
 	if tree, err = parse(masked, name); err != nil || restoreText(tree, ref, masked) {
 		return nil, false
 	}
-	return tree, true
+	return tree, sitesInListGaps(tree, nested, ref, masked)
+}
+
+// sitesInListGaps reports whether every nested site still blanked in masked
+// falls in a gap of a statement list: the smallest node of tree that holds
+// it must own a list, not be a test, an arithmetic expression, a pattern or
+// any other node whose operands a blank would sit between. A `;` after
+// `||` or `(` inside `[[ ]]` or `(( ))` is not text, so restoreText keeps
+// its blank; this refuses it (#570 review of a9cfa4e).
+func sitesInListGaps(tree *syntax.File, sites []int, ref, masked []byte) bool {
+	for _, offset := range sites {
+		if masked[offset] == ref[offset] {
+			continue // restored as text
+		}
+		at := uint(offset)
+		switch node := innermostNode(tree, at).(type) {
+		case *syntax.CmdSubst, *syntax.ProcSubst, *syntax.Block, *syntax.Subshell,
+			*syntax.IfClause, *syntax.WhileClause, *syntax.ForClause, *syntax.BinaryCmd:
+		case *syntax.CaseItem:
+			// An arm owns a list after its patterns and the `)` closing
+			// them; a `;` among the patterns or at that `)` is not a gap.
+			if len(node.Patterns) == 0 || at <= node.Patterns[len(node.Patterns)-1].End().Offset() {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// innermostNode returns the smallest node of tree whose byte range holds at.
+// Walk visits a node before its children and sibling nodes never overlap, so
+// the last node that holds the offset is the innermost.
+func innermostNode(tree *syntax.File, at uint) syntax.Node {
+	var inner syntax.Node
+	syntax.Walk(tree, func(node syntax.Node) bool {
+		if node != nil && node.Pos().Offset() <= at && at < node.End().Offset() {
+			inner = node
+		}
+		return true
+	})
+	return inner
 }
 
 // restoreText copies ref's bytes back into masked over every literal,
