@@ -136,6 +136,14 @@ func scanRedundantSeparatorSites(src []byte) []int {
 			// Each of these opens a new sublist. `&&`, `||` and `;&` are
 			// two bytes, but the second is handled on its own turn and
 			// leaves commandStart true either way.
+			if isRedirectionOperatorByte(src, index) {
+				// `>&`, `<&`, `>|` and `>&|` are redirection operators whose
+				// word still follows, so a `;` after one is a parse error,
+				// not an empty sublist (#569 review).
+				index++
+				commandStart = false
+				continue
+			}
 			index++
 			commandStart = true
 			continue
@@ -173,11 +181,31 @@ func isCaseTerminator(src []byte, index int) bool {
 	return index+1 < len(src) && strings.IndexByte(";&|", src[index+1]) >= 0
 }
 
+// isRedirectionOperatorByte reports whether the `&` or `|` at index ends a
+// redirection operator: `>&`, `<&`, `>|`, or the `|` of `>&|`. The same rule
+// keeps skipCommandSubstitution from reading those bytes as list operators.
+func isRedirectionOperatorByte(src []byte, index int) bool {
+	if index == 0 || (src[index] != '&' && src[index] != '|') {
+		return false
+	}
+	prev := src[index-1]
+	if prev == '<' || prev == '>' {
+		return true
+	}
+	return src[index] == '|' && prev == '&' && index >= 2 && src[index-2] == '>'
+}
+
 // nestedRedundantSeparatorSites scans the command list src[from:to], the body
 // of a command substitution or backquoted command, and returns its sites as
-// offsets into src.
+// offsets into src. A body holding `$'` or `<<` reports none: the scanner
+// does not read `$'...'` escapes or here-document bodies as Zsh does, so a
+// site there could be a byte inside a string, and the retry would change it.
 func nestedRedundantSeparatorSites(src []byte, from, to int) []int {
-	sites := scanRedundantSeparatorSites(src[from:to])
+	body := src[from:to]
+	if bytes.Contains(body, []byte("$'")) || bytes.Contains(body, []byte("<<")) {
+		return nil
+	}
+	sites := scanRedundantSeparatorSites(body)
 	for i := range sites {
 		sites[i] += from
 	}

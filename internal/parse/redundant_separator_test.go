@@ -144,6 +144,17 @@ func TestParseRedundantSeparatorInNestedListsZshRejects(t *testing.T) {
 		`echo "$(true | ; )"`,
 		"echo `true | ;`",
 		`echo "$(if true; ; )"`,
+		// A `;` after a redirection operator is not in command position:
+		// the operator lacks its word, whatever else in the file is fixed.
+		`echo "$( ; )"; print a >& ; print b`,
+		"echo `;`; print a >& ; print b",
+		`echo "$( ; )" >& ; print b`,
+		`echo "$( ; )"; print a >| ; print b`,
+		`echo "$( ; )"; print a <& ; print b`,
+		`echo "$( ; )"; print a 2>& ; print b`,
+		`echo "$( ; )"; print a >&| ; print b`,
+		`echo "$( ; )"; echo "$(print a >& ; print b)"`,
+		`; print a >& ; print b`,
 	}
 
 	for _, src := range sources {
@@ -169,6 +180,19 @@ func TestScanRedundantSeparatorSitesInNestedLists(t *testing.T) {
 		{src: `echo "\$( ; )"`, want: nil},
 		{src: `echo "$(( 1 ))"`, want: nil},
 		{src: `echo "${x:-;}"`, want: nil},
+		// A redirection operator's `&` or `|` does not open a sublist.
+		{src: "print a >&2; ;", want: []int{13}},
+		{src: "print a >& ;", want: nil},
+		{src: "print a >&| ;", want: nil},
+		{src: "print a <& ;", want: nil},
+		// `>&|` at the start of the source: the `>` is byte 0.
+		{src: ">&| ;", want: nil},
+		// A body whose text the scanner cannot read as Zsh does (`$'...'`
+		// escapes, here-documents) reports no nested site, so the retry
+		// never blanks a byte inside a string or here-document body.
+		{src: `; echo "$(print $'a\'; ;')"`, want: []int{0}},
+		{src: "; echo \"`cat <<E\n;\nE\n`\"", want: []int{0}},
+		{src: "; echo `cat <<E\n;\nE\n`", want: []int{0}},
 		// An unterminated string has no certain extent, so it reports nothing.
 		{src: `echo "$( ; )`, want: nil},
 		{src: "echo `; print a", want: nil},
