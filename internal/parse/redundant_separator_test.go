@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,6 +108,101 @@ func TestScanRedundantSeparatorSitesSkipsCaseTerminators(t *testing.T) {
 					test.src, got, test.want)
 			}
 		})
+	}
+}
+
+// A command substitution inside a double-quoted string and a backquoted
+// command each hold a list of their own, so a `;` opening that list ends an
+// empty sublist as it does anywhere else (#569). Each source passes
+// `zsh -f -n` as a file and runs cleanly under `zsh -f`.
+func TestParseRedundantSeparatorInNestedLists(t *testing.T) {
+	sources := []string{
+		`echo "$( ; )"`,
+		`echo "$( ; print a )"`,
+		`x="$( ; print a )"; print $x`,
+		`f() { echo "$( ; print a )"; }; f`,
+		`echo "a $( ; print b ) c"`,
+		`echo "$(print a; ; print b)"`,
+		`echo "$(echo "$( ; print a )")"`,
+		"echo `;`",
+		"echo `; print a`",
+		"echo \"`; print a`\"",
+		`echo "${x:-y} $( ; print a )"`,
+	}
+
+	for _, src := range sources {
+		if err := parseString(t, src); err != nil {
+			t.Errorf("valid Zsh must parse: %q\nerror: %v", src, err)
+		}
+	}
+}
+
+// Entering the nested lists must not accept what Zsh rejects there. Each
+// source fails `zsh -f -n` as a file.
+func TestParseRedundantSeparatorInNestedListsZshRejects(t *testing.T) {
+	sources := []string{
+		`echo "$(true | ; )"`,
+		"echo `true | ;`",
+		`echo "$(if true; ; )"`,
+	}
+
+	for _, src := range sources {
+		if err := parseString(t, src); err == nil {
+			t.Errorf("invalid Zsh must stay rejected: %q", src)
+		}
+	}
+}
+
+// Where each nested site is, and where none is: a `;` inside single quotes,
+// an escaped one, and an arithmetic or parameter expansion stay text.
+func TestScanRedundantSeparatorSitesInNestedLists(t *testing.T) {
+	tests := []struct {
+		src  string
+		want []int
+	}{
+		{src: `echo "$( ; )"`, want: []int{9}},
+		{src: "echo `; print a`", want: []int{6}},
+		{src: "echo \"`;`\"", want: []int{7}},
+		{src: `echo "$(echo "$( ; )")"`, want: []int{17}},
+		{src: `echo "$(print a; print b)"`, want: nil},
+		{src: `echo "$(print ';')"`, want: nil},
+		{src: `echo "\$( ; )"`, want: nil},
+		{src: `echo "$(( 1 ))"`, want: nil},
+		{src: `echo "${x:-;}"`, want: nil},
+		// An unterminated string has no certain extent, so it reports nothing.
+		{src: `echo "$( ; )`, want: nil},
+		{src: "echo `; print a", want: nil},
+		// A `$` or `$(` as the last bytes must not be read past the end.
+		{src: `echo "$(`, want: nil},
+		{src: `echo "$`, want: nil},
+		// An unclosed backquote inside the string ends the scan there, so a
+		// later substitution is not scanned either.
+		{src: "echo \"` $( ; )\"", want: nil},
+		// A backquoted command is stepped over whole: a second one opens at its
+		// own backquote, and a `;` after it follows a statement.
+		{src: "echo `;` `;`", want: []int{6, 10}},
+		{src: "`print a`; print b", want: nil},
+		// The `;` after the first command is a terminator; only the second
+		// is a site. Resuming at the closing backquote would read the text up
+		// to the next one as a command list and report the first as well.
+		{src: "echo `true`; ; echo `true`", want: []int{13}},
+		// An expansion or substitution whose extent the shared scanners refuse
+		// (arithmetic holding `$`, a substitution holding `case`) ends the
+		// scan: nothing after it is reported.
+		{src: `echo "$(( $x )) $( ; )"`, want: nil},
+		{src: `echo "$(case x in x) :;; esac) $( ; )"`, want: nil},
+		// An arithmetic expansion is not a command list.
+		{src: `echo "$(( ; ))"`, want: nil},
+		// A substitution is stepped over whole, so a `"` inside it does not end
+		// the string.
+		{src: `echo "$(echo "a") $( ; )"`, want: []int{21}},
+	}
+
+	for _, test := range tests {
+		got := scanRedundantSeparatorSites([]byte(test.src))
+		if !slices.Equal(got, test.want) {
+			t.Errorf("scanRedundantSeparatorSites(%q) = %v, want %v", test.src, got, test.want)
+		}
 	}
 }
 

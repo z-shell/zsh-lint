@@ -108,7 +108,20 @@ func scanRedundantSeparatorSites(src []byte) []int {
 			commandStart = false
 			continue
 		case b == '"':
+			sites = append(sites, redundantSeparatorSitesInDoubleQuote(src, index)...)
 			index = skipRedundantSeparatorDoubleQuote(src, index)
+			commandStart = false
+			continue
+		case b == '`':
+			// A backquoted command is a list of its own, so its body starts
+			// in command position (#569).
+			if end, ok := skipBackquoted(src, index); ok {
+				sites = append(sites, nestedRedundantSeparatorSites(src, index+1, end)...)
+				index = end + 1
+				commandStart = false
+				continue
+			}
+			index++
 			commandStart = false
 			continue
 		case b == '#' && commandStart:
@@ -158,6 +171,60 @@ func scanRedundantSeparatorSites(src []byte) []int {
 // `;|`, which Zsh reads as a case terminator rather than a separator.
 func isCaseTerminator(src []byte, index int) bool {
 	return index+1 < len(src) && strings.IndexByte(";&|", src[index+1]) >= 0
+}
+
+// nestedRedundantSeparatorSites scans the command list src[from:to], the body
+// of a command substitution or backquoted command, and returns its sites as
+// offsets into src.
+func nestedRedundantSeparatorSites(src []byte, from, to int) []int {
+	sites := scanRedundantSeparatorSites(src[from:to])
+	for i := range sites {
+		sites[i] += from
+	}
+	return sites
+}
+
+// redundantSeparatorSitesInDoubleQuote returns the sites inside the command
+// substitutions and backquoted commands of the double-quoted string opened at
+// open (#569): `print "$( ; print a )"` runs the list `; print a`, whose `;`
+// ends an empty sublist as it does unquoted. Arithmetic and parameter
+// expansions are stepped over, not entered. When the string's extent is not
+// certain (an unclosed string, backquote or substitution, or one
+// skipCommandSubstitution refuses), no site is reported and the string keeps
+// the verdict it had before.
+func redundantSeparatorSitesInDoubleQuote(src []byte, open int) []int {
+	var sites []int
+	for i := open + 1; i < len(src); i++ {
+		switch src[i] {
+		case '\\':
+			i++
+		case '"':
+			return sites
+		case '`':
+			end, ok := skipBackquoted(src, i)
+			if !ok {
+				return nil
+			}
+			sites = append(sites, nestedRedundantSeparatorSites(src, i+1, end)...)
+			i = end
+		case '$':
+			if i+2 < len(src) && src[i+1] == '(' && src[i+2] != '(' {
+				end, ok := skipCommandSubstitution(src, i+1)
+				if !ok {
+					return nil
+				}
+				sites = append(sites, nestedRedundantSeparatorSites(src, i+2, end)...)
+				i = end
+				continue
+			}
+			end, ok := skipDollarExpansion(src, i, true)
+			if !ok {
+				return nil
+			}
+			i = end
+		}
+	}
+	return nil
 }
 
 // skipRedundantSeparatorQuote returns the offset just past the quote opened
