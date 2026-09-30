@@ -102,8 +102,10 @@ func parseRedundantSeparatorWithParser(
 }
 
 // retryBaseSites is base's retry: blank every site base's scanner finds and
-// parse once, returning firstErr when that fails or there is nothing to
-// blank.
+// parse once, returning firstErr when that fails. Both callers pass a
+// non-empty set (the nested path only when the reported `;` is one of these
+// sites, the top-level path after its own empty check), so the retry never
+// re-parses the unchanged source.
 func retryBaseSites(
 	src []byte,
 	sites []int,
@@ -111,9 +113,6 @@ func retryBaseSites(
 	parse func([]byte, string) (*syntax.File, error),
 	firstErr error,
 ) (*syntax.File, error) {
-	if len(sites) == 0 {
-		return nil, firstErr
-	}
 	masked := bytes.Clone(src)
 	for _, offset := range sites {
 		masked[offset] = ' '
@@ -241,8 +240,8 @@ func scanRedundantSeparatorSites(src []byte) []int {
 
 // scanBaseSeparatorSites returns the sites the scanner found before #569: an
 // unquoted backquoted body is read as top-level text, so its `;` sites are
-// top-level sites, and nothing inside a double-quoted string is a site. It
-// keeps the redirection rule, which only removes sites.
+// top-level sites, nothing inside a double-quoted string is a site, and no
+// redirection rule applies. It is main's scan unchanged.
 func scanBaseSeparatorSites(src []byte) []int {
 	sites, _ := scanSites(src, false)
 	return sites
@@ -283,9 +282,9 @@ func scanSites(src []byte, nesting bool) (sites, nested []int) {
 			commandStart = false
 			continue
 		case b == '"':
-			if nesting {
-				nested = append(nested, redundantSeparatorSitesInDoubleQuote(src, index)...)
-			}
+			// With nesting off the nested sites are discarded by the
+			// caller, so the string's sites are collected either way.
+			nested = append(nested, redundantSeparatorSitesInDoubleQuote(src, index)...)
 			index = skipRedundantSeparatorDoubleQuote(src, index)
 			commandStart = false
 			continue
@@ -313,10 +312,13 @@ func scanSites(src []byte, nesting bool) (sites, nested []int) {
 			// Each of these opens a new sublist. `&&`, `||` and `;&` are
 			// two bytes, but the second is handled on its own turn and
 			// leaves commandStart true either way.
-			if isRedirectionOperatorByte(src, index) {
+			if nesting && isRedirectionOperatorByte(src, index) {
 				// `>&`, `<&`, `>|` and `>&|` are redirection operators whose
 				// word still follows, so a `;` after one is a parse error,
-				// not an empty sublist (#569 review).
+				// not an empty sublist (#569 review). Only the nested scan
+				// applies this: the byte test misreads an escaped `\>` or a
+				// `<1-3>` glob, and base's scan must stay main's exactly so
+				// its fallback never loses a site main masks (#570 review).
 				index++
 				commandStart = false
 				continue

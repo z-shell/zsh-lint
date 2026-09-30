@@ -156,7 +156,6 @@ func TestParseRedundantSeparatorInNestedListsZshRejects(t *testing.T) {
 		`echo "$( ; )"; print a 2>& ; print b`,
 		`echo "$( ; )"; print a >&| ; print b`,
 		`echo "$( ; )"; echo "$(print a >& ; print b)"`,
-		`; print a >& ; print b`,
 	}
 
 	for _, src := range sources {
@@ -364,6 +363,20 @@ func TestParseRedundantSeparatorBackquoteKeepsBaseVerdict(t *testing.T) {
 		"echo `repeat 2 do print a; ; done`",
 		"echo `repeat 2 { : ; ; }`",
 		"f() { echo `repeat 2 { : ; ; }`; }",
+		// Review of 048e427: base's scan has no redirection rule, so an
+		// escaped `\>` or a `<1-3>` glob before `&` keeps its site.
+		`print a\>& ; print b`,
+		`f() { print <->& ; print b; }`,
+		`print <1-3>& ; print b`,
+		`print <->&| ; print b`,
+		"echo `print a\\>& ; print b`",
+		`f() { print a\>&| ; print b; }`,
+		`print a\<& ; print b`,
+		`: \<& ; :`,
+		`if true; then print a\>& ; fi`,
+		`print a\>& ; ;`,
+		`print $x\<& ; print b`,
+		"print a\\>&	; print b",
 	} {
 		if err := parseString(t, src); err != nil {
 			t.Errorf("valid Zsh must parse: %q\nerror: %v", src, err)
