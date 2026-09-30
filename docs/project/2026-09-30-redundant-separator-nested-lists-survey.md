@@ -24,6 +24,9 @@ After each nested retry the tree is checked: a blank that lands inside a literal
 A `;` that really ends an empty sublist owns no node, so this keeps every word, string and comment as written.
 A blank can also land between two operands rather than inside text: after `||`, `&&` or `(` inside `[[ ]]`, inside `(( ))` or `$(( ))`, or among a case arm's patterns, where the masked source still parses.
 So every nested site still blanked must also lie in a gap of a statement list: the smallest node holding it must be a command substitution, process substitution, brace group, subshell, `if`, `while` or `until`, `for`, a `&&`, `||` or pipe list, or a case arm past the `)` that closes its patterns.
+Base read an unquoted backquoted body as top-level text and masked its `;` with the rest of the file.
+Whenever the nested pass does not accept (a body holding `$'` or `<<` reports no nested site, or a `;` sits in a list the gap check does not name, such as `repeat`), the file falls back to base's own retry over base's own sites, so no file loses the verdict it has on `main`.
+A nested `;` base could not read (inside a double-quoted string) still returns the parser's error.
 No adapter, gate or existing test changed.
 
 ## Rows
@@ -67,7 +70,7 @@ Rows 16 to 21 are the review shapes: a #572-class `;` beside or inside a nested 
 - Probe grid (8 bodies in every `zsh-lint-probe` context): 208 files, 203 unchanged, 5 fixed, no regression and no false accept.
 - Row grid (70 sources): 45 unchanged, 23 fixed, 2 rejected, no regression and no false accept.
   The two rejected rows, `; print a >& ; print b` and `echo $( ; ); print a >& ; print b`, are false accepts on base that the redirection rule removes.
-- Four independent review grids (533 rows, including a fixed nested `;` beside or inside a body with an invalid `;` in a glob group, `[[ ]]` pattern or operand, arithmetic, process substitution, redirection, `${...}`, `$'...'`, a quoted string or a comment), judged native, base, fixed: no regression, 3 base false accepts removed, the pre-existing false accepts left.
+- Five independent review grids (772 rows, including a fixed nested `;` beside or inside a body with an invalid `;` in a glob group, `[[ ]]` pattern or operand, arithmetic, process substitution, redirection, `${...}`, `$'...'`, a quoted string or a comment, and valid backquoted bodies holding `$'`, `<<`, `<<<` or `repeat`), judged native, base, fixed: no regression, 3 base false accepts removed, the pre-existing false accepts left.
   Three rows change from rejected to accepted although top-level `zsh -f -n` rejects them: `echo "$( ; )"; print ${(;)x}`, its backquoted twin and `echo "$( ; )"; print $x[(r);]`.
   `zsh -f -n` reports those only through expansion at the top level (`error in flags`, section 3 of `parser-gap-workflow.md`); the same text inside a function body passes it, and base already accepts `print ${(;)x}` alone.
   Two more, `; echo "$( ; )"; print a(;)` and its backquoted twin, are accepted because base accepts the same file without the nested `;` (#572).
@@ -81,7 +84,7 @@ Rows 16 to 21 are the review shapes: a #572-class `;` beside or inside a nested 
 - Mutation (`mutation.sh`): every decided mutant killed; the backquote `case` line reads as not covered, as `case` expressions do.
 - Parse cost (`-trace-parses` over the corpus): 625 parses before and 626 after, the difference being the fixed `ok-redundant-separator-nested.zsh`, which now takes the adapter's one retry (2 parses, adapter depth 1); a test pins one retry for a file with several nested sites.
   A nested retry that finds text parses once more, and a failed nested attempt on the top-level path adds one parse before base's own retry.
-- Hand mutants of the change (61): 57 killed.
+- Hand mutants of the change (62): 58 killed.
   One starts the nested scan one byte early on the `(`, which the scan reads as an opener and the offset shift cancels.
   One changes the redirection rule's `index == 0` bound, which only guards reading `src[-1]`.
   Two remove a restore check that no measured source reaches: skipping the check after the second parse, and not restoring a single-quoted string, whose `;` the scanner already skips as a quote; a 261-row generated grid gives identical verdicts and trees for both.

@@ -347,6 +347,30 @@ func TestParseRedundantSeparatorNestedSiteInListGaps(t *testing.T) {
 	}
 }
 
+// Review of 5a3e075: a backquoted body the nested pass cannot use (it holds
+// `$'`, `<<` or `$((... << ...))`, or its `;` sits in a list the gap check
+// does not cover, such as `repeat`) keeps base's handling, which reads the
+// body as top-level text. Each row is valid Zsh that base accepts.
+func TestParseRedundantSeparatorBackquoteKeepsBaseVerdict(t *testing.T) {
+	for _, src := range []string{
+		"echo `print a; ; print $'b'`",
+		"echo `print a; ; cat <<<b`",
+		"echo `print a; ; cat <<E\nx\nE\n`",
+		"echo `print $((1<<2)); ; print a`",
+		"echo `print a; ; print ${x#$'b'}`",
+		"echo `print a; ; x=$'b'`",
+		"print x; ; echo `print $'b'; ; print c`",
+		"; echo `print a; ; print $'b'`",
+		"echo `repeat 2 do print a; ; done`",
+		"echo `repeat 2 { : ; ; }`",
+		"f() { echo `repeat 2 { : ; ; }`; }",
+	} {
+		if err := parseString(t, src); err != nil {
+			t.Errorf("valid Zsh must parse: %q\nerror: %v", src, err)
+		}
+	}
+}
+
 // When the parser reports a top-level `;`, the nested sites join the
 // top-level pass: one retry, and the verdict base gives the file without
 // them. With a counting parser that does not re-enter the adapters, the

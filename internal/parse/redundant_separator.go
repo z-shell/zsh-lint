@@ -50,7 +50,12 @@ func parseRedundantSeparatorWithParser(
 		return nil, firstErr
 	}
 
-	top, nested := scanSeparatorSites(src)
+	_, nested := scanSeparatorSites(src)
+	// base is the site set base's scanner finds, which reads an unquoted
+	// backquoted body as top-level text. Every path that does not accept
+	// through a checked nested retry ends in base's own retry over these
+	// sites, so no file loses the verdict it has on main (#570 review).
+	base := scanBaseSeparatorSites(src)
 
 	// Sites inside nested lists (#569) are masked in a pass of their own
 	// when the parser reports one of them, without the top-level sites.
@@ -62,7 +67,13 @@ func parseRedundantSeparatorWithParser(
 		if tree, ok := retryNestedSites(src, nested, name, parse); ok {
 			return tree, nil
 		}
-		return nil, firstErr
+		// Only a `;` base could read, one in an unquoted backquoted body,
+		// falls back to base's retry; any other nested `;` is one base
+		// rejects too.
+		if !slices.Contains(base, reported) {
+			return nil, firstErr
+		}
+		return retryBaseSites(src, base, name, parse, firstErr)
 	}
 
 	// No check that the reported offset is one of the sites. The parser
@@ -72,20 +83,40 @@ func parseRedundantSeparatorWithParser(
 	// "`;;` can only be used in a case clause" or a case-pattern error).
 	// A membership check here would be unreachable, so it is left out
 	// rather than shipped as a guard no test can pin.
-	if len(top) == 0 {
+	if len(base) == 0 {
 		return nil, firstErr
 	}
 	masked := bytes.Clone(src)
-	for _, offset := range top {
+	for _, offset := range base {
 		masked[offset] = ' '
 	}
 
-	// When the parser reports a top-level `;`, the nested sites join this
-	// pass, so one retry covers both and the tree is what base gives the
-	// file without them. When the nested sites do not hold, the pass is
-	// base's own.
+	// When the parser reports a top-level `;`, the nested sites join
+	// base's pass, so one retry covers both and the tree is what base
+	// gives the file without them. When the nested sites do not hold, the
+	// pass is base's own.
 	if tree, ok := retryNestedSites(masked, nested, name, parse); ok {
 		return tree, nil
+	}
+	return retryBaseSites(src, base, name, parse, firstErr)
+}
+
+// retryBaseSites is base's retry: blank every site base's scanner finds and
+// parse once, returning firstErr when that fails or there is nothing to
+// blank.
+func retryBaseSites(
+	src []byte,
+	sites []int,
+	name string,
+	parse func([]byte, string) (*syntax.File, error),
+	firstErr error,
+) (*syntax.File, error) {
+	if len(sites) == 0 {
+		return nil, firstErr
+	}
+	masked := bytes.Clone(src)
+	for _, offset := range sites {
+		masked[offset] = ' '
 	}
 	tree, err := parse(masked, name)
 	if err != nil {
@@ -208,10 +239,26 @@ func scanRedundantSeparatorSites(src []byte) []int {
 	return top
 }
 
+// scanBaseSeparatorSites returns the sites the scanner found before #569: an
+// unquoted backquoted body is read as top-level text, so its `;` sites are
+// top-level sites, and nothing inside a double-quoted string is a site. It
+// keeps the redirection rule, which only removes sites.
+func scanBaseSeparatorSites(src []byte) []int {
+	sites, _ := scanSites(src, false)
+	return sites
+}
+
 // scanSeparatorSites returns the top-level sites of src and, separately, the
 // sites inside its backquoted commands and the command substitutions of its
 // double-quoted strings, each nested list scanned as a list of its own.
 func scanSeparatorSites(src []byte) (sites, nested []int) {
+	return scanSites(src, true)
+}
+
+// scanSites is scanSeparatorSites; with nesting off it reads a backquote as
+// an ordinary byte and reports no nested site, as the scanner did before
+// #569.
+func scanSites(src []byte, nesting bool) (sites, nested []int) {
 	// commandStart tracks whether the next active byte opens a sublist.
 	// It begins true because a file may open with a redundant `;`.
 	commandStart := true
@@ -236,11 +283,13 @@ func scanSeparatorSites(src []byte) (sites, nested []int) {
 			commandStart = false
 			continue
 		case b == '"':
-			nested = append(nested, redundantSeparatorSitesInDoubleQuote(src, index)...)
+			if nesting {
+				nested = append(nested, redundantSeparatorSitesInDoubleQuote(src, index)...)
+			}
 			index = skipRedundantSeparatorDoubleQuote(src, index)
 			commandStart = false
 			continue
-		case b == '`':
+		case b == '`' && nesting:
 			// A backquoted command is a list of its own, so its body starts
 			// in command position (#569).
 			if end, ok := skipBackquoted(src, index); ok {
