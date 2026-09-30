@@ -61,30 +61,21 @@ func (m *Map) Index(node syntax.Node) {
 			}
 			isExport := cmdName == "export"
 			isLocal := cmdName == "local" || cmdName == "typeset" || cmdName == "declare"
-			// export rejects -A at run time, so only these four commands
-			// can make a name associative. Options apply to every name after
-			// them; Zsh rejects an option placed after a name ("not valid in
-			// this context"), so the scan need not track where options end.
-			canAssoc := isLocal || cmdName == "readonly"
-			isAssoc := false
 
-			for _, assign := range x.Args {
+			args := make([]declArg, len(x.Args))
+			for i, assign := range x.Args {
+				if assign.Name != nil {
+					args[i] = declArg{name: assign.Name.Value}
+					continue
+				}
+				args[i].text, args[i].readable = wordText(assign.Value)
+			}
+			// export rejects -A at run time, so it never makes a name
+			// associative.
+			assoc := m.noteAssociative(associativeCommands[cmdName], args)
+
+			for i, assign := range x.Args {
 				if assign.Name == nil {
-					word := nakedLiteral(assign)
-					switch {
-					case strings.HasPrefix(word, "-"):
-						if canAssoc && strings.ContainsRune(word, 'A') {
-							isAssoc = true
-						}
-					case strings.HasPrefix(word, "+"):
-						if strings.ContainsRune(word, 'A') {
-							isAssoc = false
-						}
-					case word == "" && isAssoc:
-						// Quoted or computed name (typeset -A "$n"): with
-						// -A it may be any name.
-						m.anyAssociative = true
-					}
 					continue
 				}
 				sym := Symbol{
@@ -94,14 +85,16 @@ func (m *Map) Index(node syntax.Node) {
 					Pos:         assign.Pos(),
 					Exported:    isExport,
 					Local:       isLocal,
-					Associative: isAssoc,
-				}
-				if isAssoc {
-					m.associative[sym.Name] = true
+					Associative: assoc[i],
 				}
 				m.Add(sym)
 			}
+			// The walk stops here so the assignments above are not indexed
+			// twice; an (AA) flag in a value still creates a name.
+			m.noteAssociativeFlags(x)
 			return false
+		case *syntax.ParamExp:
+			m.noteAssociativeFlag(x)
 		case *syntax.CallExpr:
 			if len(x.Args) == 0 {
 				return true
@@ -109,6 +102,15 @@ func (m *Map) Index(node syntax.Node) {
 			cmdName := extractLiteral(x.Args[0])
 
 			isAlias := cmdName == "alias"
+
+			// Commands that can make a name associative: a declaration the
+			// parser did not recognise (builtin typeset, 'typeset', private),
+			// zparseopts -A, zstat -H, ztie and eval. Only the attribute is
+			// read: recording a Symbol would change what IsDeclared answers
+			// for existing rules.
+			if cmd, rest := commandCall(x.Args); cmd != "" {
+				m.noteAssociativeCall(cmd, rest)
+			}
 
 			// Under the Bash parser variant, export/local/typeset/declare are
 			// DeclClause nodes handled above. CallExpr declaration handling
@@ -160,20 +162,6 @@ func (m *Map) processAliasArg(arg *syntax.Word) {
 			break
 		}
 	}
-}
-
-// nakedLiteral returns the text of a name-less declaration argument that is
-// one unquoted literal word, such as an option (-gA) or a terminator (--),
-// and "" for anything else: a quoted or computed word the indexer cannot
-// read. Such an argument is always Naked, so Naked is not checked.
-func nakedLiteral(assign *syntax.Assign) string {
-	if assign == nil || assign.Value == nil || len(assign.Value.Parts) != 1 {
-		return ""
-	}
-	if lit, ok := assign.Value.Parts[0].(*syntax.Lit); ok {
-		return lit.Value
-	}
-	return ""
 }
 
 // extractLiteral attempts to pull the literal text out of a Word node safely.

@@ -24,7 +24,8 @@ type Symbol struct {
 	Local    bool        // True if 'local' or 'typeset' was used inside a function
 	// Associative is true when this declaration gave the name the
 	// associative-array attribute (-A). A name's type can change within a
-	// file, so a rule should ask Map.MayBeAssociative, not one Symbol.
+	// file, and other constructs create associative arrays too, so a rule
+	// should ask Map.MayBeAssociative, not one Symbol.
 	Associative bool
 }
 
@@ -42,9 +43,9 @@ type Map struct {
 	// The current function context during Pass 1 (nil if at top-level)
 	currentFunc *syntax.FuncDecl
 
-	// associative holds every name any declaration in the file made
-	// associative, in any scope; anyAssociative is set by an associative
-	// declaration whose name the indexer cannot read.
+	// associative holds every name a construct in the file made
+	// associative, in any scope; anyAssociative is set when such a
+	// construct names something the indexer cannot read.
 	associative    map[string]bool
 	anyAssociative bool
 }
@@ -52,9 +53,8 @@ type Map struct {
 // NewMap creates an empty scope map.
 func NewMap() *Map {
 	return &Map{
-		Globals:     make(map[string]Symbol),
-		Locals:      make(map[*syntax.FuncDecl]map[string]Symbol),
-		associative: make(map[string]bool),
+		Globals: make(map[string]Symbol),
+		Locals:  make(map[*syntax.FuncDecl]map[string]Symbol),
 	}
 }
 
@@ -86,16 +86,23 @@ func (m *Map) IsDeclared(name string, context *syntax.FuncDecl) bool {
 	return exists
 }
 
-// MayBeAssociative reports whether any declaration in the file may make
-// name an associative array, in any scope and at any position.
+// MayBeAssociative reports whether name may be an associative array at
+// some point in this file: a special parameter that is associative in Zsh
+// itself (options, commands, parameters, terminfo and the like), or a name
+// any construct in the file may make associative, in any scope and at any
+// position.
 //
 // The answer is deliberately file-wide. The attribute sticks through a
 // plain reassignment, but unset clears it and a later declaration can
 // give the same name another type, so a name's type depends on position
-// and execution path, which this index does not model. A rule that
-// rejects source only when this returns false therefore never rejects
-// code that is valid on an associative array, at the cost of staying
-// silent on a name that is associative somewhere else in the file.
+// and execution path, which this index does not model.
+//
+// It is also file-local: a global declared associative in another file,
+// such as a plugin's entry point, is invisible here. A false answer
+// therefore means only that nothing in this file makes the name
+// associative. A rule must not reject a subscript on that alone; it also
+// needs evidence that the name is not associative, such as a declaration
+// of another type in scope, or project-wide context.
 func (m *Map) MayBeAssociative(name string) bool {
-	return m.anyAssociative || m.associative[name]
+	return m.anyAssociative || m.associative[name] || specialAssociative[name]
 }
