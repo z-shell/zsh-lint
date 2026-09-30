@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"bytes"
 	"slices"
 	"strings"
 	"testing"
@@ -223,9 +224,81 @@ func TestScanRedundantSeparatorSitesInNestedLists(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		got := scanRedundantSeparatorSites([]byte(test.src))
+		top, nested := scanSeparatorSites([]byte(test.src))
+		got := slices.Sorted(slices.Values(append(top, nested...)))
+		if len(got) == 0 {
+			got = nil
+		}
 		if !slices.Equal(got, test.want) {
-			t.Errorf("scanRedundantSeparatorSites(%q) = %v, want %v", test.src, got, test.want)
+			t.Errorf("scanSeparatorSites(%q) = %v + %v, want %v", test.src, top, nested, test.want)
+		}
+	}
+}
+
+// A nested site is masked only with other nested sites, never with the
+// top-level ones, so fixing it never lets the top-level mask accept a file
+// that base rejects for an unrelated `;` (review of #570, #572). Each source
+// fails `zsh -f -n`; with the nested `;` removed, base rejects it too.
+func TestParseRedundantSeparatorNestedSiteDoesNotUnblockOthers(t *testing.T) {
+	sources := []string{
+		`echo "$( ; )"; print a(;)`,
+		`echo "$( ; )"; print *(;)`,
+		"echo `;`; print a(;)",
+		`echo "$( ; )"; print a > ( ; print b)`,
+		`echo "$( ; )"; [[ a == (;) ]]`,
+		`f() { echo "$( ; )"; print a(;); }`,
+		"f() { echo `;`; print a > ( ; print b); }",
+		`f() { echo "$( ; )"; print *(|;); }`,
+	}
+	for _, src := range sources {
+		if err := parseString(t, src); err == nil {
+			t.Errorf("invalid Zsh must stay rejected: %q", src)
+		}
+	}
+}
+
+// When the parser reports a top-level `;`, the nested sites join the
+// top-level pass: one retry, and the verdict base gives the file without
+// them. With a counting parser that does not re-enter the adapters, the
+// retry must already see the nested `;` blanked.
+func TestParseRedundantSeparatorTopLevelPassIncludesNestedSites(t *testing.T) {
+	src := []byte("; echo \"$( ; )\" `;`")
+	var calls int
+	var seen []byte
+	parse := func(masked []byte, name string) (*syntax.File, error) {
+		calls++
+		seen = masked
+		return syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(bytes.NewReader(masked), name)
+	}
+	_, firstErr := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(bytes.NewReader(src), "t.zsh")
+	if firstErr == nil {
+		t.Fatal("source must fail the unadapted parser for this test to mean anything")
+	}
+	if _, err := parseRedundantSeparatorWithParser(src, "t.zsh", firstErr, parse); err != nil {
+		t.Fatalf("must parse in one retry: %v (retry source %q)", err, seen)
+	}
+	if calls != 1 || bytes.Contains(seen, []byte(";")) {
+		t.Fatalf("retry parser called %d times with %q, want once with every `;` blanked", calls, seen)
+	}
+}
+
+// Masking the nested sites leaves every other byte as written: a `;` inside
+// `${...}` or `$'...'` elsewhere in the file keeps its text.
+func TestParseRedundantSeparatorNestedSiteKeepsOtherBytes(t *testing.T) {
+	for src, want := range map[string]string{
+		"echo \"$( ; )\"; print ${x:-\n;}": "${x:-\n;}",
+		`echo "$( ; )"; print $'a\'; ;'`:   `$'a\'; ;'`,
+	} {
+		file, err := Parse(strings.NewReader(src+"\n"), "t.zsh")
+		if err != nil {
+			t.Fatalf("valid Zsh must parse: %q\nerror: %v", src, err)
+		}
+		var out strings.Builder
+		if err := syntax.NewPrinter().Print(&out, file.tree); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("tree of %q lost %q:\n%s", src, want, out.String())
 		}
 	}
 }
@@ -279,5 +352,31 @@ func TestParseRedundantSeparatorParsesOnce(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("retry parser called %d times, want 1", calls)
+	}
+}
+
+// Nested sites are masked in one pass too (#366): a file holding many of
+// them costs one retry, and the retry sees every nested `;` blanked.
+func TestParseRedundantSeparatorNestedSitesParseOnce(t *testing.T) {
+	src := []byte("echo \"$( ; )\" \"$( ; )\" `;` \"$(print a; ; print b)\"")
+	var calls int
+	var seen []byte
+	parse := func(masked []byte, name string) (*syntax.File, error) {
+		calls++
+		seen = masked
+		return syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(bytes.NewReader(masked), name)
+	}
+	_, firstErr := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(bytes.NewReader(src), "t.zsh")
+	if firstErr == nil {
+		t.Fatal("source must fail the unadapted parser for this test to mean anything")
+	}
+	if _, err := parseRedundantSeparatorWithParser(src, "t.zsh", firstErr, parse); err != nil {
+		t.Fatalf("must parse: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("retry parser called %d times, want 1", calls)
+	}
+	if n := bytes.Count(seen, []byte(";")); n != 1 {
+		t.Fatalf("retry source %q keeps %d `;`, want only the ordinary terminator", seen, n)
 	}
 }

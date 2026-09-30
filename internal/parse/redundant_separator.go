@@ -3,6 +3,7 @@ package parse
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -49,7 +50,30 @@ func parseRedundantSeparatorWithParser(
 		return nil, firstErr
 	}
 
-	sites := scanRedundantSeparatorSites(src)
+	top, nested := scanSeparatorSites(src)
+
+	// Sites inside nested lists (#569) are masked together, in one pass,
+	// when the parser reports one of them, and without the top-level sites.
+	// Masking both sets there let a fixed substitution unblock the
+	// top-level mask on a file base rejects for an unrelated reason: after
+	// `print a(;)` or `print a >& ;` the top-level scan also finds a `;`
+	// Zsh rejects (#572).
+	if reported := int(parseErr.Pos.Offset()); slices.Contains(nested, reported) {
+		masked := bytes.Clone(src)
+		for _, offset := range nested {
+			masked[offset] = ' '
+		}
+		tree, err := parse(masked, name)
+		if err != nil {
+			return nil, firstErr
+		}
+		return tree, nil
+	}
+
+	// When the parser reports a top-level `;`, base already runs this
+	// one-pass mask over the whole file, so the nested sites join it: the
+	// verdict is base's verdict on the file without them, in one retry.
+	sites := append(top, nested...)
 	if len(sites) == 0 {
 		return nil, firstErr
 	}
@@ -80,10 +104,19 @@ func parseRedundantSeparatorWithParser(
 // A `;` that follows a statement is the ordinary terminator and is left
 // alone. A `;;`, `;&` or `;|` is a case terminator, which Zsh rejects here
 // too, so those are left to the parser. Bytes inside quotes, comments and
-// escapes are skipped, so a `;` in `print 'a;'` is never a site.
+// escapes are skipped, so a `;` in `print 'a;'` is never a site. A
+// backquoted command is stepped over; the sites inside it and inside the
+// substitutions of a double-quoted string are nested sites, which
+// scanSeparatorSites reports separately.
 func scanRedundantSeparatorSites(src []byte) []int {
-	var sites []int
+	top, _ := scanSeparatorSites(src)
+	return top
+}
 
+// scanSeparatorSites returns the top-level sites of src and, separately, the
+// sites inside its backquoted commands and the command substitutions of its
+// double-quoted strings, each nested list scanned as a list of its own.
+func scanSeparatorSites(src []byte) (sites, nested []int) {
 	// commandStart tracks whether the next active byte opens a sublist.
 	// It begins true because a file may open with a redundant `;`.
 	commandStart := true
@@ -108,7 +141,7 @@ func scanRedundantSeparatorSites(src []byte) []int {
 			commandStart = false
 			continue
 		case b == '"':
-			sites = append(sites, redundantSeparatorSitesInDoubleQuote(src, index)...)
+			nested = append(nested, redundantSeparatorSitesInDoubleQuote(src, index)...)
 			index = skipRedundantSeparatorDoubleQuote(src, index)
 			commandStart = false
 			continue
@@ -116,7 +149,7 @@ func scanRedundantSeparatorSites(src []byte) []int {
 			// A backquoted command is a list of its own, so its body starts
 			// in command position (#569).
 			if end, ok := skipBackquoted(src, index); ok {
-				sites = append(sites, nestedRedundantSeparatorSites(src, index+1, end)...)
+				nested = append(nested, nestedRedundantSeparatorSites(src, index+1, end)...)
 				index = end + 1
 				commandStart = false
 				continue
@@ -172,7 +205,7 @@ func scanRedundantSeparatorSites(src []byte) []int {
 		}
 	}
 
-	return sites
+	return sites, nested
 }
 
 // isCaseTerminator reports whether the `;` at index begins `;;`, `;&` or
@@ -205,7 +238,8 @@ func nestedRedundantSeparatorSites(src []byte, from, to int) []int {
 	if bytes.Contains(body, []byte("$'")) || bytes.Contains(body, []byte("<<")) {
 		return nil
 	}
-	sites := scanRedundantSeparatorSites(body)
+	top, inner := scanSeparatorSites(body)
+	sites := append(top, inner...)
 	for i := range sites {
 		sites[i] += from
 	}
