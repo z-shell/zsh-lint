@@ -1311,7 +1311,7 @@ func (p *Parser) wordParts(wps []WordPart) []WordPart {
 	}
 	for {
 		p.openNodes++
-		n := p.wordPart()
+		n := p.wordPart(len(wps) > 0)
 		p.openNodes--
 		if n == nil {
 			if len(wps) == 0 {
@@ -1695,7 +1695,9 @@ func (p *Parser) zshNumGlobConsume() bool {
 	}
 }
 
-func (p *Parser) wordPart() WordPart {
+// wordPart reads the next part of a word. cont reports that the part
+// continues a word whose earlier parts were already read.
+func (p *Parser) wordPart(cont bool) WordPart {
 	switch p.tok {
 	case _Lit, _LitWord, _LitRedir:
 		l := p.lit(p.pos, p.val)
@@ -1857,48 +1859,18 @@ func (p *Parser) wordPart() WordPart {
 			// Zsh glob qualifier like *(N) or .(:a); the only case where
 			// ( immediately after a word is not a glob qualifier is ()
 			// for a function declaration, which the parser handles earlier.
-			pos := p.pos
-			p.pos = p.nextPos()
-			// A `)` that is quoted, or that closes a command substitution,
-			// does not end the group (#439).
-			var nest []byte
-			var sub *zshGroupSubst
-			broke := false
-			for p.newLit(p.r); p.r != runeEOF && (p.r != ')' || len(nest) > 0); p.rune() {
-				before := len(nest)
-				if p.zshCondOperand && (len(nest) == 0 || zshCondNest(nest[len(nest)-1])) {
-					// An error ends the loop: posErr moves p.r to EOF.
-					nest = p.zshCondGroupRune(nest)
-				} else if len(nest) == 0 || nest[len(nest)-1] == 'g' {
-					var ok bool
-					if nest, ok = p.zshWordGroupRune(nest); !ok {
-						broke = true
-						break
-					}
-				} else {
-					nest = p.zshGroupRune(nest)
-				}
-				sub = p.zshGroupSubstStep(sub, before, nest)
-			}
-			if broke {
-				// The word ends inside the group, as in `a(b;c)`: the
-				// group stays open and the byte at p.r is lexed as the
-				// next token, which is what Zsh does (#511).
-				p.zshBrokenGroup = pos
-				p.val = p.endLit()
-				l := p.lit(pos, "("+p.val)
-				p.next()
-				return l
-			}
-			if p.r != ')' {
-				p.tok = _EOF // we can only get here due to EOF
-				p.matchingErr(pos, leftParen, rightParen)
-			}
-			p.rune()
-			p.val = p.endLit()
-			l := p.lit(pos, "("+p.val)
-			p.next()
-			return l
+			return p.zshGlobGroup(p.pos, "(", nil)
+		}
+		return nil
+	case dblLeftParen:
+		// Zsh: a `((` that continues a word opens a glob group whose
+		// first byte opens a nested group, as in `x((b)c)`, not an
+		// arithmetic command; that reading is only at the start of a
+		// command (#481). Only a part after the first of a word gets
+		// cont. A `((` closed at once stays an error, as `x(()c)` is
+		// in Zsh.
+		if p.lang.in(LangZsh) && cont && p.r != ')' {
+			return p.zshGlobGroup(p.pos, "((", []byte{'g'})
 		}
 		return nil
 	case globQuest, globStar, globPlus, globAt, globExcl:
@@ -1929,6 +1901,52 @@ func (p *Parser) wordPart() WordPart {
 	default:
 		return nil
 	}
+}
+
+// zshGlobGroup reads a Zsh glob group in a word, from the token at pos that
+// opens it, open, to the `)` that closes it. nest is the zshGroupRune stack
+// the token leaves open: `((` that continues a word opens a nested group
+// too (#481). A `)` that is quoted, or that closes a command substitution,
+// does not end the group (#439).
+func (p *Parser) zshGlobGroup(pos Pos, open string, nest []byte) WordPart {
+	p.pos = p.nextPos()
+	var sub *zshGroupSubst
+	broke := false
+	for p.newLit(p.r); p.r != runeEOF && (p.r != ')' || len(nest) > 0); p.rune() {
+		before := len(nest)
+		if p.zshCondOperand && (len(nest) == 0 || zshCondNest(nest[len(nest)-1])) {
+			// An error ends the loop: posErr moves p.r to EOF.
+			nest = p.zshCondGroupRune(nest)
+		} else if len(nest) == 0 || nest[len(nest)-1] == 'g' {
+			var ok bool
+			if nest, ok = p.zshWordGroupRune(nest); !ok {
+				broke = true
+				break
+			}
+		} else {
+			nest = p.zshGroupRune(nest)
+		}
+		sub = p.zshGroupSubstStep(sub, before, nest)
+	}
+	if broke {
+		// The word ends inside the group, as in `a(b;c)`: the
+		// group stays open and the byte at p.r is lexed as the
+		// next token, which is what Zsh does (#511).
+		p.zshBrokenGroup = pos
+		p.val = p.endLit()
+		l := p.lit(pos, open+p.val)
+		p.next()
+		return l
+	}
+	if p.r != ')' {
+		p.tok = _EOF // we can only get here due to EOF
+		p.matchingErr(pos, leftParen, rightParen)
+	}
+	p.rune()
+	p.val = p.endLit()
+	l := p.lit(pos, open+p.val)
+	p.next()
+	return l
 }
 
 func (p *Parser) cmdSubst() *CmdSubst {
@@ -3465,6 +3483,10 @@ func (p *Parser) getAssign(needEqual bool) *Assign {
 		as.Array.Last, p.accComs = p.accComs, nil
 		p.postNested(old)
 		as.Array.Rparen = p.matched(as.Array.Lparen, leftParen, rightParen)
+	} else if as.Value != nil && p.lang.in(LangZsh) {
+		// The value's first literal is read; what follows continues
+		// it, so a `((` there opens a glob group (#481).
+		as.Value.Parts = p.wordParts(as.Value.Parts)
 	} else if w := p.getWord(); w != nil {
 		if as.Value == nil {
 			as.Value = w
@@ -3759,7 +3781,7 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 		} else {
 			w := p.wordOne(name)
 			if p.lang.in(LangZsh) && !p.spaced {
-				w.Parts = append(w.Parts, p.wordParts(nil)...)
+				w.Parts = p.wordParts(w.Parts)
 			}
 			if p.lang.in(LangZsh) && p.tok == leftParen && p.r == ')' {
 				p.next()
@@ -5130,7 +5152,7 @@ loop:
 			w := p.wordOne(p.lit(p.pos, p.val))
 			p.next()
 			if p.lang.in(LangZsh) && !p.spaced {
-				w.Parts = append(w.Parts, p.wordParts(nil)...)
+				w.Parts = p.wordParts(w.Parts)
 			}
 			ce.Args = append(ce.Args, w)
 		case _Lit:
@@ -5202,7 +5224,7 @@ func (p *Parser) funcNameWord() *Word {
 	}
 	var parts []WordPart
 	for p.tok != leftParen {
-		n := p.wordPart()
+		n := p.wordPart(len(parts) > 0)
 		if n == nil {
 			break
 		}

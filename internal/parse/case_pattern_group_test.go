@@ -264,6 +264,39 @@ func TestCasePatternBracketBlankWithoutOpener(t *testing.T) {
 	}
 }
 
+// A `((` glued to text before it in a case pattern opens a glob group
+// holding a nested group, as in `x((b)c)`, so the pattern is one word
+// (#481). Missing the pattern's own `)`, the item stays a parse error.
+func TestCasePatternGluedNestedGroup(t *testing.T) {
+	for _, tt := range []struct {
+		src  string
+		want []string
+	}{
+		{"case x in\n  x((b)c)) print a ;;\nesac", []string{"x((b)c)"}},
+		{"case x in\n  y|x((b)c)) print a ;;\nesac", []string{"y", "x((b)c)"}},
+		{"case x in\n  (x((b)c)|y) print a ;;\nesac", []string{"x((b)c)", "y"}},
+		{"case x in\n  --((a)|b)) print a ;;\nesac", []string{"--((a)|b)"}},
+	} {
+		file, err := Parse(strings.NewReader(tt.src+"\n"), "t.zsh")
+		if err != nil {
+			t.Errorf("%q: %v", tt.src, err)
+			continue
+		}
+		got := casePatterns(t, file.AST())
+		if len(got) != 1 || strings.Join(got[0], "\x00") != strings.Join(tt.want, "\x00") || len(got[0]) != len(tt.want) {
+			t.Errorf("%q: patterns = %q, want %q", tt.src, got, tt.want)
+		}
+	}
+	src, err := os.ReadFile("testdata/invalid-481-glued-group-pattern-without-closer.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parseErr syntax.ParseError
+	if _, err := Parse(strings.NewReader(string(src)), "invalid-481.zsh"); !errors.As(err, &parseErr) {
+		t.Fatalf("Parse() error = %v, want a parse error", err)
+	}
+}
+
 // Native Zsh accepts a case pattern with an empty alternative (#396). The
 // empty alternative matches the empty string.
 func TestCasePatternEmptyAlternative(t *testing.T) {
