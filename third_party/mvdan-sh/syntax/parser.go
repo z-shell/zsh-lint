@@ -558,9 +558,9 @@ type Parser struct {
 
 	// zshCaseHash is set while the first word of a Zsh case item that
 	// begins with `(` is read, up to the `)` that closes that group. Zsh
-	// lexes that word whole, so a `#` glued to the opener or to a `|` in it
-	// is pattern text, as in the globbing flag `(#i)x)`, not a comment
-	// (zsh-lint #482).
+	// lexes that word whole, so a `#` glued to the opener, to a `|` in it or
+	// to the `)` of a leading group is pattern text, as in the globbing flag
+	// `(#i)x)` and the glob operator `(x)#)`, not a comment (zsh-lint #482).
 	zshCaseHash bool
 
 	recoveredErrors  int

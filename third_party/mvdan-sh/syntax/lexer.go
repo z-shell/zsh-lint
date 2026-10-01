@@ -334,8 +334,9 @@ skipSpace:
 				p.advanceLitNone(r)
 				return
 			}
-			// In Zsh, a `#` glued to the `(` that opens a case item or to a
-			// `|` inside that group is pattern text, as in `(#i)x)` (#482).
+			// In Zsh, a `#` glued to the `(` that opens a case item, to a
+			// `|` inside that group, or to the `)` of a leading group is
+			// pattern text, as in `(#i)x)` and `(x)#)` (#482).
 			// Zsh also keeps a blank and a following `#` in that group as
 			// pattern text, `( #i)x)`, but the fork ends the word at the
 			// blank (#578), so a spaced `#` keeps its comment reading here.
