@@ -93,6 +93,100 @@ func TestCasePatternGroupInvalid(t *testing.T) {
 	}
 }
 
+// Zsh reads a case item that begins with `(` as one word, so a `#` glued to
+// that opener or to a `|` inside it is pattern text, as in the globbing flag
+// `(#i)`, not the start of a comment (#482). A `#` glued to the `)` of a
+// leading group is the glob operator `#`.
+func TestCasePatternHashInOpenedGroup(t *testing.T) {
+	for _, tt := range []struct {
+		src  string
+		want []string
+	}{
+		{"case x in\n  (#i)x) print hit ;;\nesac", []string{"(#i)x"}},
+		{"case x in\n  (#b)x) print hit ;;\nesac", []string{"(#b)x"}},
+		{"case x in\n  (#b)(--adj)) print hit ;;\nesac", []string{"(#b)(--adj)"}},
+		{"case x in\n  (#b)(--adj)(=(-|+|)[0-9]#|)) print hit ;;\nesac", []string{"(#b)(--adj)(=(-|+|)[0-9]#|)"}},
+		{"case x in (#i)x|y) : ;; esac", []string{"(#i)x", "y"}},
+		{"case x in (#i)x | y) : ;; esac", []string{"(#i)x", "y"}},
+		{"case x in (#i)(x)) : ;; esac", []string{"(#i)(x)"}},
+		{"case x in (#i)) : ;; esac", []string{"(#i)"}},
+		{"case x in (#)) : ;; esac", []string{"(#)"}},
+		{"case x in (#) : ;; esac", []string{"#"}},
+		{"case x in (#)x) : ;; esac", []string{"(#)x"}},
+		{"case x in (##)) : ;; esac", []string{"(##)"}},
+		{"case x in (#ia2)x) : ;; esac", []string{"(#ia2)x"}},
+		{"case x in (#s)x(#e)) : ;; esac", []string{"(#s)x(#e)"}},
+		{"case x in (a|#i)x) : ;; esac", []string{"(a|#i)x"}},
+		{"case x in (a|#i)) : ;; esac", []string{"(a|#i)"}},
+		{"case x in (a|#i)x|y) : ;; esac", []string{"(a|#i)x", "y"}},
+		{"case x in (a||#b)) : ;; esac", []string{"(a||#b)"}},
+		{"case x in (#i)(a|#b)x) : ;; esac", []string{"(#i)(a|#b)x"}},
+		{"case x in (x)#) : ;; esac", []string{"(x)#"}},
+		{"case x in (x)##) : ;; esac", []string{"(x)##"}},
+		{"case x in (x)#|y) : ;; esac", []string{"(x)#", "y"}},
+		{"case x in (#i)x|(#i)y) : ;; esac", []string{"(#i)x", "(#i)y"}},
+		{"case x in ($(print a)|#i)) : ;; esac", []string{"($(print a)|#i)"}},
+		{"case x in ($(print a)|#i)x) : ;; esac", []string{"($(print a)|#i)x"}},
+		{"case x in (#i)a) #c\n : ;; esac", []string{"(#i)a"}},
+		{"case x in (a)#b) : ;; esac", []string{"(a)#b"}},
+	} {
+		file, err := Parse(strings.NewReader(tt.src+"\n"), "t.zsh")
+		if err != nil {
+			t.Errorf("%q: %v", tt.src, err)
+			continue
+		}
+		got := casePatterns(t, file.AST())
+		if len(got) != 1 || strings.Join(got[0], "|") != strings.Join(tt.want, "|") || len(got[0]) != len(tt.want) {
+			t.Errorf("%q: patterns = %q, want %q", tt.src, got, tt.want)
+		}
+	}
+}
+
+// A `#` that starts a token in a case item is still a comment: after a `|`
+// when the item has no opener or its leading group has closed, after the
+// closing `)`, inside a command substitution in the pattern, and anywhere
+// after the case clause. Zsh rejects each erroring shape here, and reads
+// the pattern-closing one as a comment after the pattern (#482).
+func TestCasePatternHashStartsComment(t *testing.T) {
+	for _, src := range []string{
+		"case x in\n  x|#i) : ;;\nesac",
+		"case x in\n  x|#i)y) : ;;\nesac",
+		"case x in\n  (x)|#i) : ;;\nesac",
+		"case x in\n  (x)y|#i) : ;;\nesac",
+		"case x in\n  (#i)x|#j) : ;;\nesac",
+		"case x in\n  (a|$(print #c))x) : ;;\nesac",
+		"case x in\n  (a|$(print x|#c))x) : ;;\nesac",
+		"case x in\n  (#i)x print a ;;\nesac",
+		"case x in (a) : ;; esac |#c",
+		"case x in (#i)a) : ;; esac |#c",
+		"case x in (a) : esac |#c",
+		"print $(case x in (a) : ;; esac) |#c",
+	} {
+		var parseErr syntax.ParseError
+		if _, err := Parse(strings.NewReader(src+"\n"), "t.zsh"); !errors.As(err, &parseErr) {
+			t.Errorf("%q: error = %v, want a parse error", src, err)
+		}
+	}
+	const after = "case x in\n  (#i)x)#) print a ;;\nesac\n"
+	file, err := Parse(strings.NewReader(after), "t.zsh")
+	if err != nil {
+		t.Fatalf("%q: %v", after, err)
+	}
+	if got := casePatterns(t, file.AST()); len(got) != 1 || strings.Join(got[0], "|") != "(#i)x" {
+		t.Errorf("%q: patterns = %q, want [[(#i)x]]", after, got)
+	}
+	var comments []string
+	syntax.Walk(file.AST(), func(node syntax.Node) bool {
+		if c, ok := node.(*syntax.Comment); ok {
+			comments = append(comments, c.Text)
+		}
+		return true
+	})
+	if strings.Join(comments, "|") != ") print a ;;" {
+		t.Errorf("%q: comments = %q, want [\") print a ;;\"]", after, comments)
+	}
+}
+
 // A syntax error after a case arm whose pattern holds a group keeps its
 // position.
 func TestCasePatternGroupPreservesLaterErrorPosition(t *testing.T) {

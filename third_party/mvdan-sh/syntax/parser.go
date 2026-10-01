@@ -556,6 +556,13 @@ type Parser struct {
 	zshRecOn    int
 	zshIndexEnd int
 
+	// zshCaseHash is set while the first word of a Zsh case item that
+	// begins with `(` is read, up to the `)` that closes that group. Zsh
+	// lexes that word whole, so a `#` glued to the opener or to a `|` in it
+	// is pattern text, as in the globbing flag `(#i)x)`, not a comment
+	// (zsh-lint #482).
+	zshCaseHash bool
+
 	recoveredErrors  int
 	recoverErrorsMax int
 
@@ -767,16 +774,19 @@ type saveState struct {
 	buriedHdocs    int
 	zshCondOperand bool
 	zshBrokenGroup Pos
+	zshCaseHash    bool
 }
 
 func (p *Parser) preNested(quote quoteState) (s saveState) {
 	s.quote, s.buriedHdocs, s.zshCondOperand, s.zshBrokenGroup = p.quote, p.buriedHdocs, p.zshCondOperand, p.zshBrokenGroup
 	p.buriedHdocs, p.quote, p.zshCondOperand, p.zshBrokenGroup = len(p.heredocs), quote, false, Pos{}
+	s.zshCaseHash, p.zshCaseHash = p.zshCaseHash, false
 	return s
 }
 
 func (p *Parser) postNested(s saveState) {
 	p.quote, p.buriedHdocs, p.zshCondOperand, p.zshBrokenGroup = s.quote, s.buriedHdocs, s.zshCondOperand, s.zshBrokenGroup
+	p.zshCaseHash = s.zshCaseHash
 }
 
 func (p *Parser) unquotedWordBytes(w *Word) ([]byte, bool) {
@@ -4467,6 +4477,7 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 		ci := &CaseItem{}
 		ci.Comments, p.accComs = p.accComs, nil
 		lparen := p.pos
+		p.zshCaseHash = p.lang.in(LangZsh) && (p.tok == leftParen || p.tok == dblLeftParen)
 		opened := p.got(leftParen)
 		if !opened && p.tok == dblLeftParen && p.lang.in(LangZsh) {
 			// Zsh: `((x|y)|z)` is the opener, then a glob group that
@@ -4505,6 +4516,7 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 				w := zshCaseGroupWord(lparen, ci.Patterns, bars, p.pos)
 				opened, bars = false, nil
 				p.next()
+				p.zshCaseHash = false
 				if !p.spaced {
 					w.Parts = p.wordParts(w.Parts)
 				}
@@ -4521,6 +4533,7 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 			}
 			bars = append(bars, bar)
 		}
+		p.zshCaseHash = false
 		old := p.preNested(switchCase)
 		p.next()
 		ci.Stmts, ci.Last = p.stmtList(stop)
