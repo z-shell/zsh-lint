@@ -563,6 +563,18 @@ type Parser struct {
 	// `(#i)x)` and the glob operator `(x)#)`, not a comment (zsh-lint #482).
 	zshCaseHash bool
 
+	// zshCaseOpen is set like zshCaseHash, while the first word of a Zsh
+	// case item that begins with `(` is read up to the `)` closing that
+	// group. Zsh lexes that word whole, so a blank inside a bracket
+	// expression of it is part of the bracket expression, as in `(a[ b]*)`
+	// (zsh-lint #483).
+	zshCaseOpen bool
+
+	// zshCaseBrack records, while zshCaseOpen is set, whether the last
+	// literal read ended inside a bracket expression, so the next literal
+	// of the same word starts inside it (#483).
+	zshCaseBrack bool
+
 	recoveredErrors  int
 	recoverErrorsMax int
 
@@ -775,18 +787,23 @@ type saveState struct {
 	zshCondOperand bool
 	zshBrokenGroup Pos
 	zshCaseHash    bool
+	zshCaseOpen    bool
+	zshCaseBrack   bool
 }
 
 func (p *Parser) preNested(quote quoteState) (s saveState) {
 	s.quote, s.buriedHdocs, s.zshCondOperand, s.zshBrokenGroup = p.quote, p.buriedHdocs, p.zshCondOperand, p.zshBrokenGroup
 	p.buriedHdocs, p.quote, p.zshCondOperand, p.zshBrokenGroup = len(p.heredocs), quote, false, Pos{}
 	s.zshCaseHash, p.zshCaseHash = p.zshCaseHash, false
+	s.zshCaseOpen, p.zshCaseOpen = p.zshCaseOpen, false
+	s.zshCaseBrack, p.zshCaseBrack = p.zshCaseBrack, false
 	return s
 }
 
 func (p *Parser) postNested(s saveState) {
 	p.quote, p.buriedHdocs, p.zshCondOperand, p.zshBrokenGroup = s.quote, s.buriedHdocs, s.zshCondOperand, s.zshBrokenGroup
 	p.zshCaseHash = s.zshCaseHash
+	p.zshCaseOpen, p.zshCaseBrack = s.zshCaseOpen, s.zshCaseBrack
 }
 
 func (p *Parser) unquotedWordBytes(w *Word) ([]byte, bool) {
@@ -4478,6 +4495,7 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 		ci.Comments, p.accComs = p.accComs, nil
 		lparen := p.pos
 		p.zshCaseHash = p.lang.in(LangZsh) && (p.tok == leftParen || p.tok == dblLeftParen)
+		p.zshCaseOpen = p.zshCaseHash
 		opened := p.got(leftParen)
 		if !opened && p.tok == dblLeftParen && p.lang.in(LangZsh) {
 			// Zsh: `((x|y)|z)` is the opener, then a glob group that
@@ -4515,6 +4533,9 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 				// word, not as the opener (#452).
 				w := zshCaseGroupWord(lparen, ci.Patterns, bars, p.pos)
 				opened, bars = false, nil
+				// The opener's group has closed, so a blank in the
+				// text glued to it ends the word again (#483).
+				p.zshCaseOpen = false
 				p.next()
 				p.zshCaseHash = false
 				if !p.spaced {
@@ -4534,6 +4555,7 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 			bars = append(bars, bar)
 		}
 		p.zshCaseHash = false
+		p.zshCaseOpen, p.zshCaseBrack = false, false
 		old := p.preNested(switchCase)
 		p.next()
 		ci.Stmts, ci.Last = p.stmtList(stop)
