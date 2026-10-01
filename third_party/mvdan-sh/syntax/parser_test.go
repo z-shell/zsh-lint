@@ -3045,6 +3045,45 @@ func TestZshForeach(t *testing.T) {
 	}
 }
 
+// TestZshCasePatternHash pins the Zsh case pattern lexing of zsh-lint #482:
+// in an item that begins with `(` or `((`, a `#` glued to the opener, to a
+// `|` in that group, or to the `)` of a leading group is pattern text. In
+// Bash, POSIX and mksh it still starts a comment.
+func TestZshCasePatternHash(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		src  string
+		want string
+	}{
+		{"case x in (#i)x) : ;; esac\n", "(#i)x"},
+		{"case x in (a|#i)x) : ;; esac\n", "(a|#i)x"},
+		{"case x in (x)#) : ;; esac\n", "(x)#"},
+		{"case x in ((x)|#i)) : ;; esac\n", "((x)|#i)"},
+		{"case x in ((#i)x|#j)) : ;; esac\n", "((#i)x|#j)"},
+	} {
+		f, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(tc.src), "")
+		if err != nil {
+			t.Errorf("Parse(%q) failed: %v", tc.src, err)
+			continue
+		}
+		cc := f.Stmts[0].Cmd.(*CaseClause)
+		var pats []string
+		for _, w := range cc.Items[0].Patterns {
+			var b strings.Builder
+			qt.Assert(t, qt.IsNil(NewPrinter().Print(&b, w)))
+			pats = append(pats, b.String())
+		}
+		qt.Check(t, qt.Equals(strings.Join(pats, "|"), tc.want), qt.Commentf("%q", tc.src))
+	}
+	for _, lang := range []LangVariant{LangBash, LangPOSIX, LangMirBSDKorn} {
+		for _, src := range []string{"case x in (#i)x) : ;; esac\n", "case x in (#i) : ;; esac\n", "case x in (a|#i) : ;; esac\n"} {
+			if _, err := NewParser(Variant(lang)).Parse(strings.NewReader(src), ""); err == nil {
+				t.Errorf("%v: Parse(%q) succeeded, want the comment to swallow the item", lang, src)
+			}
+		}
+	}
+}
+
 // TestZshFuncNameWord pins the Zsh function name loop (zsh-lint #234): a name
 // is any word, and a token that cannot start a word ends the names.
 func TestZshFuncNameWord(t *testing.T) {
