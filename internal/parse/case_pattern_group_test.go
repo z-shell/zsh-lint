@@ -201,6 +201,69 @@ func TestCasePatternGroupPreservesLaterErrorPosition(t *testing.T) {
 	}
 }
 
+// Zsh reads a case item that begins with `(` as one word up to the matching
+// `)`, so a blank inside a bracket expression of that word is part of the
+// bracket expression, not a word break (#483).
+func TestCasePatternBracketBlank(t *testing.T) {
+	for _, tt := range []struct {
+		src  string
+		want []string
+	}{
+		{"case x in\n  (a[ b]*) print a ;;\nesac", []string{"a[ b]*"}},
+		{"case x in\n  (include[ $TAB]*) print a ;;\nesac", []string{"include[ $TAB]*"}},
+		{"case x in\n  ([ ]) print a ;;\nesac", []string{"[ ]"}},
+		{"case x in\n  (a|[ ]) print a ;;\nesac", []string{"a", "[ ]"}},
+		{"case x in\n  ([ ]|a) print a ;;\nesac", []string{"[ ]", "a"}},
+		{"case x in\n  (a[\tb]*) print a ;;\nesac", []string{"a[\tb]*"}},
+		{"case x in\n  (a[ ]b[ ]c) print a ;;\nesac", []string{"a[ ]b[ ]c"}},
+		{"case x in\n  ([[:space:] ]) print a ;;\nesac", []string{"[[:space:] ]"}},
+		{"case x in\n  ([^ ]) print a ;;\nesac", []string{"[^ ]"}},
+		{"case x in\n  ([] ]) print a ;;\nesac", []string{"[] ]"}},
+		{"case x in\n  (x[ ]y|z) print a ;;\nesac", []string{"x[ ]y", "z"}},
+		{"case x in\n  (a[$x b]) print a ;;\nesac", []string{"a[$x b]"}},
+		{"case x in\n  (a[\"x\" b]) print a ;;\nesac", []string{"a[\"x\" b]"}},
+		{"case x in\n  (a[$(print x) b]) print a ;;\nesac", []string{"a[$(print x) b]"}},
+		{"case x in\n  (a[${x:- y} b]) print a ;;\nesac", []string{"a[${x:- y} b]"}},
+		{"case x in\n  (a[$x b]|c[$y d]) print a ;;\nesac", []string{"a[$x b]", "c[$y d]"}},
+		{"case x in\n  (\"a\"[ b]) print a ;;\nesac", []string{"\"a\"[ b]"}},
+		{"case x in\n  (a) print [ b] ;;\nesac", []string{"a"}},
+	} {
+		file, err := Parse(strings.NewReader(tt.src+"\n"), "t.zsh")
+		if err != nil {
+			t.Errorf("%q: %v", tt.src, err)
+			continue
+		}
+		got := casePatterns(t, file.AST())
+		if len(got) != 1 || strings.Join(got[0], "\x00") != strings.Join(tt.want, "\x00") || len(got[0]) != len(tt.want) {
+			t.Errorf("%q: patterns = %q, want %q", tt.src, got, tt.want)
+		}
+	}
+}
+
+// A blank keeps its pattern-text reading only inside a bracket expression of
+// the group a case item's `(` opens (#483). Without that `(`, or in text glued
+// to a leading group after it has closed, the blank ends the word and Zsh
+// rejects the item; `;`, `&`, `<` and `)` end the word even inside the
+// brackets.
+func TestCasePatternBracketBlankWithoutOpener(t *testing.T) {
+	for _, src := range []string{
+		"case x in\n  a[ b]*) print a ;;\nesac",
+		"case x in\n  x|a[ b]) print a ;;\nesac",
+		"case x in\n  (a[ ;]) print a ;;\nesac",
+		"case x in\n  (a[ &]) print a ;;\nesac",
+		"case x in\n  (a[ <]) print a ;;\nesac",
+		"case x in\n  (x)y[ z]) print a ;;\nesac",
+		"case x in\n  (x)[ ]) print a ;;\nesac",
+		"case x in\n  (a[$x;b]) print a ;;\nesac",
+		"case x in\n  (a[$x) b]) print a ;;\nesac",
+	} {
+		var parseErr syntax.ParseError
+		if _, err := Parse(strings.NewReader(src+"\n"), "t.zsh"); !errors.As(err, &parseErr) {
+			t.Errorf("%q: error = %v, want a parse error", src, err)
+		}
+	}
+}
+
 // Native Zsh accepts a case pattern with an empty alternative (#396). The
 // empty alternative matches the empty string.
 func TestCasePatternEmptyAlternative(t *testing.T) {

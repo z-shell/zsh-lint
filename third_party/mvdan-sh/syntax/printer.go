@@ -1096,14 +1096,24 @@ func (p *Printer) casePatternJoin(pats []*Word) {
 	}
 }
 
+// zshBlanks are the blanks that end a word outside a group: space and tab.
+const zshBlanks = " \t"
+
 // caseNeedsParen reports whether a case item's patterns must print with the
 // optional opening parenthesis because an alternative ends in an unquoted
 // literal `}` (zsh-lint #541). A `}` that closes an expansion or is quoted
-// is part of another word part, so only a trailing *Lit counts.
+// is part of another word part, so only a trailing *Lit counts. A literal
+// holding a blank needs it too: a Zsh pattern such as `(a[ b]*)` keeps the
+// blank only in the group the parenthesis opens (zsh-lint #483).
 func caseNeedsParen(pats []*Word) bool {
 	for _, w := range pats {
 		if len(w.Parts) == 0 {
 			continue
+		}
+		for _, part := range w.Parts {
+			if lit, ok := part.(*Lit); ok && strings.ContainsAny(lit.Value, zshBlanks) {
+				return true
+			}
 		}
 		if lit, ok := w.Parts[len(w.Parts)-1].(*Lit); ok && strings.HasSuffix(lit.Value, "}") && !strings.HasSuffix(lit.Value, `\}`) {
 			return true
