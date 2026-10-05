@@ -3,11 +3,11 @@ description: "Guidelines for writing semantic analysis rules and AST traversals 
 applyTo: "internal/analyzer/**,internal/rules/**"
 ---
 
-<!-- PROJECT KNOWLEDGE {"project_revision":"7ff05091a5489becf32069db1738d38ec23c8fd5","project_source_blob":"401c00159ccb871763b3aaaecfb7d7b0c891ec6b","repository":"z-shell/zsh-lint","revision":"761d9691c7c28b6a169ef4e5f674612d297c94fa","source":"knowledge/domains/tooling/zsh-lint-go-ast.md","source_blob":"64f82138bbfbef879187036897de6f79c0c2c346","target":".github/instructions/go-ast-linting.instructions.md"} -->
-
-This organization source supplies complete native project guidance through the approved records in `knowledge/project-delivery.json`. Edit the organization source, then publish and approve its revision before regenerating a project consumer; the generated consumer is not independently editable. Project instructions retain their existing authoring ownership until approved source publication, complete delivery and compatibility checks pass. Reconciled against project revision `7ff05091a5489becf32069db1738d38ec23c8fd5`; repository-relative code, command and fixture paths below refer to that project.
+<!-- PROJECT KNOWLEDGE {"project_revision":"7ff05091a5489becf32069db1738d38ec23c8fd5","project_source_blob":"401c00159ccb871763b3aaaecfb7d7b0c891ec6b","repository":"z-shell/zsh-lint","revision":"21693189f16af6810e54f04b47789aef76dc5db3","source":"knowledge/domains/tooling/zsh-lint-go-ast.md","source_blob":"bff7df62645be1a406f4950ef9419365e884a79b","target":".github/instructions/go-ast-linting.instructions.md"} -->
 
 # Go AST Linting & Semantic Analysis
+
+This organization source supplies complete native project guidance through the approved records in `knowledge/project-delivery.json`. Edit the organization source, then publish and approve its revision before regenerating a project consumer; the generated consumer is not independently editable. Project instructions retain their existing authoring ownership until approved source publication, complete delivery and compatibility checks pass. Reconciled against project revision `7ff05091a5489becf32069db1738d38ec23c8fd5`; repository-relative code, command and fixture paths below refer to that project.
 
 These instructions dictate how to build the semantic analyzer engine and lint rules for `zsh-lint` using the `mvdan/sh` parser.
 
