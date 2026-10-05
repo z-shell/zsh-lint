@@ -6,8 +6,8 @@ description: Fix a zsh-lint parser gap or false accept end to end, from proving 
 # Parser-gap fix
 
 This skill is the working order for a parser change.
-It adds no rule: the contract is `docs/project/parser-gap-workflow.md`, the adapter invariants are in `.github/instructions/parser-front-end.instructions.md`, and Zsh semantics follow the released Zsh manual as the organization's `zsh-scripting.instructions.md` requires.
-Where this file and those disagree, they win.
+Read the project contract in [`docs/project/parser-gap-workflow.md`](../../../docs/project/parser-gap-workflow.md) and the complete native [parser instructions](../../instructions/parser-front-end.instructions.md) before following the steps below. The project contract owns commands, fixtures, oracle behavior and verification gates; the native instructions deliver the reconciled scoped guidance. Zsh semantics follow the released Zsh manual as the organization's [Zsh scripting instructions](https://github.com/z-shell/.github/blob/9c96960532066b8686b0bf74628f859990a9231b/.github/instructions/zsh/scripting.instructions.md) require.
+This skill adds no rule and defers to those contracts. The steps below retain the project execution order and command options.
 
 ## 0. Prepare the environment
 
@@ -51,7 +51,7 @@ go run ./cmd/zsh-lint-survey -reduce big.zsh > gap.zsh           # shrink a real
 - Fix the gap in the parser fork (`third_party/mvdan-sh`, ADR-0030), behind `LangZsh`, and list the change in its `FORK.md`; run upstream's tests there (`cd third_party/mvdan-sh && go test ./syntax/`). Never add an adapter. When the construct belongs to an adapter whose family has not moved into the fork, fix that adapter through its shared scanner (`internal/parse/double_quote.go`, `internal/parse/heredoc_scan.go`), or migrate the family.
 - In an adapter, follow the invariants: register once in `adapterChain`, retry through `parseWithAdapters`, gate on one construct and one parser error, map every byte back, restore the typed AST, return the parser error when unsure.
 - Resolve every site of the construct in one pass; masking one site per pass and re-entering the chain costs one whole-file parse per site (#366).
-- For non-trivial scanner or grammar logic, use the organization's generator-verifier workflow (`.github/instructions/generator-verifier-workflow.instructions.md` in z-shell/.github): draft, then verify adversarially against native Zsh.
+- For non-trivial scanner or grammar logic, use the organization's [independent verification workflow](https://github.com/z-shell/.github/blob/9c96960532066b8686b0bf74628f859990a9231b/.github/instructions/quality/independent-verification.instructions.md): draft, then verify adversarially against native Zsh.
 
 ## 5. Verify
 

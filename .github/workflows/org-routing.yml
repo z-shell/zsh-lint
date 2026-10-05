@@ -2,8 +2,9 @@
 name: Org Routing
 
 # Thin caller for the organization routing check (decisions/0031): the
-# generated routing block in AGENTS.md must be current and every vendored
-# organization skill must sit at its approved revision. The called workflow
+# generated routing block in AGENTS.md and complete project instruction
+# consumers must be current, and every vendored organization skill must sit
+# at its approved revision. The called workflow
 # checks this checkout against the inventory at its own pinned commit and
 # never writes.
 
@@ -25,4 +26,4 @@ jobs:
     name: Org Routing
     permissions:
       contents: read
-    uses: z-shell/.github/.github/workflows/org-routing.yml@58b42bd4cf329614dd8bb5d690e8b7fb181145e0 # main
+    uses: z-shell/.github/.github/workflows/org-routing.yml@17300fb4c6bcdfbfee75ea625501f530dec621d1 # main
