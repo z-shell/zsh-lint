@@ -1,24 +1,28 @@
 ---
 description: "How parser gaps and compatibility adapters are fixed in zsh-lint's mvdan/sh front end"
-applyTo: "internal/parse/**, internal/survey/**, cmd/zsh-lint-survey/**"
+applyTo: "internal/parse/**,internal/survey/**,cmd/zsh-lint-survey/**"
 ---
 
+<!-- PROJECT KNOWLEDGE {"project_revision":"7ff05091a5489becf32069db1738d38ec23c8fd5","project_source_blob":"cb36318050d353acd8624f612fb41544635ebcb4","repository":"z-shell/zsh-lint","revision":"21693189f16af6810e54f04b47789aef76dc5db3","source":"knowledge/domains/tooling/zsh-lint-parser-front-end.md","source_blob":"610500c13d663476012cf7e7ffd13298d7c1897e","target":".github/instructions/parser-front-end.instructions.md"} -->
+
 # Parser Front End
+
+This organization source supplies complete native project guidance through the approved records in `knowledge/project-delivery.json`. Edit the organization source, then publish and approve its revision before regenerating a project consumer; the generated consumer is not independently editable. Project instructions retain their existing authoring ownership until approved source publication, complete delivery and compatibility checks pass. Reconciled against project revision `7ff05091a5489becf32069db1738d38ec23c8fd5`; repository-relative code, command and fixture paths below refer to that project.
 
 `internal/parse` wraps `mvdan.cc/sh/v3/syntax` in its Zsh dialect and closes proven valid-Zsh gaps with local compatibility adapters.
 The contract is in [`docs/project/parser-gap-workflow.md`](../../docs/project/parser-gap-workflow.md); this file only routes you there and names the invariants that reviews check.
 
 ## Before changing anything
 
-1. Prove the gap with both oracles: `zsh -f -n <file>` passes and `go run ./cmd/zsh-lint-survey <file>` fails.
+1. Prove the gap with both oracles: `go run ./cmd/zsh-lint-survey -judge <file>` reports `GAP`, with no native `zsh -f -n` diagnostic and a failing analyzer verdict. Judge the native result by stderr rather than exit status, as the project workflow requires (`! true` exits 1 without a diagnostic).
    A file both reject is a broken script, not a gap.
    `zsh -f -n` also runs word expansion on a top-level simple command, but only the lexer inside a function body, so state which placement a row uses ([#287](https://github.com/z-shell/zsh-lint/issues/287), `parser-gap-workflow.md` section 3).
 2. Name the language feature from the Zsh manual (`zshmisc`, `zshexpn`, `zshparam`) and link its section in the issue body and in the fixture's `# Manual: <url>` line.
    Read the released manual; do not ground a gap in memory, another shell, or mvdan/sh behavior.
    One issue per feature; label it `parser-gap`.
 3. Fix locally by default.
-   Upstream `mvdan/sh` is a source of fixes to take and test, not a dependency to wait on ([ADR-0023](https://github.com/z-shell/.github/blob/main/decisions/0023-zsh-lint-parser-front-end-strategy.md)).
-4. Fix in the parser fork, not with a new adapter ([ADR-0030](https://github.com/z-shell/.github/blob/main/decisions/0030-zsh-lint-parser-fork-trigger-fired.md)).
+   Upstream `mvdan/sh` is a source of fixes to take and test, not a dependency to wait on ([ADR-0023](https://github.com/z-shell/.github/blob/21693189f16af6810e54f04b47789aef76dc5db3/decisions/0023-zsh-lint-parser-front-end-strategy.md)).
+4. Fix in the parser fork, not with a new adapter ([ADR-0030](https://github.com/z-shell/.github/blob/21693189f16af6810e54f04b47789aef76dc5db3/decisions/0030-zsh-lint-parser-fork-trigger-fired.md)).
    The fork is `third_party/mvdan-sh`; keep each change Zsh-only behind `LangZsh`, list it in `third_party/mvdan-sh/FORK.md`, and keep upstream's tests there passing.
    An adapter whose family has not moved into the fork yet may still be fixed in place, through its shared scanner.
 
