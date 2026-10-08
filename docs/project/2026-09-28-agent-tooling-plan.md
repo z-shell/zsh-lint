@@ -43,7 +43,7 @@ Ordered by expected effect on a parser-gap fix.
 3. **Native-verdict coverage for invalid fixtures.**
    The first part already exists (see the correction under observed gaps): `TestCorpusFixturesAgreeWithNativeZsh` checks every `invalid-*.txt` source against `zsh -f -n`, with a checked-in list of known differences, the way [mvdan/sh `TestParseConfirm`](https://github.com/mvdan/sh/blob/master/syntax/parser_test.go) checks its valid inputs.
    For Zsh, `TestParseConfirm` returns before its `errorCases` table ("we don't confirm errors with zsh yet"), so that table is not confirmed against native Zsh.
-   What remains is to tie each known difference to an issue, and the opt-in fuzz target below.
+   The remaining proposals are issue links for each known difference, optional confirmation of the fork's Zsh `errorCases` and the opt-in fuzz target below.
    An opt-in fuzz target comparing verdicts with `zsh -f -n` could follow; generators that produce inputs already labelled valid or invalid found logic bugs in mksh that coverage-guided fuzzing missed, according to [a 2024 shell-fuzzing study](https://arxiv.org/abs/2408.00433), though that is a single study.
 4. **Mutation blind spots.**
    Document or cover the fork module and `case` expressions in `mutation.sh`, so neither reads as clean without evidence.
@@ -58,14 +58,14 @@ Ordered by expected effect on a parser-gap fix.
 
 As of 2026-10-06, from the issues and `main` at `0797f20`.
 
-| Step                                            | Issue                                                  | State                                                                                                                                                         |
-| ----------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Verify script                                | [#560](https://github.com/z-shell/zsh-lint/issues/560) | Done, merged in [#561](https://github.com/z-shell/zsh-lint/pull/561).                                                                                         |
-| 2. Native-verdict helper and reducer            | [#562](https://github.com/z-shell/zsh-lint/issues/562) | Done, merged in [#566](https://github.com/z-shell/zsh-lint/pull/566).                                                                                         |
-| 3. Native-verdict coverage for invalid fixtures | [#563](https://github.com/z-shell/zsh-lint/issues/563) | Open. The test it asks for already exists; the remaining work is the issue links and the opt-in fuzz target, so the issue needs rescoping or closing.         |
-| 4. Mutation blind spots                         | [#544](https://github.com/z-shell/zsh-lint/issues/544) | Open, ready to implement.                                                                                                                                     |
-| 5. Instruction surfaces                         | [#564](https://github.com/z-shell/zsh-lint/issues/564) | Open, ready to implement. `AGENTS.md` still omits the probe, `internal/probe`, `internal/workflowcontract`, `internal/manualcite` and `third_party/mvdan-sh`. |
-| 6. Measurement                                  | [#565](https://github.com/z-shell/zsh-lint/issues/565) | Open, deferred. It needs a maintainer choice of agent runtime, model and budget, and has nothing to compare until steps 3 to 5 land.                          |
+| Step                                            | Issue                                                  | State                                                                                                                                                                                    |
+| ----------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Verify script                                | [#560](https://github.com/z-shell/zsh-lint/issues/560) | Done, merged in [#561](https://github.com/z-shell/zsh-lint/pull/561).                                                                                                                    |
+| 2. Native-verdict helper and reducer            | [#562](https://github.com/z-shell/zsh-lint/issues/562) | Done, merged in [#566](https://github.com/z-shell/zsh-lint/pull/566).                                                                                                                    |
+| 3. Native-verdict coverage for invalid fixtures | [#563](https://github.com/z-shell/zsh-lint/issues/563) | Open. The test it asks for already exists; the remaining proposals are issue links, optional fork `errorCases` confirmation and opt-in fuzzing, so the issue needs rescoping or closing. |
+| 4. Mutation blind spots                         | [#544](https://github.com/z-shell/zsh-lint/issues/544) | Open, ready to implement.                                                                                                                                                                |
+| 5. Instruction surfaces                         | [#564](https://github.com/z-shell/zsh-lint/issues/564) | Open, ready to implement. `AGENTS.md` still omits the probe, `internal/probe`, `internal/workflowcontract`, `internal/manualcite` and `third_party/mvdan-sh`.                            |
+| 6. Measurement                                  | [#565](https://github.com/z-shell/zsh-lint/issues/565) | Open, deferred. It needs a maintainer choice of agent runtime, model and budget, and has nothing to compare until steps 3 to 5 land.                                                     |
 
 Update this table when a step's issue changes state.
 
