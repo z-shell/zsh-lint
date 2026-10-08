@@ -42,7 +42,7 @@ Ordered by expected effect on a parser-gap fix.
    Character-level reduction is a poor fit here: [the Fuzzing Book's reducer chapter](https://www.fuzzingbook.org/html/Reducer.html) shows it spending most tests on inputs the program under test rejects outright.
 3. **Native-verdict coverage for invalid fixtures.**
    The first part already exists (see the correction under observed gaps): `TestCorpusFixturesAgreeWithNativeZsh` checks every `invalid-*.txt` source against `zsh -f -n`, with a checked-in list of known differences, the way [mvdan/sh `TestParseConfirm`](https://github.com/mvdan/sh/blob/master/syntax/parser_test.go) checks its valid inputs.
-   For Zsh, `TestParseConfirm` returns before its `errorCases` table ("we don't confirm errors with zsh yet"), so the fork's own tests do not confirm errors natively.
+   For Zsh, `TestParseConfirm` returns before its `errorCases` table ("we don't confirm errors with zsh yet"), so that table is not confirmed against native Zsh.
    What remains is to tie each known difference to an issue, and the opt-in fuzz target below.
    An opt-in fuzz target comparing verdicts with `zsh -f -n` could follow; generators that produce inputs already labelled valid or invalid found logic bugs in mksh that coverage-guided fuzzing missed, according to [a 2024 shell-fuzzing study](https://arxiv.org/abs/2408.00433), though that is a single study.
 4. **Mutation blind spots.**
