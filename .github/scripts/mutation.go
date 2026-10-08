@@ -300,7 +300,7 @@ func snapshot(root, target, candidate string) error {
 	var names []byte
 	var err error
 	if candidate != "" {
-		names, err = git(root, "ls-tree", "-r", "--name-only", "-z", candidate)
+		names, err = git(root, "ls-tree", "-r", "-z", candidate)
 	} else {
 		names, err = git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	}
@@ -312,8 +312,18 @@ func snapshot(root, target, candidate string) error {
 			continue
 		}
 		var body []byte
-		mode := os.FileMode(0o600)
+		var mode os.FileMode
 		if candidate != "" {
+			header, path, ok := strings.Cut(name, "\t")
+			fields := strings.Fields(header)
+			if !ok || len(fields) != 3 || fields[1] != "blob" || (fields[0] != "100644" && fields[0] != "100755") {
+				return fmt.Errorf("snapshot requires regular files: %s", name)
+			}
+			name = path
+			mode = 0o644
+			if fields[0] == "100755" {
+				mode = 0o755
+			}
 			body, err = git(root, "show", candidate+":"+name)
 		} else {
 			from := filepath.Join(root, name)
@@ -389,6 +399,11 @@ func generate(name string, source []byte, lines map[int]bool) ([]mutant, error) 
 		case *ast.IfStmt:
 			start, end := fset.PositionFor(n.Cond.Pos(), false), fset.PositionFor(n.Cond.End(), false)
 			add(n.Cond.Pos(), n.Cond.End(), "!("+string(source[start.Offset:end.Offset])+")")
+		case *ast.ForStmt:
+			if n.Cond != nil {
+				start, end := fset.PositionFor(n.Cond.Pos(), false), fset.PositionFor(n.Cond.End(), false)
+				add(n.Cond.Pos(), n.Cond.End(), "!("+string(source[start.Offset:end.Offset])+")")
+			}
 		case *ast.SwitchStmt:
 			if n.Tag == nil {
 				for _, statement := range n.Body.List {

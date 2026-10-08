@@ -66,6 +66,15 @@ func TestMutationNegatesBooleanCaseGuard(t *testing.T) {
 	}
 }
 
+func TestMutationNegatesBooleanLoopGuard(t *testing.T) {
+	_, run, write := mutationFixture(t)
+	write("internal/parse/guard.go", "package parse\nfunc Accept(n int) bool {\nmatched := n <= 2\nfor matched { return true }\nreturn false\n}\n")
+	_, out := run()
+	if !strings.Contains(out, `"matched" -> "!(matched)"`) {
+		t.Fatalf("boolean loop guard was not negated:\n%s", out)
+	}
+}
+
 func TestMutationExtensionSpecsAreValidated(t *testing.T) {
 	_, run, write := mutationFixture(t)
 	write("internal/parse/guard.go", "package parse\nfunc Accept(n int) bool { return n <= 2 }\n")
@@ -116,6 +125,28 @@ func TestMutationRunnerBuildFailureIsSetupFailure(t *testing.T) {
 	status, out := run()
 	if status != 2 {
 		t.Fatalf("runner build failure must be setup failure: status %d\n%s", status, out)
+	}
+}
+
+func TestMutationCandidatePreservesExecutableFiles(t *testing.T) {
+	dir, run, write := mutationFixture(t)
+	write("internal/parse/guard.go", "package parse\nfunc Accept(n int) bool { return true }\n")
+	write("internal/parse/guard_test.go", "package parse\nimport (\"testing\"; \"os/exec\")\nfunc TestAccept(t *testing.T) { if err := exec.Command(\"./oracle.sh\").Run(); err != nil { t.Fatal(err) }; if !Accept(1) { t.Fatal(\"rejected one\") } }\n")
+	write("internal/parse/oracle.sh", "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(filepath.Join(dir, "internal/parse/oracle.sh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "."}, {"commit", "-q", "-m", "candidate"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", args, err, out)
+		}
+	}
+	status, out := run("--candidate", "HEAD")
+	if status != 0 || !strings.Contains(out, "KILLED ") {
+		t.Fatalf("candidate replay must preserve its executable oracle: status %d\n%s", status, out)
 	}
 }
 
