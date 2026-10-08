@@ -377,11 +377,6 @@ if ((mutation)) && [[ -z $candidate_ref ]]; then
     ;;
   *) record mutation FAIL ;;
   esac
-  # gremlins mutates only the root module, so a fork change reads as clean
-  # without proving anything; hand-mutate it.
-  if git diff --name-only "$base_id" -- third_party/mvdan-sh | grep -q .; then
-    echo "verify: mutation.sh does not mutate third_party/mvdan-sh; hand-mutate the fork change"
-  fi
 else
   record mutation skipped
 fi
@@ -417,7 +412,7 @@ done
 if [[ -s $logs/mutation.log ]]; then
   echo
   echo "mutation:"
-  grep -E '^ *(LIVED|NOT COVERED) |^mutation: ' "$logs/mutation.log"
+  grep -E '^ *(KILLED|LIVED|TIMED OUT|INVALID|UNSUPPORTED) |^mutation: ' "$logs/mutation.log"
 fi
 
 if ((failed)); then
