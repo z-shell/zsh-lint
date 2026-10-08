@@ -176,7 +176,7 @@ Fork changes under `third_party/mvdan-sh` run that module's `go test ./syntax/` 
 Each build/test gets a process group, and its descendants are killed on timeout or normal completion.
 `MUTATION_TIMEOUT` sets a whole-mutant deadline in seconds; otherwise it is at least 30 seconds and `MUTATION_TIMEOUT_COEFFICIENT` (default 30) times the baseline test duration.
 Baseline tests have a 120-second deadline and must pass before mutation starts.
-Exit 3 means inconclusive evidence: timeouts outnumber killed and lived mutants, a mutant does not build, a changed file has no supported automatic mutation, or the run is capped ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
+Exit 3 means inconclusive evidence: timeouts outnumber killed and lived mutants, a mutant does not build, a changed file has no supported automatic or explicit mutation, or the run is capped ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
 A survivor still takes precedence with exit 1; setup or baseline failure exits 2.
 The report lists `KILLED`, `LIVED`, `TIMED OUT`, `INVALID` and `UNSUPPORTED`, rather than presenting uncovered lines as a clean result.
 
