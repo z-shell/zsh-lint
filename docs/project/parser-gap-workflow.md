@@ -169,8 +169,22 @@ For a probe grid, `zsh-lint-probe -bodies <file> -out <dir>` places each variant
 It executes the rows, so use it on generated probe rows only, never on corpus or consumer sources.
 `-table <file>` writes the changed rows as a Markdown table in a survey record's shape, and `-candidate <binary>` takes the candidate verdicts from another build, so today's classes can re-judge a merged change.
 
-`.github/scripts/mutation.sh [base-ref]` mutates every changed line and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425)).
-It sets gremlins' timeout coefficient explicitly and exits 3 when timeouts outnumber the killed and lived mutants, since a timeout counts as caught and a too-short timeout would otherwise pass every mutant ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
+`.github/scripts/mutation.sh [options] [base-ref]` mutates supported constructs on changed Go source lines and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425), [#544](https://github.com/z-shell/zsh-lint/issues/544)).
+The standard-library Go runner changes comparisons, integer bounds, boolean guards and increments without depending on a coverage block, so `case` expressions are included.
+Each mutant runs in an isolated snapshot; the contributor's files stay untouched.
+Fork changes under `third_party/mvdan-sh` run that module's `go test ./syntax/` and the root `go test ./internal/parse/ ./internal/survey/`; other source changes run their package's tests.
+Each build/test gets a process group, and its descendants are killed on timeout or normal completion.
+`MUTATION_TIMEOUT` sets a whole-mutant deadline in seconds; otherwise it is at least 30 seconds and `MUTATION_TIMEOUT_COEFFICIENT` (default 30) times the baseline test duration.
+Baseline tests have a 120-second deadline and must pass before mutation starts.
+Exit 3 means inconclusive evidence: timeouts outnumber killed and lived mutants, a mutant does not build, a changed file has no supported automatic or explicit mutation, or the run is capped ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
+A survivor still takes precedence with exit 1; setup or baseline failure exits 2.
+The report lists `KILLED`, `LIVED`, `TIMED OUT`, `INVALID` and `UNSUPPORTED`, rather than presenting uncovered lines as a clean result.
+
+Options precede the base: `--candidate REV` replays a committed diff without changing branches, and `--max-mutants N` bounds a diagnostic sample while reporting incomplete evidence.
+`--spec FILE` extends the generated mutants with a JSON array of `file`, `line`, `old` and `new` fields.
+Each entry must name a changed repository-relative Go source line, and its `old` text must match once on that line; specs do not execute commands.
+For example, `{"file":"path/to/file.go","line":42,"old":"n < limit","new":"n >= limit"}` replaces that comparison when it is present on the specified changed line.
+Use specs for changes the automatic operators cannot express and report the sample limit and any survivors or inconclusive evidence in the pull request.
 `.github/scripts/verify-parser-change.sh [--bodies <file>] [base-ref] [files]` runs these, the tests, and lint in order against one exported base build, and prints a summary table for the pull request ([#560](https://github.com/z-shell/zsh-lint/issues/560)).
 With the default base it refuses to start unless `origin/main` matches origin's `main` and the checkout contains it, and it prints both commit ids ([#545](https://github.com/z-shell/zsh-lint/issues/545)).
 `--rows` adds a row-file grid, judged like a bodies grid with `-runtime` and `-table`; `--root`, `--list` and `--regression-corpus` add consumer files and the Corpus Gate's own comparison; `--candidate <rev>` judges another commit's build.

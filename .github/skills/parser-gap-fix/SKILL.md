@@ -81,8 +81,7 @@ It exits 1 when a check fails, 3 when only the mutation run was inconclusive, an
   `-runtime` runs the rows, so the script uses it on grids only.
 - Each grid's changed rows are written as a survey-record table, `probe.md` (or `probe-N.md`) next to the logs.
 - The probe summary counts known gaps and false accepts that the change leaves in place; `-known` lists them, and each one is an issue to file.
-- The mutation check fails when a mutant survives; a mutant that hangs the suite counts as caught, and a run where timeouts outnumber the decided mutants is inconclusive (raise `MUTATION_TIMEOUT_COEFFICIENT`). List the surviving and uncovered lines it prints in the pull request, with a reason for any that stay.
-- `mutation.sh` does not mutate `third_party/mvdan-sh`, and a changed `case` expression line reads as not covered; hand-mutate such a change and report the result.
+- The mutation check runs changed Go source lines, including the parser fork and `case` guards, in isolated snapshots with a timeout and process group per build/test. Fork mutants run the fork's syntax tests and the root parse/survey tests. A survivor fails the check; timeout-dominated, invalid, unsupported or capped runs are inconclusive. Report each result, including surviving and unsupported changes; see the workflow's [mutation contract](../../../docs/project/parser-gap-workflow.md#verification-tools) for extension specs, replay and timeout controls.
 - The Parse Cost workflow repeats the retry-cost comparison on the pull request and adds a notice above a 10 percent rise.
 
 ## 6. Record and open the pull request
