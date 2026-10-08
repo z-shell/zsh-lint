@@ -16,6 +16,12 @@ lint:
     - git-diff-check
     - markdownlint@0.49.1
   ignore:
+    # The vendored organization code-review skill is installed at a pinned
+    # revision, and org-routing.py check compares its resource files byte for
+    # byte; formatting them would break the pin.
+    - linters: [prettier, markdownlint]
+      paths:
+        - .github/skills/code-review/**
     # The parser fork keeps upstream's files as upstream wrote them (ADR-0030).
     - linters: [ALL]
       paths:

@@ -13,7 +13,7 @@ Before acting, select every surface below whose tasks and file patterns both mat
 - `.github/instructions/go-ast-linting.instructions.md`: tasks `implementation`, `zsh-lint-rule-proposal`; files `internal/analyzer/**`, `internal/rules/**`
 - `.github/instructions/parser-front-end.instructions.md`: tasks `implementation`, `zsh-lint-parser-gap`; files `internal/parse/**`, `internal/survey/**`, `cmd/zsh-lint-survey/**`
 - `.github/skills/parser-gap-fix/SKILL.md`: tasks `zsh-lint-parser-gap`; files `internal/parse/**`
-- `.github/skills/code-review/SKILL.md`: tasks `code-review`, `review-readiness`, `organization-review`, `project-health`, `repository-health`, `repository-health-audit`, `repository-health-check`; files `**`; organization skill vendored at approved revision `e1f8f6c1c9dd`
+- `.github/skills/code-review/SKILL.md`: tasks `code-review`, `review-readiness`, `organization-review`, `project-health`, `repository-health`, `repository-health-audit`, `repository-health-check`; files `**`; organization skill vendored at approved revision `ede9ed985dd2`
 
 Organization-wide surfaces are routed by the [organization manifest](https://github.com/z-shell/.github/blob/main/.github/instruction-surfaces.json). This block is delivered and verified under [decision 0031](https://github.com/z-shell/.github/blob/main/decisions/0031-per-repository-instruction-routing-delivery.md).
 

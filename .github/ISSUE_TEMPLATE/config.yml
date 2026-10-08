@@ -2,10 +2,10 @@
 # A repository with its own .github/ISSUE_TEMPLATE folder loses the
 # organization default forms and contact links entirely, so the support links
 # are restated here. The organization's Crowdin link is omitted on purpose:
-# zsh-lint has no translated content. Generic bug and feature reports use a
-# blank issue on purpose: the organization keeps issue metadata centralized,
-# and only intake with repository-specific fields (rule proposal, parser gap)
-# gets a local form.
+# zsh-lint has no translated content. The organization forms (01 to 07) are
+# vendored byte for byte beside the repository-specific forms (rule proposal,
+# parser gap), so generic bug, feature, and documentation reports use the
+# organization intake fields here too.
 # Source of the links: z-shell/.github:.github/ISSUE_TEMPLATE/config.yml
 blank_issues_enabled: true
 contact_links:
