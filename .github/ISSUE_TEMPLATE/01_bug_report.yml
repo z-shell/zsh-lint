@@ -7,79 +7,57 @@ body:
   - type: markdown
     attributes:
       value: |
-        First off, thanks for taking the time to contribute! Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make will benefit everybody else and are greatly appreciated.
+        Thanks for reporting a bug. A report that someone else can reproduce from a clean shell gets fixed fastest, so please fill in every required field.
   - type: input
+    id: version
+    attributes:
+      label: Affected version
+      description: The release, branch or commit of this project where you see the bug.
+      placeholder: "ex. v1.2.0, or main at 1a2b3c4"
+    validations:
+      required: true
+  - type: textarea
     id: environment
     attributes:
       label: Environment
       description: >
-        Please describe your environment in as much detail as possible. Otherwise, we may not be able to reproduce the issue.
-      placeholder: >
-        Example:
-          print "Device: $VENDOR | $OSTYPE | $CPUTYPE"
-          print "Shell: $SHELL | $ZSH_ARGZERO | $ZSH_PATCHLEVEL"
-          print "Zi: $(git -C $ZI[BIN_DIR] rev-parse HEAD)"
+        Your Zsh version, operating system, and how this project is loaded: the plugin manager and its version or commit, or a plain `source`. Add the terminal or anything else the bug depends on.
+      placeholder: |
+        Zsh: output of `zsh --version`
+        OS: ex. Debian 13, macOS 15.5
+        Loaded with: ex. zi at 1a2b3c4, or `source path/to/plugin.zsh`
     validations:
       required: true
   - type: textarea
     id: repro
     attributes:
-      label: Reproduction steps
-      description: "How do you trigger this bug? Please walk us through it step by step."
-      value: |
-        1.
-        2.
-        3.
-        4.
-        5.
-        ...
-      render: bash
+      label: Minimal reproduction
+      description: >
+        The shortest set of commands that shows the bug, starting from `zsh -f` (no startup files) or a clean `HOME`. Include only the configuration the bug needs.
+      render: zsh
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happens, with the exact output or error message.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
       label: Expected behavior
-      description: "Please describe the expected behavior"
-      value: |
-        1.
-        2.
-        3.
-        4.
-        5.
-        ...
-      render: bash
-    validations:
-      required: true
-  - type: textarea
-    id: current
-    attributes:
-      label: Current behavior
-      description: "Please describe how the bug manifests"
-      value: |
-        1.
-        2.
-        3.
-        4.
-        5.
-        ...
-      render: bash
-    validations:
-      required: true
-  - type: textarea
-    id: code-snippet
-    attributes:
-      label: Code snippet
-      description: "Please insert your zshrc or just a short code snippet in concern."
+      description: What you expected to happen instead.
     validations:
       required: true
   - type: textarea
     id: additional
     attributes:
       label: Additional information
-      description: "List any other information that is relevant to your issue. For reports and stats run `zi analytics`"
+      description: Logs, screenshots, or whether the bug started after an update. For Zi, the output of `zi analytics` helps.
     validations:
-      required: true
+      required: false
   - type: checkboxes
     attributes:
       label: Self-service
