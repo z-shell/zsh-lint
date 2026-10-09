@@ -15,6 +15,16 @@ Before acting, select every surface below whose tasks and file patterns both mat
 - `.github/skills/parser-gap-fix/SKILL.md`: tasks `zsh-lint-parser-gap`; files `internal/parse/**`
 - `.github/skills/code-review/SKILL.md`: tasks `code-review`, `review-readiness`, `organization-review`, `project-health`, `repository-health`, `repository-health-audit`, `repository-health-check`; files `**`; organization skill vendored at approved revision `ede9ed985dd2`
 
+## Reporting issues
+
+File an issue as [Filing a new issue](https://github.com/z-shell/.github/blob/main/runbooks/triage.md#filing-a-new-issue) describes: one `### ` heading per field of the effective issue form, in form order. zsh-lint has no `--version` flag: in the version field, give the release tag or commit you built, such as the `@` version passed to `go install`.
+
+After the form's fields, add these headings, writing `Not applicable` and the reason when one does not apply:
+
+- `### Invocation`: The exact command line, including `--config`, `--no-config` or `--format`, and its exit code.
+- `### Configuration`: The `zsh-lint.json` in effect (zsh-lint searches upward from each input).
+- `### Report kind`: A false positive or missed finding (name the `[rule]` id), or a crash. Valid Zsh that fails to parse goes to the Parser gap form instead.
+
 Organization-wide surfaces are routed by the [organization manifest](https://github.com/z-shell/.github/blob/main/.github/instruction-surfaces.json). This block is delivered and verified under [decision 0031](https://github.com/z-shell/.github/blob/main/decisions/0031-per-repository-instruction-routing-delivery.md).
 
 <!-- END org-routing -->
