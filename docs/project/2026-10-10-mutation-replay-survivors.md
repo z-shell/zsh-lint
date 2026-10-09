@@ -19,7 +19,7 @@ Both replays ran in full, uncapped, with no `MUTATION_TIMEOUT` override:
 
 The #489 numbers match the replay reported in #601.
 The capped 16-mutant #536 sample reported there matches the first 16 rows of this run, 10 killed and 6 lived.
-An earlier uncapped #536 run stopped before completing after 188 mutants; its rows are identical to the first 188 here.
+An earlier uncapped #536 run stopped before completing after 187 mutants; its 187 results are identical to the first 187 here.
 
 The five timed-out mutants turn a loop increment into a decrement (`parser.go` lines 2461, 2463, 2466, 2487 and 2512 at `5a3b2efc`), so the mutant never ends; none is a survivor.
 
