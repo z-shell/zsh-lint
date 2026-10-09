@@ -17,7 +17,7 @@ Before acting, select every surface below whose tasks and file patterns both mat
 
 ## Reporting issues
 
-File an issue as [Filing a new issue](https://github.com/z-shell/.github/blob/main/runbooks/triage.md#filing-a-new-issue) describes: one `### ` heading per field of the effective issue form, in form order. zsh-lint has no `--version` flag: in the version field, give the release tag or commit you built, such as the `@` version passed to `go install`.
+File an issue as [Filing a new issue](https://github.com/z-shell/.github/blob/main/runbooks/triage.md#filing-a-new-issue) describes: one `###` heading per field of the effective issue form, in form order. zsh-lint has no `--version` flag: in the version field, give the release tag or commit you built, such as the `@` version passed to `go install`.
 
 After the form's fields, add these headings, writing `Not applicable` and the reason when one does not apply:
 
