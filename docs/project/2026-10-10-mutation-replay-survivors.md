@@ -45,7 +45,7 @@ Each survivor was classified on `7716f7c`, where the code of both changes is unc
 - Equivalent: an argument from the code that no parser input can tell the mutant apart, with the reason given in the table.
   The arguments rely on facts checked in the source: the product never enables `RecoverErrors`, so the record's closer sees a parse error or a matched `]`; the scan's only caller tests `i >= 0`; and the record is always read from its start offset.
   As supporting evidence, a scratch differential harness compared each fork survivor with the unmutated parser over every subscript text of up to 7 bytes from ``$(){}[]`\'"a`` at the scan level, and about 2.6 million generated sources at the parser level.
-  It found no difference for the equivalent rows except the scan-level -2 versus -1 returns noted in the table, and it reported a difference for every killed mutant used as a positive control.
+  For the equivalent rows it found differences only at the scan level, in the -2 versus -1 returns and in texts ending in `${` or `$(`, both explained in the table; it reported a difference for every killed mutant used as a positive control.
 
 The #489 witness is the source `; print a\`, a newline and `; print b`: `zsh -f -n` accepts it, `7716f7c` scans one redundant separator at offset 0 and parses two statements, and the mutant also reports offset 11 and parses one.
 The other #489 survivor differs only when a backslash-newline ends the scanned text; both branches then leave the loop, and the state they set differently is not read after it.
