@@ -67,7 +67,8 @@ Use `.txt` deliberately so the repository-wide native Zsh syntax gate continues 
 Record the native decision with `zsh -f -n`, but never execute an invalid test source.
 The recorded verdict belongs to the source's placement (section 3): write the rejected construct at the top level when the defect is an expansion error, and say so in the source's leading comment.
 Parser tests read its bytes and assert the error family and original source position.
-A source that `zsh -f -n` accepts and Zsh rejects only when the line runs (arithmetic and assignment-word expansion, [#287](https://github.com/z-shell/zsh-lint/issues/287)) is runtime-tier: list it in `runtimeTierInvalidFixtures` (`internal/survey/native_oracle_test.go`) with the runtime error its issue records instead of executing it.
+A source that `zsh -f -n` accepts and Zsh rejects only when the line runs (arithmetic and assignment-word expansion, [#287](https://github.com/z-shell/zsh-lint/issues/287)) is runtime-tier: list it in `runtimeTierInvalidFixtures` (`internal/survey/native_oracle_test.go`) with its owning issue, the number in its file name, and its runtime error instead of executing it.
+`TestRuntimeTierInvalidFixturesLinkIssues` checks that every entry links that issue; a closed issue still owns its fixture.
 `TestCorpusFixturesAgreeWithNativeZsh` re-checks every recorded verdict whenever `zsh` is installed, as it is in Go CI: every corpus `.zsh` fixture must pass `zsh -f -n`, and every `invalid-*.txt` source must fail it unless it is listed as runtime-tier.
 Do not add exceptions to the native Zsh syntax gate for ordinary `.zsh` files.
 

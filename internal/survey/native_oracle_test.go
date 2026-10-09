@@ -3,6 +3,7 @@ package survey
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,18 +23,45 @@ var invalidFixtureDir = filepath.Join("..", "parse", "testdata")
 // evaluates arithmetic nor expands assignment words (#287). They are named
 // here rather than executed: the workflow contract never runs an invalid
 // source, so their verdict stays the one recorded in their parser tests.
-var runtimeTierInvalidFixtures = map[string]string{
-	"invalid-233-blank-before-parenthesis.txt":        "bad math expression",
-	"invalid-233-numeric-name.txt":                    "bad math expression",
-	"invalid-363-assignment-context.txt":              "bad substitution",
-	"invalid-368-missing-operand.txt":                 "bad math expression",
-	"invalid-368-operand-after-pattern.txt":           "bad math expression",
-	"invalid-382-assignment-context.txt":              "bad substitution",
-	"invalid-382-case-word-context.txt":               "bad substitution",
-	"invalid-382-second-subscript-assignment.txt":     "bad substitution",
-	"invalid-382-single-quote-assignment.txt":         "bad substitution",
-	"invalid-384-single-quoted-bracket-rebalance.txt": "bad substitution",
-	"invalid-540-short-flag-runtime-parens.txt":       "invalid subscript",
+// Each entry names the issue that owns the fixture, open or closed.
+var runtimeTierInvalidFixtures = map[string]runtimeTierFixture{
+	"invalid-233-blank-before-parenthesis.txt":        {issue: 233, reason: "bad math expression"},
+	"invalid-233-numeric-name.txt":                    {issue: 233, reason: "bad math expression"},
+	"invalid-363-assignment-context.txt":              {issue: 363, reason: "bad substitution"},
+	"invalid-368-missing-operand.txt":                 {issue: 368, reason: "bad math expression"},
+	"invalid-368-operand-after-pattern.txt":           {issue: 368, reason: "bad math expression"},
+	"invalid-382-assignment-context.txt":              {issue: 382, reason: "bad substitution"},
+	"invalid-382-case-word-context.txt":               {issue: 382, reason: "bad substitution"},
+	"invalid-382-second-subscript-assignment.txt":     {issue: 382, reason: "bad substitution"},
+	"invalid-382-single-quote-assignment.txt":         {issue: 382, reason: "bad substitution"},
+	"invalid-384-single-quoted-bracket-rebalance.txt": {issue: 384, reason: "bad substitution"},
+	"invalid-540-short-flag-runtime-parens.txt":       {issue: 540, reason: "invalid subscript"},
+}
+
+// runtimeTierFixture is why Zsh rejects a runtime-tier source: the issue that
+// owns it and the error Zsh reports when the line runs.
+type runtimeTierFixture struct {
+	issue  int
+	reason string
+}
+
+// TestRuntimeTierInvalidFixturesLinkIssues checks that every runtime-tier
+// entry links its owning issue, the one its `invalid-<issue>-<slug>.txt` name
+// carries, and keeps its runtime error.
+func TestRuntimeTierInvalidFixturesLinkIssues(t *testing.T) {
+	for name, entry := range runtimeTierInvalidFixtures {
+		var issue int
+		if _, err := fmt.Sscanf(name, "invalid-%d-", &issue); err != nil {
+			t.Errorf("%s: name does not carry an issue number: %v", name, err)
+			continue
+		}
+		if entry.issue != issue {
+			t.Errorf("%s: links issue #%d, want #%d from its name", name, entry.issue, issue)
+		}
+		if entry.reason == "" {
+			t.Errorf("%s: records no runtime error", name)
+		}
+	}
 }
 
 // nativeSyntaxError runs `zsh -f -n` on path and returns its diagnostic, or
@@ -99,14 +127,14 @@ func TestCorpusFixturesAgreeWithNativeZsh(t *testing.T) {
 	for _, name := range fixtureNames(t, invalidFixtureDir, "invalid-", ".txt") {
 		seen[name] = true
 		msg := nativeSyntaxError(t, zsh, filepath.Join(invalidFixtureDir, name))
-		reason, runtimeTier := runtimeTierInvalidFixtures[name]
+		entry, runtimeTier := runtimeTierInvalidFixtures[name]
 		switch {
 		case msg == "" && !runtimeTier:
 			t.Errorf("%s: zsh -f -n accepts a fixture recorded as native-invalid; "+
-				"if Zsh rejects it only at run time, add it to runtimeTierInvalidFixtures with the error", name)
+				"if Zsh rejects it only at run time, add it to runtimeTierInvalidFixtures with its issue and the error", name)
 		case msg != "" && runtimeTier:
-			t.Errorf("%s: zsh -f -n now rejects it (%s), so it is no longer runtime-tier (%s); "+
-				"remove it from runtimeTierInvalidFixtures", name, msg, reason)
+			t.Errorf("%s: zsh -f -n now rejects it (%s), so it is no longer runtime-tier (#%d: %s); "+
+				"remove it from runtimeTierInvalidFixtures", name, msg, entry.issue, entry.reason)
 		}
 	}
 
