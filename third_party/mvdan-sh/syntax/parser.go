@@ -3397,10 +3397,10 @@ func (p *Parser) hasValidIdent() bool {
 		if p.val[end-1] == '+' && p.lang.in(langBashLike|LangMirBSDKorn|LangZsh) {
 			end-- // a+=x
 		}
-		if ValidName(p.val[:end]) {
+		if ValidName(p.val[:end]) || p.lang.in(LangZsh) && numberLiteral(p.val[:end]) {
 			return true
 		}
-	} else if !ValidName(p.val) {
+	} else if !ValidName(p.val) && !(p.lang.in(LangZsh) && numberLiteral(p.val)) {
 		return false // *[i]=x
 	}
 	return p.r == '[' // a[i]=x
@@ -3799,6 +3799,10 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			}
 		case "local", "export", "readonly", "typeset", "nameref":
 			if p.lang.in(langBashLike | LangMirBSDKorn | LangZsh) {
+				p.declClause(s)
+			}
+		case "integer", "float":
+			if p.lang.in(LangZsh) {
 				p.declClause(s)
 			}
 		case "time":
@@ -5000,7 +5004,21 @@ func (p *Parser) testExprUnary() TestExpr {
 func (p *Parser) declClause(s *Stmt) {
 	ds := &DeclClause{Variant: p.lit(p.pos, p.val)}
 	p.next()
+	zshNumeric := p.lang.in(LangZsh) && (ds.Variant.Value == "integer" || ds.Variant.Value == "float")
+	// These Zsh declaration words can also name functions. Preserve that
+	// reading when adding their declaration syntax (zsh-lint #612).
+	if zshNumeric && p.tok == leftParen && p.r == ')' {
+		p.next()
+		p.follow(ds.Variant.ValuePos, "foo(", rightParen)
+		p.funcDecl(s, ds.Variant.ValuePos, false, true, Pos{}, ds.Variant)
+		return
+	}
 	for !p.stopToken() && !p.peekRedir() {
+		// A whole-word closing brace terminates these declarations, including
+		// inside quoted substitutions where the brace adapter cannot retry.
+		if zshNumeric && p.tok == _LitWord && p.val == "}" {
+			break
+		}
 		if p.hasValidIdent() {
 			ds.Args = append(ds.Args, p.getAssign(false))
 		} else if p.tok.isLit() && p.eqlOffs > 0 && !strings.Contains(p.val[:p.eqlOffs], "{") {
