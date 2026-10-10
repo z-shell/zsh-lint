@@ -3,12 +3,15 @@
 Tracking issue: [#10](https://github.com/z-shell/zsh-lint/issues/10).
 
 How a parser failure found in real Z-Shell code becomes a tracked, minimized regression fixture.
+Parser work targets valid Zsh that fails to parse or is misread into a wrong tree in organization code or the external corpus.
+False-accept issues (input Zsh rejects but zsh-lint accepts) are parked, since `zsh -n` covers syntax validity.
 
 ## 1. Capture
 
 Run the survey over the documented corpus (`docs/project/corpus.md`).
 Every `FAIL` line comes with a greppable `path:line:col: message` diagnostic.
-Record the run as `docs/project/YYYY-MM-DD-survey.md` with a gap-mapping table (see `2026-06-12-survey.md` for the format).
+Put the survey output and gap-mapping table in the pull request description for a parser or rule fix.
+Include the verification output there; add a dated record under `docs/project/` only for a cross-cutting decision.
 Note that the survey reports only the _first_ parse error per file — later constructs are masked until earlier gaps are fixed.
 
 ## 2. Classify
@@ -89,7 +92,7 @@ The test reports the first difference in a file, so fixing one cause can expose 
 ## 5. Close the loop
 
 When a front-end change (or a front-end swap, [#17](https://github.com/z-shell/zsh-lint/issues/17)) makes a `gap-*` fixture parse, the test fails loudly.
-Rename the fixture to `ok-<slug>.zsh` so it becomes permanent regression coverage, and close the issue with a link to the survey run confirming the originating real file now parses.
+Rename the fixture to `ok-<slug>.zsh` so it becomes permanent regression coverage, and close the issue with a link to the pull request description's survey output confirming the originating real file now parses.
 If the old name is in `internal/manualcite/testdata/fixture-exemptions.txt`, the renamed fixture gains its `# Manual: <url>` line and the old entry leaves the list in the same change; `TestFixturesCiteManual` fails otherwise.
 
 ### Front-end strategy
@@ -155,6 +158,16 @@ This exception does not permit general source rewriting or consuming separators 
 
 ### Verification tools
 
+For a parser change, run `.github/scripts/verify-parser-change.sh` and paste its summary table and survey output into the pull request description.
+Put the construct's valid and invalid variants in `bodies.txt`, separated by `---` lines.
+
+    bash .github/scripts/verify-parser-change.sh --bodies bodies.txt [--rows rows.txt] \
+      [--list files.txt] [--regression-corpus DIR] [base-ref] <file.zsh ...>
+
+The script runs build, vet, tests, parser-fork tests, lint, base/candidate survey comparisons, supplied consumer and probe comparisons, parse-count traces and mutation checks, and prints a Markdown result table ([#560](https://github.com/z-shell/zsh-lint/issues/560)).
+Inspect each check's log and report failures, skipped checks and inconclusive mutation evidence alongside the table.
+The tools below explain those checks and support focused diagnostics.
+
 Every masked retry parses the whole file again, so an adapter that resolves one site per pass costs a parse per site ([#366](https://github.com/z-shell/zsh-lint/issues/366)).
 Measure that cost with `go run ./cmd/zsh-lint-survey -trace-parses <file>`, which writes each file's whole-source parse count and deepest adapter retry nesting to standard error ([#408](https://github.com/z-shell/zsh-lint/issues/408)).
 State the before and after numbers in a pull request that changes them on a corpus file.
@@ -168,7 +181,7 @@ For a probe grid, `zsh-lint-probe -bodies <file> -out <dir>` places each variant
 `zsh -f -n` does not check an assignment word or a command substitution body, so a fix that rejects a construct in every context changes such rows from accepted to rejected although Zsh rejects them when they run ([#519](https://github.com/z-shell/zsh-lint/issues/519)).
 `-compare -native -runtime` runs each such row with `zsh -f` in an empty directory and prints `RUNTIME-REJECTED`, with the runtime error, when Zsh rejects it; that class does not fail the comparison.
 It executes the rows, so use it on generated probe rows only, never on corpus or consumer sources.
-`-table <file>` writes the changed rows as a Markdown table in a survey record's shape, and `-candidate <binary>` takes the candidate verdicts from another build, so today's classes can re-judge a merged change.
+`-table <file>` writes the changed rows as a Markdown table for the pull request description, and `-candidate <binary>` takes the candidate verdicts from another build, so today's classes can re-judge a merged change.
 
 `.github/scripts/mutation.sh [options] [base-ref]` mutates supported constructs on changed Go source lines and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425), [#544](https://github.com/z-shell/zsh-lint/issues/544)).
 The standard-library Go runner changes comparisons, integer bounds, boolean guards and increments without depending on a coverage block, so `case` expressions are included.
@@ -186,8 +199,7 @@ Options precede the base: `--candidate REV` replays a committed diff without cha
 Each entry must name a changed repository-relative Go source line, and its `old` text must match once on that line; specs do not execute commands.
 For example, `{"file":"path/to/file.go","line":42,"old":"n < limit","new":"n >= limit"}` replaces that comparison when it is present on the specified changed line.
 Use specs for changes the automatic operators cannot express and report the sample limit and any survivors or inconclusive evidence in the pull request.
-`.github/scripts/verify-parser-change.sh [--bodies <file>] [base-ref] [files]` runs these, the tests, and lint in order against one exported base build, and prints a summary table for the pull request ([#560](https://github.com/z-shell/zsh-lint/issues/560)).
-With the default base it refuses to start unless `origin/main` matches origin's `main` and the checkout contains it, and it prints both commit ids ([#545](https://github.com/z-shell/zsh-lint/issues/545)).
+With the default base, the verification script refuses to start unless `origin/main` matches origin's `main` and the checkout contains it, and it prints both commit ids ([#545](https://github.com/z-shell/zsh-lint/issues/545)).
 `--rows` adds a row-file grid, judged like a bodies grid with `-runtime` and `-table`; `--root`, `--list` and `--regression-corpus` add consumer files and the Corpus Gate's own comparison; `--candidate <rev>` judges another commit's build.
 Re-running it for [#539](https://github.com/z-shell/zsh-lint/pull/539) with `--candidate 0186c580 --skip-mutation --rows internal/probe/testdata/rows-538.txt f536c0c0` reproduces the grid counts that pull request reported: of 9060 rows, 786 are `REJECTED` (false accepts the fix removed), none is a `FALSE-ACCEPT`, and the 620 newly rejected valid-by-`zsh -n` rows are all `RUNTIME-REJECTED`.
 The parser-gap fix skill (`.github/skills/parser-gap-fix/SKILL.md`) calls it.
