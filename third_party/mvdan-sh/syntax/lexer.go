@@ -606,6 +606,13 @@ func (p *Parser) regToken(r rune) token {
 			return dollBrack
 		case '(':
 			if p.rune() == '(' {
+				if p.lang.in(LangZsh) {
+					if end, math := p.zshMathSubstAhead(); !math {
+						return dollParen
+					} else if p.zshMathScan && end.r == ')' && p.zshRecOn == 0 {
+						p.zshMathEnd = end
+					}
+				}
 				p.rune()
 				return dollDblParen
 			}
@@ -751,6 +758,13 @@ func (p *Parser) dqToken(r rune) token {
 			return dollBrack
 		case '(':
 			if p.rune() == '(' {
+				if p.lang.in(LangZsh) {
+					if end, math := p.zshMathSubstAhead(); !math {
+						return dollParen
+					} else if p.zshMathScan && end.r == ')' && p.zshRecOn == 0 {
+						p.zshMathEnd = end
+					}
+				}
 				p.rune()
 				return dollDblParen
 			}
@@ -760,6 +774,138 @@ func (p *Parser) dqToken(r rune) token {
 	}
 	panic("unreachable")
 }
+
+// zshMathSubstAhead distinguishes `$((expr))` from `$( (list) ... )`
+// without consuming the second `(` at p.r (#266). Zsh's cmd_or_math in
+// Src/lex.c reads a math string, then requires adjacent closing `))`;
+// expression validity does not decide the reading. Quotes are text in that
+// math string, while nested substitutions own their parentheses.
+// The returned lexer is at the first closing `)` when the reading is math,
+// so a containing lookahead can adopt it rather than parse the expression
+// again. This avoids exponential work for nested arithmetic expansions.
+func (p *Parser) zshMathSubstAhead() (*Parser, bool) {
+	look := NewParser(Variant(p.lang))
+	look.f = &File{}
+	look.zshMathScan = true
+	look.r, look.w, look.bsp = p.r, p.w, p.bsp
+	look.offs, look.line, look.col = p.offs, p.line, p.col
+	look.readEOF, look.readErr = p.readEOF, p.readErr
+	look.openBquotes, look.openBquoteDbls = p.openBquotes, p.openBquoteDbls
+	look.quote = runeByRune
+	look.bs = look.readBuf[:len(p.bs)]
+	copy(look.bs, p.bs)
+	var read bytes.Buffer
+	look.src = io.TeeReader(p.src, &read)
+	defer func() {
+		if p.readErr == nil && look.readErr != nil {
+			// Preserve a terminal read error too: some readers refuse a
+			// second read after EOF, and non-EOF errors must not be lost.
+			p.src = zshLookaheadError{look.readErr}
+		}
+		// A lookahead may cross any number of input buffers. Replay only
+		// newly read bytes; p still owns its original buffered bytes.
+		if read.Len() > 0 {
+			p.src = io.MultiReader(bytes.NewReader(read.Bytes()), p.src)
+		}
+	}()
+	math := look.zshMathSubstEnd()
+	look.src = p.src // stop recording before the caller adopts the lexer
+	return look, math
+}
+
+func (look *Parser) zshMathSubstEnd() bool {
+	parens, brackets := 0, 0
+	tick := false
+	look.rune()
+	for look.r != runeEOF {
+		switch look.r {
+		case '\\':
+			switch look.rune() {
+			case '$', '\\', ')', '`':
+			default:
+				// As in dquote_parse with ')' as its end character,
+				// other escaped bytes still affect math nesting.
+				continue
+			}
+		case '$':
+			if !tick && look.peek() == '(' {
+				if !look.zshMathNestedSubst() {
+					return true
+				}
+				continue // cmdSubst leaves p.r after the closer
+			}
+			var nest []byte
+			if !tick && look.peek() == '{' {
+				// Parameter words are read as in double quotes: `'` is
+				// text, and their parentheses do not count as math.
+				nest = []byte{'}'}
+			}
+			if nest != nil {
+				look.rune()
+				look.rune()
+				for look.r != runeEOF && len(nest) > 0 {
+					top := nest[len(nest)-1]
+					if look.r == '$' && look.peek() == '(' && top != '\'' && top != '`' {
+						if !look.zshMathNestedSubst() {
+							return true
+						}
+						continue
+					}
+					nest = look.zshGroupRune(nest)
+					if len(nest) == 0 {
+						break
+					}
+					look.rune()
+				}
+			}
+		case '`':
+			tick = !tick
+		case '(':
+			parens++
+		case ')':
+			if parens == 0 && brackets == 0 && !tick {
+				return look.peek() == ')'
+			}
+			parens--
+			if parens < 0 {
+				return false
+			}
+		case '[':
+			brackets++
+		case ']':
+			brackets--
+			if brackets < 0 {
+				return false
+			}
+		}
+		look.rune()
+	}
+	// Leave incomplete input to the arithmetic parser's existing error.
+	return true
+}
+
+// zshMathNestedSubst skips the substitution at `$` using the grammar:
+// case patterns and heredocs may contain unmatched closers as text.
+func (look *Parser) zshMathNestedSubst() bool {
+	pos := look.nextPos()
+	look.rune()
+	look.rune()
+	if look.r == '(' {
+		if sub, math := look.zshMathSubstAhead(); math {
+			*look = *sub
+			look.rune() // second closing `)`
+			look.rune()
+			return true
+		}
+	}
+	look.pos, look.tok = pos, dollParen
+	look.cmdSubst()
+	return look.err == nil // cmdSubst leaves p.r after the closer
+}
+
+type zshLookaheadError struct{ err error }
+
+func (r zshLookaheadError) Read([]byte) (int, error) { return 0, r.err }
 
 func (p *Parser) paramToken(r rune) token {
 	switch r {

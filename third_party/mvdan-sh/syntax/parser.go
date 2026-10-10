@@ -523,6 +523,12 @@ type Parser struct {
 	// ordinary character (zsh-lint #400).
 	zshDquoteParam bool
 
+	// zshMathScan marks a private delimiter lookahead. Its grammar skips
+	// already scanned arithmetic bodies via zshMathEnd, rather than
+	// constructing their discarded expressions again (#266).
+	zshMathScan bool
+	zshMathEnd  *Parser
+
 	// zshParamBraces counts the `{` bytes still open in the word of the
 	// unquoted Zsh parameter expansion being lexed. Outside double quotes Zsh
 	// nests braces there (bct in gettokstr, Src/lex.c), so in `${x:-{a}b}`
@@ -666,6 +672,7 @@ func (p *Parser) reset() {
 	p.litBatch = nil
 	p.wordBatch = nil
 	p.litBs = nil
+	p.zshMathScan, p.zshMathEnd = false, nil
 }
 
 // nextPos returns the position of the next rune, [Parser.r].
@@ -1745,6 +1752,20 @@ func (p *Parser) wordPart(cont bool) WordPart {
 		p.ensureNoNested(p.pos)
 		left := p.tok
 		ar := &ArithmExp{Left: p.pos, Bracket: left == dollBrack}
+		if end := p.zshMathEnd; end != nil {
+			p.zshMathEnd = nil
+			ar.Right = end.nextPos()
+			p.src = end.src
+			p.bs = p.readBuf[:len(end.bs)]
+			copy(p.bs, end.bs)
+			p.r, p.w, p.bsp = end.r, end.w, end.bsp
+			p.offs, p.line, p.col = end.offs, end.line, end.col
+			p.readEOF, p.readErr = end.readEOF, end.readErr
+			p.rune()
+			p.rune()
+			p.next()
+			return ar // only this private lookahead discards the expression
+		}
 		old := p.preNested(arithmExpr)
 		p.next()
 		if p.got(hash) {

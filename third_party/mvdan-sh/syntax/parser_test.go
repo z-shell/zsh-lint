@@ -1152,7 +1152,8 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"echo $(((3))",
-		langErr("1:6: reached `)` without matching `$((` with `))`"),
+		langErr("1:6: reached `)` without matching `$((` with `))`", langResolvedVariants&^LangZsh),
+		langErr("1:6: reached EOF without matching `$(` with `)`", LangZsh),
 	),
 	errCase(
 		"echo $((+))",
@@ -1168,7 +1169,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"echo $((foo) )",
-		langErr("1:6: reached `)` without matching `$((` with `))`", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("1:6: reached `)` without matching `$((` with `))`", LangBash|LangMirBSDKorn),
 		flipConfirmAll, // note that we don't backtrack
 	),
 	errCase(
@@ -1225,7 +1226,8 @@ var errorCases = []errorCase{
 	// ),
 	errCase(
 		"<<EOF\n$(()a",
-		langErr("2:1: `$((` must be followed by an expression"),
+		langErr("2:1: `$((` must be followed by an expression", langResolvedVariants&^LangZsh),
+		langErr("2:1: reached EOF without matching `$(` with `)`", LangZsh),
 	),
 	errCase(
 		"<<EOF\n`))",
@@ -2025,7 +2027,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		`echo $((echo a); (echo b))`,
-		langErr("1:14: not a valid arithmetic operator: `a`", LangBash|LangMirBSDKorn|LangZsh),
+		langErr("1:14: not a valid arithmetic operator: `a`", LangBash|LangMirBSDKorn),
 		flipConfirmAll, // note that we don't backtrack
 	),
 	errCase(

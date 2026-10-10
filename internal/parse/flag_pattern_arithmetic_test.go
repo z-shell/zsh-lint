@@ -230,7 +230,7 @@ func TestFlagPatternCutBeforeError(t *testing.T) {
 	}
 }
 
-// A pattern the repair declines keeps the verdict it has on main. Native Zsh
+// A pattern the repair declines keeps a parse error. Native Zsh
 // counts parentheses to find where `$(( ))` ends, and a quote or a backslash
 // changes how it reads the subscript, so each row below is either a native
 // parse error, a runtime error of the subscript itself, or valid Zsh whose
@@ -239,30 +239,30 @@ func TestFlagPatternInArithmeticKeepsUndecidableVerdicts(t *testing.T) {
 	tests := []struct {
 		name string
 		src  string
-		want string // the error main reports, byte for byte
+		want string // the first parser error, byte for byte
 	}{
 		// `zsh -f -n`: parse error near `c]]'.
 		{"unopened `)` inside the pattern", "print $(( m[(i)a[b)c]] ))\n",
-			"1:22: not a valid arithmetic operator: `]`"},
+			"1:11: `a[b]` must be followed by `=`"},
 		// `zsh -f -n`: parse error; the `(` swallows the closing `))`.
 		{"unclosed `(` inside the pattern", "print $(( m[(i)a[b(c]] ))\n",
-			"1:22: not a valid arithmetic operator: `]`"},
+			"1:11: `a[b]` must be followed by `=`"},
 		// `zsh -f -n`: parse error near `('; a later `(` must not rebalance.
 		{"`)` before `(`", "print $(( m[(i)a[b)(c]] ))\n",
-			"1:23: not a valid arithmetic operator: `]`"},
+			"1:11: `a[b]` must be followed by `=`"},
 		// Passes `-n`; run, it is a command substitution and reports
 		// `no matches found: m[(i)a]b[x]]`.
 		{"escaped `]`", "print $(( m[(i)a\\]b[x]] ))\n",
-			"1:19: not a valid arithmetic operator: `b`"},
+			"1:11: `a[b]` must be followed by `=`"},
 		{"escaped `]` inside the bracket expression", "print $(( m[(i)a[b\\]c]] ))\n",
-			"1:21: not a valid arithmetic operator: `c`"},
+			"1:11: `a[b]` must be followed by `=`"},
 		{"escaped `[` inside the bracket expression", "print $(( m[(i)a[b\\[c]] ))\n",
-			"1:23: not a valid arithmetic operator: `]`"},
+			"1:11: `a[b]` must be followed by `=`"},
 		// A quoted `)` is not counted natively, so a byte count would
 		// call this balanced; Zsh reads the quotes, and `-n` passes. It is
 		// valid, and stays a known gap rather than a guess.
 		{"quoted `)`", "print $(( m[(i)a[b\")\"c]] ))\n",
-			"1:24: not a valid arithmetic operator: `]`"},
+			"1:11: `a[b]` must be followed by `=`"},
 		{"quoted bytes", "print $(( m[(i)a[b\"x\"]] ))\n",
 			"1:23: not a valid arithmetic operator: `]`"},
 	}
@@ -272,8 +272,8 @@ func TestFlagPatternInArithmeticKeepsUndecidableVerdicts(t *testing.T) {
 			if err == nil {
 				t.Fatalf("Parse(%q) unexpectedly succeeded", test.src)
 			}
-			// A refused row must fail exactly as it does on main, not at a
-			// byte the mask wrote.
+			// A refused row must fail at an original source byte, including
+			// when `$((` is read as a command substitution (#266).
 			if got := strings.TrimPrefix(err.Error(), "undecidable.zsh:"); got != test.want {
 				t.Errorf("Parse(%q) error = %q, want %q", test.src, got, test.want)
 			}
