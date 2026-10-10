@@ -128,16 +128,13 @@ func isOptionScopingStatement(stmt *syntax.Stmt) bool {
 		return false
 	}
 
-	commandIndex, command, ok := literalCommand(call)
-	if !ok {
-		return false
-	}
+	command, args := effectiveCommand(call)
 
 	switch command {
 	case "emulate":
-		return isLocalZshEmulate(call.Args[commandIndex+1:])
+		return isLocalZshEmulate(args)
 	case "setopt":
-		return enablesLocalOptions(call.Args[commandIndex+1:])
+		return enablesLocalOptions(args)
 	default:
 		return false
 	}
@@ -177,11 +174,10 @@ func isLiteralReturnStatement(stmt *syntax.Stmt) bool {
 		return false
 	}
 
-	commandIndex, command, ok := literalCommand(call)
-	if !ok || command != "return" {
+	command, args := effectiveCommand(call)
+	if command != "return" {
 		return false
 	}
-	args := call.Args[commandIndex+1:]
 	// Zsh return accepts at most one status, optionally after "--". Treating
 	// extra literal words as a guard is unsafe because return reports an error
 	// and execution continues in the function.
@@ -206,26 +202,6 @@ func hasUnsafeGuardEffect(stmt *syntax.Stmt) bool {
 	return stmt.Negated ||
 		hasUnsafeStatementEffect(stmt) ||
 		len(stmt.Redirs) != 0
-}
-
-func literalCommand(call *syntax.CallExpr) (int, string, bool) {
-	if call == nil || len(call.Args) == 0 {
-		return 0, "", false
-	}
-
-	command, ok := literalWord(call.Args[0])
-	if !ok {
-		return 0, "", false
-	}
-	if command != "builtin" {
-		return 0, command, true
-	}
-	if len(call.Args) < 2 {
-		return 0, "", false
-	}
-
-	command, ok = literalWord(call.Args[1])
-	return 1, command, ok
 }
 
 func literalWord(word *syntax.Word) (string, bool) {

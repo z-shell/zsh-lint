@@ -60,12 +60,7 @@ func (r PreferDoubleBrackets) Analyze(ctx *analyzer.Context, node syntax.Node) {
 		return
 	}
 
-	word := call.Args[0]
-	if len(word.Parts) == 1 {
-		if lit, ok := word.Parts[0].(*syntax.Lit); ok {
-			if lit.Value == "[" || lit.Value == "test" {
-				ctx.Report(call.Pos(), call.End(), r.ID(), diag.Hint, "Prefer Zsh's [[ ... ]] over [ ... ] or test for conditions")
-			}
-		}
+	if name, _ := effectiveCommand(call); name == "[" || name == "test" {
+		ctx.Report(call.Pos(), call.End(), r.ID(), diag.Hint, "Prefer Zsh's [[ ... ]] over [ ... ] or test for conditions")
 	}
 }

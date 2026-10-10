@@ -91,7 +91,7 @@ func (rule LoadOnlyHelper) AnalyzeProject(ctx *analyzer.ProjectContext) {
 						if !ok {
 							return true
 						}
-						if name, ok := calledFunctionName(call); ok {
+						if name, _ := effectiveCommand(call); name != "" {
 							persistentCalls[name] = true
 						}
 						return true
@@ -99,12 +99,12 @@ func (rule LoadOnlyHelper) AnalyzeProject(ctx *analyzer.ProjectContext) {
 				}
 				return false
 			case *syntax.CallExpr:
-				name, ok := calledFunctionName(value)
-				if !ok {
+				name, args := effectiveCommand(value)
+				if name == "" {
 					return true
 				}
 				if name == "unfunction" {
-					for _, argument := range value.Args[1:] {
+					for _, argument := range args {
 						if literal, ok := literalWord(argument); ok {
 							unfunctions[literal] = true
 						}
@@ -132,13 +132,6 @@ func (rule LoadOnlyHelper) AnalyzeProject(ctx *analyzer.ProjectContext) {
 			"Private load-only helper '"+name+"' remains defined; unfunction it after initialization or use a localized anonymous loader",
 		)
 	}
-}
-
-func calledFunctionName(call *syntax.CallExpr) (string, bool) {
-	if call == nil || len(call.Args) == 0 {
-		return "", false
-	}
-	return literalWord(call.Args[0])
 }
 
 func loadOnlyRoleName(name string) bool {

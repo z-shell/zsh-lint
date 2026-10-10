@@ -21,7 +21,7 @@ Consumers must reject versions they do not understand.
   "diagnostics": [
     {
       "rule": "quoting/unquoted-var",
-      "severity": "warning",
+      "severity": "info",
       "message": "Variable expansion should be double-quoted",
       "file": "lib/a.zsh",
       "range": {
@@ -34,8 +34,8 @@ Consumers must reject versions they do not understand.
     "files": 1,
     "diagnostics": 1,
     "errors": 0,
-    "warnings": 1,
-    "infos": 0,
+    "warnings": 0,
+    "infos": 1,
     "hints": 0
   }
 }

@@ -99,3 +99,74 @@ func TestUnloadFunctionExactLifecycleMatching(t *testing.T) {
 		})
 	}
 }
+
+func TestUnloadFunctionCommandForms(t *testing.T) {
+	for _, registration := range []struct {
+		name string
+		args string
+	}{
+		{"zle", "-N example-widget example_widget"},
+		{"add-zsh-hook", "precmd _tick"},
+		{"add-zle-hook-widget", "line-init _tick"},
+	} {
+		for _, command := range commandForms(registration.name) {
+			t.Run(command, func(t *testing.T) {
+				file, err := parse.Parse(strings.NewReader(command+" "+registration.args+"\n"), "plugin.zsh")
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				if got := analyzer.New(UnloadFunction{}).Analyze(file, "plugin.zsh"); len(got) != 1 {
+					t.Fatalf("unconfigured diagnostics = %v, want one", got)
+				}
+				got := analyzer.New(ProjectUnloadLifecycle{}).AnalyzeSource(file, "plugin.zsh",
+					configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, ""))
+				if len(got) != 1 {
+					t.Fatalf("project diagnostics = %v, want one", got)
+				}
+			})
+		}
+	}
+	for _, command := range commandForms("unfunction") {
+		t.Run(command, func(t *testing.T) {
+			for _, test := range []struct {
+				args string
+				want int
+			}{
+				{"example_plugin_unload", 0},
+				{`${(k)functions} example_plugin_unload`, 1},
+				{"g", 1},
+			} {
+				file, err := parse.Parse(strings.NewReader("example_plugin_unload() { "+command+" "+test.args+"; }"), "plugin.zsh")
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				if got := analyzer.New(UnloadFunction{}).Analyze(file, "plugin.zsh"); len(got) != test.want {
+					t.Fatalf("args %s: diagnostics = %v, want %d", test.args, got, test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestUnloadFunctionPrefixedDeregistration(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args string
+	}{
+		{"zle", "-D example-widget"},
+		{"add-zsh-hook", "-d precmd _tick"},
+		{"add-zle-hook-widget", "-D line-init _tick"},
+	} {
+		for _, command := range commandForms(test.name) {
+			t.Run(command, func(t *testing.T) {
+				file, err := parse.Parse(strings.NewReader(command+" "+test.args+"\n"), "plugin.zsh")
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				if got := analyzer.New(UnloadFunction{}).Analyze(file, "plugin.zsh"); len(got) != 0 {
+					t.Fatalf("diagnostics = %v, want none", got)
+				}
+			})
+		}
+	}
+}
