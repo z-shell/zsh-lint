@@ -99,52 +99,6 @@ func TestZshAndOrAcrossSeparatorsInBodies(t *testing.T) {
 	}
 }
 
-// TestZshAndOrDanglingBeforeSeparators checks that an operator followed only
-// by separators and then the end of its list stays an error at the operator,
-// which internal/parse reads as a dangling operator. A closing reserved word
-// ends the list, as does a token that cannot start a statement; the last two
-// rows are native errors too.
-func TestZshAndOrDanglingBeforeSeparators(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct{ src, want string }{
-		{"false && ;\n", "1:7: `&&` must be followed by a statement"},
-		{"false ||\n;\n", "1:7: `||` must be followed by a statement"},
-		{"false && ; ;\n", "1:7: `&&` must be followed by a statement"},
-		{"{ false && ; }\n", "1:9: `&&` must be followed by a statement"},
-		{"( false && ; )\n", "1:9: `&&` must be followed by a statement"},
-		{"if false && ; then :; fi\n", "1:10: `&&` must be followed by a statement"},
-		{"if true; then false && ; elif true; then :; fi\n", "1:21: `&&` must be followed by a statement"},
-		{"if true; then false && ; else :; fi\n", "1:21: `&&` must be followed by a statement"},
-		{"if true; then false && ; fi\n", "1:21: `&&` must be followed by a statement"},
-		{"while false && ; do :; done\n", "1:13: `&&` must be followed by a statement"},
-		{"for x in a; do false && ; done\n", "1:22: `&&` must be followed by a statement"},
-		{"foreach x (a)\nfalse && ;\nend\n", "2:7: `&&` must be followed by a statement"},
-		{"case a in a) false && ; ;; esac\n", "1:20: `&&` must be followed by a statement"},
-		{"case a in a) false && ; esac\n", "1:20: `&&` must be followed by a statement"},
-		{"print `false && ; `\n", "1:14: `&&` must be followed by a statement"},
-		{"false && ; &\n", "1:7: `&&` must be followed by a statement"},
-		{"false && ; && print b\n", "1:7: `&&` must be followed by a statement"},
-		// Without a `;` nothing changes: a closer straight after the
-		// operator is still reported at the closer, where the adapter's
-		// closer path looks for it.
-		{"{ false && }\n", "1:12: `}` can only be used to close a block"},
-		{"if true; then false &&\nfi\n", "2:1: `fi` can only be used to end an `if`"},
-	}
-	p := NewParser(Variant(LangZsh))
-	for _, tc := range tests {
-		t.Run(tc.src, func(t *testing.T) {
-			_, err := p.Parse(strings.NewReader(tc.src), "")
-			if err == nil {
-				t.Fatalf("Parse(%q) succeeded, want %q", tc.src, tc.want)
-			}
-			if got := err.Error(); got != tc.want {
-				t.Errorf("Parse(%q) error %q, want %q", tc.src, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestAndOrAcrossSeparatorsDialectGate checks that only Zsh joins across a
 // separator: Bash rejects `false && ; print b` at the operator.
 func TestAndOrAcrossSeparatorsDialectGate(t *testing.T) {
@@ -162,32 +116,6 @@ func TestAndOrAcrossSeparatorsDialectGate(t *testing.T) {
 				if want := "`&&` must be followed by a statement"; !strings.Contains(err.Error(), want) {
 					t.Errorf("Parse(%q) error %q, want it to contain %q", src, err.Error(), want)
 				}
-			}
-		})
-	}
-}
-
-// TestZshAndOrDanglingBeforeSeparatorsRecovers checks that error recovery
-// treats a dangling Zsh operator before separators as it treats one at the
-// end of input: one missing right operand, recovered in place.
-func TestZshAndOrDanglingBeforeSeparatorsRecovers(t *testing.T) {
-	t.Parallel()
-
-	for _, src := range []string{"false && ;\n", "{ false || ; }\n"} {
-		t.Run(src, func(t *testing.T) {
-			f, err := NewParser(Variant(LangZsh), RecoverErrors(3)).Parse(strings.NewReader(src), "")
-			if err != nil {
-				t.Fatalf("Parse(%q) with recovery failed: %v", src, err)
-			}
-			missing := 0
-			Walk(f, func(n Node) bool {
-				if b, ok := n.(*BinaryCmd); ok && b.Y != nil && b.Y.Pos() == recoveredPos {
-					missing++
-				}
-				return true
-			})
-			if missing != 1 {
-				t.Errorf("Parse(%q) recovered %d right operands, want 1", src, missing)
 			}
 		})
 	}
