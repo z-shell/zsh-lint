@@ -27,6 +27,37 @@ func analyzeFunctionScopedOptions(t *testing.T, path, src string) []int {
 	return lines
 }
 
+func TestFunctionScopedOptionsCommandForms(t *testing.T) {
+	for _, name := range []string{"emulate", "setopt"} {
+		for _, command := range commandForms(name) {
+			t.Run(command, func(t *testing.T) {
+				args := " -L zsh"
+				if name == "setopt" {
+					args = " local_options"
+				}
+				file, err := parse.Parse(strings.NewReader(command+args+"\nprint hi\n"), "functions/example")
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				if got := analyzer.New(FunctionScopedOptions{}).Analyze(file, "functions/example"); len(got) != 0 {
+					t.Fatalf("diagnostics = %v, want none", got)
+				}
+			})
+		}
+	}
+	for _, command := range commandForms("return") {
+		t.Run(command, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader("[[ -n $ready ]] || "+command+" 1\nbuiltin emulate -L zsh\n"), "functions/example")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if got := analyzer.New(FunctionScopedOptions{}).Analyze(file, "functions/example"); len(got) != 0 {
+				t.Fatalf("diagnostics = %v, want none", got)
+			}
+		})
+	}
+}
+
 func TestFunctionScopedOptionsStatementOrder(t *testing.T) {
 	tests := []struct {
 		name      string

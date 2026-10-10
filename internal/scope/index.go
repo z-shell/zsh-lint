@@ -17,6 +17,7 @@ func (m *Map) Index(node syntax.Node) {
 
 		// Track function entry/exit for local scoping
 		case *syntax.FuncDecl:
+			m.functions = append(m.functions, x)
 			// Name is nil for the multi-name form (function a b { }, a b () { })
 			// and for an anonymous function (() { }); FunctionNames yields one
 			// entry per declared name and none for an anonymous function.
@@ -42,6 +43,7 @@ func (m *Map) Index(node syntax.Node) {
 
 		// Handle variable assignments: foo=bar
 		case *syntax.Assign:
+			m.indexArrayAssignment(x)
 			if x.Name != nil && x.Name.Value != "" {
 				sym := Symbol{
 					Name: x.Name.Value,
@@ -55,6 +57,7 @@ func (m *Map) Index(node syntax.Node) {
 		// Handle commands like: export foo=bar OR local foo=bar OR alias l="ls"
 		// Handle export, local, declare, typeset
 		case *syntax.DeclClause:
+			m.indexArrayDeclaration(x)
 			cmdName := ""
 			if x.Variant != nil {
 				cmdName = x.Variant.Value

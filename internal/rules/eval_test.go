@@ -49,3 +49,17 @@ func TestEvalUsageIgnoresRepeatCount(t *testing.T) {
 		t.Errorf("expected the eval in the loop body at 2:10, got %d:%d", got.Line, got.Column)
 	}
 }
+
+func TestEvalUsageCommandForms(t *testing.T) {
+	for _, command := range commandForms("eval") {
+		t.Run(command, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader("f() { "+command+` "$1"; }`), "test.zsh")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if got := analyzer.New(EvalUsage{}).Analyze(file, "test.zsh"); len(got) != 1 {
+				t.Fatalf("diagnostics = %v, want one", got)
+			}
+		})
+	}
+}

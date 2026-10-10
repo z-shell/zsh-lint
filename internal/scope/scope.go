@@ -37,6 +37,8 @@ type Map struct {
 
 	// The current function context during Pass 1 (nil if at top-level)
 	currentFunc *syntax.FuncDecl
+	functions   []*syntax.FuncDecl
+	arrays      []arrayDeclaration
 }
 
 // NewMap creates an empty scope map.

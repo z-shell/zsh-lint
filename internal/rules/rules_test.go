@@ -20,7 +20,7 @@ func TestRuleSeverities(t *testing.T) {
 		path string
 		want diag.Severity
 	}{
-		{UnquotedVar{}, "echo $x\n", "test.zsh", diag.Warning},
+		{UnquotedVar{}, "echo $x\n", "test.zsh", diag.Info},
 		{EvalUsage{}, "eval $cmd\n", "test.zsh", diag.Info},
 		{Backquotes{}, "echo `pwd`\n", "test.zsh", diag.Hint},
 		{FuncDeclStyle{}, "function f() { :; }\n", "test.zsh", diag.Hint},

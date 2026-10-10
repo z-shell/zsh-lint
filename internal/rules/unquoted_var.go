@@ -15,8 +15,8 @@ import (
 //
 // Name: Unquoted variable expansion
 //
-// Summary: Reports parameter expansions in command names or arguments that are
-// not enclosed in double quotes.
+// Summary: Reports standalone unquoted parameter expansions in command arguments
+// that may lose an empty value, with element-preserving advice for declared arrays.
 //
 // Why: The Zsh manual's Parameter Expansion section explains that unquoted
 // parameters are not split on whitespace by default, unlike in sh, but null
@@ -33,16 +33,17 @@ import (
 //
 //	print -r -- "$value"
 //
-// Severity: Warning. Losing an empty argument or inheriting `SH_WORD_SPLIT`
-// can change command behavior, while intentional elision remains realistic.
+// Severity: Info. Losing an empty argument can change command behavior, but
+// intentional elision and values guaranteed to be non-empty are common.
 //
 // False positives: Explicit native-Zsh splitting forms such as `${=words}`,
 // flag-guided array or field splitting, and glob substitution `${~pattern}`
-// (whose value must stay unquoted to match as a pattern) are excluded. Other
-// code may
-// intentionally omit an empty argument, rely on `SH_WORD_SPLIT`, or expand a
-// value guaranteed to be non-empty. Those cases should use a reasoned
-// suppression rather than weakening unrelated diagnostics.
+// (whose value must stay unquoted to match as a pattern) are excluded. Compound
+// words, command names, and arguments of `:` are also excluded. Code may
+// intentionally omit an empty argument or expand a value guaranteed to be
+// non-empty; suppress those cases with a reason. Array advice uses only earlier
+// declarations in the same lexical function or file scope, without resolving
+// dynamic caller scope or declarations in other files.
 //
 // Suppression: Use
 // `# zsh-lint disable=quoting/unquoted-var -- <reason>` on the finding line or
@@ -60,27 +61,32 @@ func (r UnquotedVar) Name() string {
 	return "Unquoted variable expansion"
 }
 
+func (UnquotedVar) NeedsScope() bool { return true }
+
 func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
-	// Only inspect command words: the command name and its arguments. Empty
-	// unquoted expansions can be elided there, and SH_WORD_SPLIT can split
-	// their values into multiple arguments. This deliberately excludes
-	// assignment right-hand sides (e.g. A=$BAZ), where the rule's
-	// argument-vector preservation rationale does not apply.
 	call, ok := node.(*syntax.CallExpr)
 	if !ok {
 		return
 	}
-	for _, word := range call.Args {
-		for _, part := range word.Parts {
-			if param, ok := part.(*syntax.ParamExp); ok {
-				if shouldSkipUnquotedParam(param) {
-					continue
-				}
-				// A ParamExp directly inside a Word's Parts is unquoted; a quoted
-				// expansion would sit inside a *syntax.DblQuoted part instead.
-				ctx.Report(param.Pos(), param.End(), r.ID(), diag.Warning, "Variable expansion should be double-quoted")
-			}
+	name, args := effectiveCommand(call)
+	if name == ":" {
+		return
+	}
+	for _, word := range args {
+		// Only a standalone expansion can elide the whole argument. A quoted
+		// expansion is nested in DblQuoted rather than directly in Word.Parts.
+		if word == nil || len(word.Parts) != 1 {
+			continue
 		}
+		param, ok := word.Parts[0].(*syntax.ParamExp)
+		if !ok || shouldSkipUnquotedParam(param) {
+			continue
+		}
+		message := "Variable expansion should be double-quoted"
+		if param.Param != nil && ctx.Scope != nil && ctx.Scope.IsDeclaredArray(param.Param.Value, param.Pos()) {
+			message = "Array expansion should preserve elements with \"${" + param.Param.Value + "[@]}\""
+		}
+		ctx.Report(param.Pos(), param.End(), r.ID(), diag.Info, message)
 	}
 }
 

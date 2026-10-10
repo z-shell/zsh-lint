@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
+	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
 )
 
@@ -161,5 +162,88 @@ func TestUnquotedVarSeesSelectShortFormBody(t *testing.T) {
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("expected diagnostics at %v, got %v", want, got)
+	}
+}
+
+func TestUnquotedVarArgumentBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"literal prefix", `print a$y`, 0},
+		{"literal suffix", `print $y/b`, 0},
+		{"other word parts", `print $y"suffix" $y$(print b)`, 0},
+		{"colon arguments", `: ${x:=default}`, 0},
+		{"builtin colon arguments", `builtin : ${x:=default}`, 0},
+		{"command colon arguments", `command -p : $var`, 0},
+		{"quoted colon arguments", `":" $var`, 0},
+		{"command position", `$cmd`, 0},
+		{"prefixed command position", `builtin $cmd`, 0},
+		{"command position with argument", `$cmd $var`, 1},
+		{"prefixed command with argument", `command -p $cmd $var`, 1},
+		{"bare variable", `print $var`, 1},
+		{"default alone", `print ${x:-y}`, 1},
+		{"quoted variable", `print "$var"`, 0},
+		{"assignment", `name=$var`, 0},
+		{"issue repro without parser gaps", `f() { local -a opts; print a$y $y/b; : ${x:=default}; print ${opts[@]} $opts; }`, 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "test.zsh")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			got := analyzer.New(UnquotedVar{}).Analyze(file, "test.zsh")
+			if len(got) != test.want {
+				t.Fatalf("diagnostics = %v, want %d", got, test.want)
+			}
+			for _, finding := range got {
+				if finding.Severity != diag.Info {
+					t.Fatalf("severity = %v, want info", finding.Severity)
+				}
+			}
+		})
+	}
+}
+
+func TestUnquotedVarDeclaredArrays(t *testing.T) {
+	tests := []struct {
+		name  string
+		src   string
+		array bool
+	}{
+		{"local", `f() { local -a opts; print $opts; }`, true},
+		{"typeset", `typeset -a opts; print $opts`, true},
+		{"declare", `declare -a opts; print $opts`, true},
+		{"combined options", `f() { local -ra opts; print $opts; }`, true},
+		{"initialized declaration", `f() { local -a opts=(a b); print $opts; }`, true},
+		{"array assignment", `opts=(a b); print $opts`, true},
+		{"function array assignment", `f() { opts=(a b); print $opts; }`, true},
+		{"unquoted all elements", `f() { local -a opts; print ${opts[@]}; }`, true},
+		{"scalar", `f() { local opts; print $opts; }`, false},
+		{"declared later", `f() { print $opts; local -a opts; }`, false},
+		{"sibling function", `f() { local -a opts; }; g() { print $opts; }`, false},
+		{"function declaration at file scope", `f() { local -a opts; }; print $opts`, false},
+		{"nested function", `f() { local -a opts; g() { print $opts; }; }`, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "test.zsh")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			got := analyzer.New(UnquotedVar{}).Analyze(file, "test.zsh")
+			if len(got) != 1 {
+				t.Fatalf("diagnostics = %v, want one", got)
+			}
+			want := "Variable expansion should be double-quoted"
+			if test.array {
+				want = `Array expansion should preserve elements with "${opts[@]}"`
+			}
+			if got[0].Message != want || got[0].Severity != diag.Info {
+				t.Fatalf("diagnostic = %v, want info with %q", got[0], want)
+			}
+		})
 	}
 }
