@@ -631,6 +631,8 @@ var errorCases = []errorCase{
 	errCase(
 		";",
 		langErr("1:1: `;` can only immediately follow a statement"),
+		// zsh-lint #332: in Zsh the `;` ends an empty sublist.
+		langErr("", LangZsh),
 	),
 	errCase(
 		"{ ; }",
@@ -708,6 +710,8 @@ var errorCases = []errorCase{
 	errCase(
 		"echo & ; bar",
 		langErr("1:8: `;` can only immediately follow a statement"),
+		// zsh-lint #332: in Zsh the `;` ends an empty sublist.
+		langErr("", LangZsh),
 	),
 	errCase(
 		"foo;;",
@@ -778,6 +782,8 @@ var errorCases = []errorCase{
 	errCase(
 		"echo &&",
 		langErr("1:6: `&&` must be followed by a statement"),
+		// zsh-lint #548: in Zsh the operator may end its list.
+		langErr("", LangZsh),
 	),
 	errCase(
 		"echo |",
@@ -786,6 +792,8 @@ var errorCases = []errorCase{
 	errCase(
 		"echo ||",
 		langErr("1:6: `||` must be followed by a statement"),
+		// zsh-lint #548: in Zsh the operator may end its list.
+		langErr("", LangZsh),
 	),
 	errCase(
 		"echo | #bar",
@@ -794,10 +802,14 @@ var errorCases = []errorCase{
 	errCase(
 		"echo && #bar",
 		langErr("1:6: `&&` must be followed by a statement"),
+		// zsh-lint #548: in Zsh the operator may end its list.
+		langErr("", LangZsh),
 	),
 	errCase(
 		"`echo &&`",
 		langErr("1:7: `&&` must be followed by a statement"),
+		// zsh-lint #548: in Zsh the operator may end its list.
+		langErr("", LangZsh),
 	),
 	errCase(
 		"`echo |`",
@@ -1086,6 +1098,8 @@ var errorCases = []errorCase{
 	errCase(
 		"echo foo &\n;",
 		langErr("2:1: `;` can only immediately follow a statement"),
+		// zsh-lint #332: in Zsh the `;` ends an empty sublist.
+		langErr("", LangZsh),
 	),
 	errCase(
 		"echo $(foo",
@@ -1395,6 +1409,8 @@ var errorCases = []errorCase{
 	errCase(
 		"echo foo\n;",
 		langErr("2:1: `;` can only immediately follow a statement"),
+		// zsh-lint #332: in Zsh the `;` ends an empty sublist.
+		langErr("", LangZsh),
 	),
 	errCase(
 		"<<$ <<0\n$(<<$<<",
