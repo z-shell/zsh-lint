@@ -52,8 +52,12 @@ The original interactive Zi/`.zshrc` plugin was removed from the tree; the Go an
 
 - `cmd/zsh-lint/` — semantic-analyzer CLI entry point.
 - `cmd/zsh-lint-survey/` — parser-gap survey CLI entry point.
+- `cmd/zsh-lint-probe/`, `internal/probe/`: parser-context probe grids.
 - `internal/parse/` — parser front end (mvdan/sh, swappable).
 - `internal/survey/` — parser-survey core (greppable diagnostics + exit code).
+- `internal/workflowcontract/`: tests for CI and contributor workflow contracts.
+- `internal/manualcite/`: released-manual citation checks for rules and fixtures.
+- `third_party/mvdan-sh/`: local parser fork, wired through the root module's `replace` directive; see its `FORK.md`.
 - `internal/wikidoc/`, `cmd/wikidoc/` — docs-sync tooling (not product code).
 
 ## Documentation
@@ -62,7 +66,7 @@ Canonical reader docs live on the **wiki** (`community/zsh_lint`), which is the 
 Code-derived reference is generated from Go doc comments and synced into the wiki — do not hand-edit the generated region there.
 Regenerate locally with:
 
-    go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
+    go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./cmd/zsh-lint-probe ./internal/survey ./internal/rules
 
 ## Scoped guidance
 
@@ -108,7 +112,7 @@ Both point at the wiki as the canonical reading surface.
     golangci-lint run ./...
 
 Go CI runs `golangci-lint` v2.12.2 over the whole module with `.golangci.yml`, so a finding anywhere fails the build, not only on changed lines.
-With a local Go newer than the release `go.mod` names, run it as `GOTOOLCHAIN=go1.26.0 golangci-lint run ./...`; the setup script prints the exact command.
+Use the lint command the setup script prints; it derives the toolchain from `go.mod` and includes `GOTOOLCHAIN` when the local Go release differs.
 Tests that need `zsh` skip without it, so install it before trusting a local pass.
 
 Go 1.26 (`GOTOOLCHAIN=auto` auto-fetches the toolchain; CI pins the same version explicitly). mvdan/sh v3.14 dropped Go 1.25.
