@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"strings"
+
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
@@ -16,7 +18,10 @@ import (
 // Summary: Reports direct uses of `$0` at the top level of configured plugin
 // and Zi annex sourced-library entrypoints. Configured analysis also reports
 // assignment to special parameter `0`, because sourced entrypoints must not
-// replace caller state. Unconfigured analysis retains the legacy path heuristic.
+// replace caller state. Unconfigured analysis excludes complete `functions`
+// path segments (case-insensitive), `tests` path segments, and files with a
+// first-line shebang. These are heuristics; explicit configuration takes precedence.
+// The `${0:#$ZSH_ARGZERO}` filter is accepted in either mode.
 //
 // Why: When a Zsh plugin is sourced, positional parameter `$0` evaluates to the
 // name of the shell (`zsh` or `-zsh`) rather than the path of the sourced script,
@@ -44,8 +49,11 @@ import (
 // wrong path; assigning to `0` can replace caller state or fail when
 // `POSIX_ARGZERO` makes it read-only.
 //
-// False positives: Scripts intended solely for direct execution (not sourcing)
-// or functions where `$0` refers to the function name. Suppress with a reason.
+// False positives: Direct-execution scripts without a shebang or tests outside
+// a `tests` directory can be misclassified when no configuration is present.
+// Function definitions are excluded. Unconfigured initialization is recognized
+// in brace blocks and if branches in source order; it carries beyond an if
+// only when the condition initializes it or every branch does.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/zero-handling -- <reason>` on the finding line or
@@ -65,35 +73,85 @@ func (ZeroHandling) Name() string {
 
 func (rule ZeroHandling) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	file, ok := node.(*syntax.File)
-	if !ok || !sourcedPluginRuleApplies(ctx) {
+	if !ok || !zeroHandlingApplies(ctx) {
 		return
 	}
 
-	zeroInitialized := false
+	analyzeZeroStatements(ctx, file.Stmts, rule.ID(), false)
+}
 
-	for _, stmt := range file.Stmts {
+func analyzeZeroStatements(ctx *analyzer.Context, stmts []*syntax.Stmt, ruleID diag.RuleID, zeroInitialized bool) bool {
+	for _, stmt := range stmts {
 		if stmt == nil {
 			continue
 		}
 
-		if ctx.Source.Configured() && reportConfiguredZeroAssignment(ctx, stmt, rule.ID()) {
-			// Avoid cascading path-use findings after the primary caller-state
-			// violation on the assignment itself.
-			zeroInitialized = true
-			continue
+		// Compound-command redirections expand before their bodies execute.
+		switch stmt.Cmd.(type) {
+		case *syntax.Block, *syntax.IfClause:
+			if !zeroInitialized {
+				for _, redir := range stmt.Redirs {
+					if redir != nil {
+						checkUninitializedZero(ctx, redir, ruleID)
+					}
+				}
+			}
 		}
-
-		// Preserve the legacy unconfigured initialization contract.
-		if isZeroInitializationStatement(stmt) {
-			zeroInitialized = true
-			continue
+		initialized := zeroInitialized
+		switch command := stmt.Cmd.(type) {
+		case *syntax.Block:
+			initialized = analyzeZeroStatements(ctx, command.Stmts, ruleID, zeroInitialized)
+		case *syntax.IfClause:
+			initialized = analyzeZeroIf(ctx, command, ruleID, zeroInitialized)
+		default:
+			if ctx.Source.Configured() && reportConfiguredZeroAssignment(ctx, stmt, ruleID) {
+				// Avoid cascading path-use findings after the primary caller-state
+				// violation on the assignment itself.
+				initialized = true
+			} else if isZeroInitializationStatement(stmt) {
+				// Preserve the legacy unconfigured initialization contract.
+				initialized = true
+			} else if !zeroInitialized {
+				checkUninitializedZero(ctx, stmt, ruleID)
+			}
 		}
-
-		// Inspect statement for top-level $0 references (excluding function definitions)
-		if !zeroInitialized {
-			checkUninitializedZeroInStmt(ctx, stmt, rule.ID())
+		if !hasUnsafeStatementEffect(stmt) {
+			zeroInitialized = initialized
 		}
 	}
+	return zeroInitialized
+}
+
+func analyzeZeroIf(ctx *analyzer.Context, clause *syntax.IfClause, ruleID diag.RuleID, zeroInitialized bool) bool {
+	zeroInitialized = analyzeZeroStatements(ctx, clause.Cond, ruleID, zeroInitialized)
+	thenInitialized := analyzeZeroStatements(ctx, clause.Then, ruleID, zeroInitialized)
+	if len(clause.Cond) == 0 {
+		return thenInitialized // else has no condition
+	}
+	if clause.Else == nil {
+		// A missing else leaves the incoming state possible after the if.
+		return zeroInitialized
+	}
+	elseInitialized := analyzeZeroIf(ctx, clause.Else, ruleID, zeroInitialized)
+	return thenInitialized && elseInitialized
+}
+
+func zeroHandlingApplies(ctx *analyzer.Context) bool {
+	if ctx.Source.Configured() {
+		return configuredPluginSource(ctx.Source, projectconfig.ProfileSourcedLibrary)
+	}
+	for _, segment := range strings.Split(strings.ReplaceAll(ctx.FilePath, `\`, "/"), "/") {
+		if strings.EqualFold(segment, "functions") || segment == "tests" {
+			return false
+		}
+	}
+	if ctx.File != nil {
+		lines := ctx.File.Lines()
+		if len(lines) > 0 && strings.HasPrefix(lines[0], "#!") {
+			return false
+		}
+	}
+	return true
 }
 
 func reportConfiguredZeroAssignment(ctx *analyzer.Context, stmt *syntax.Stmt, ruleID diag.RuleID) bool {
@@ -174,17 +232,12 @@ func hasPromptExpansionOrZeroInWord(word *syntax.Word) bool {
 	return found
 }
 
-func checkUninitializedZeroInStmt(ctx *analyzer.Context, stmt *syntax.Stmt, ruleID diag.RuleID) {
-	if stmt == nil {
+func checkUninitializedZero(ctx *analyzer.Context, node syntax.Node, ruleID diag.RuleID) {
+	if node == nil {
 		return
 	}
 
-	// Skip function declarations (where $0 refers to function name)
-	if _, ok := stmt.Cmd.(*syntax.FuncDecl); ok {
-		return
-	}
-
-	syntax.Walk(stmt, func(n syntax.Node) bool {
+	syntax.Walk(node, func(n syntax.Node) bool {
 		// Stop traversing into nested function declarations
 		if _, ok := n.(*syntax.FuncDecl); ok {
 			return false
@@ -192,9 +245,8 @@ func checkUninitializedZeroInStmt(ctx *analyzer.Context, stmt *syntax.Stmt, rule
 
 		if pe, ok := n.(*syntax.ParamExp); ok {
 			if pe.Param != nil && pe.Param.Value == "0" {
-				// If this is the initial 0= assignment itself, do not report it
-				if isInitializingParamExp(stmt, pe) {
-					return false
+				if isArgzeroFilter(pe) {
+					return true
 				}
 				ctx.Report(
 					pe.Pos(),
@@ -209,17 +261,8 @@ func checkUninitializedZeroInStmt(ctx *analyzer.Context, stmt *syntax.Stmt, rule
 	})
 }
 
-func isInitializingParamExp(stmt *syntax.Stmt, pe *syntax.ParamExp) bool {
-	call, ok := stmt.Cmd.(*syntax.CallExpr)
-	if !ok {
-		return false
-	}
-	for _, assign := range call.Assigns {
-		if assign.Name != nil && assign.Name.Value == "0" {
-			if assign.Value != nil && hasPromptExpansionOrZeroInWord(assign.Value) {
-				return true
-			}
-		}
-	}
-	return false
+func isArgzeroFilter(pe *syntax.ParamExp) bool {
+	return pe.Flags == nil && pe.Index == nil && !pe.Length &&
+		pe.Exp != nil && pe.Exp.Op == syntax.MatchEmpty &&
+		wordIsExactParameter(pe.Exp.Word, "ZSH_ARGZERO")
 }
