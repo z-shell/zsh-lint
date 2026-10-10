@@ -54,6 +54,10 @@ func TestZshSubscriptBracketBalanceReject(t *testing.T) {
 		// Nested subscripts are checked on their own.
 		{"print ${x[${y[1,$(echo [)]}]}", "1:24: " + balance},
 		{"print ${x[${y[\\\n1,$(echo [)]}]}", "2:10: " + balance},
+		// Issue #609: the substitution body's subscript reaches EOF.
+		{"print ${x[(r)$(echo ${[)]}", "1:23: `[` must be followed by an expression"},
+		{"print ${x[(r)`echo ${[`]}", "1:22: `[` must be followed by an expression"},
+		{"print ${x[${y[(r)$(echo ${[)]}]}]}", "1:27: `[` must be followed by an expression"},
 	} {
 		t.Run(tc.src, func(t *testing.T) {
 			_, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(tc.src+"\n"), "")
