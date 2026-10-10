@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"strings"
-
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
@@ -111,13 +109,6 @@ func reportConfiguredZeroAssignment(ctx *analyzer.Context, stmt *syntax.Stmt, ru
 			reported = true
 		}
 	}
-	for _, arg := range call.Args {
-		if isZeroAssignmentWord(arg) {
-			ctx.Report(arg.Pos(), arg.End(), ruleID, diag.Warning,
-				"Do not assign to special parameter '0' in a sourced entrypoint; pass the resolved source path into a localized anonymous function")
-			reported = true
-		}
-	}
 	return reported
 }
 
@@ -133,18 +124,13 @@ func isZeroInitializationStatement(stmt *syntax.Stmt) bool {
 		return false
 	}
 
-	// 1. Direct assignment: 0=... (parsed as CallExpr word with "0=" prefix or Assign)
+	// 1. Direct assignment: 0=...
 	if call, ok := stmt.Cmd.(*syntax.CallExpr); ok {
 		for _, assign := range call.Assigns {
 			if assign.Name != nil && assign.Name.Value == "0" {
 				if hasPromptExpansionOrZeroVar(assign.Value) {
 					return true
 				}
-			}
-		}
-		for _, arg := range call.Args {
-			if arg != nil && isZeroAssignmentWord(arg) {
-				return true
 			}
 		}
 	}
@@ -158,18 +144,6 @@ func isZeroInitializationStatement(stmt *syntax.Stmt) bool {
 		}
 	}
 
-	return false
-}
-
-func isZeroAssignmentWord(word *syntax.Word) bool {
-	if word == nil || len(word.Parts) == 0 {
-		return false
-	}
-	if lit, ok := word.Parts[0].(*syntax.Lit); ok {
-		if strings.HasPrefix(lit.Value, "0=") {
-			return true
-		}
-	}
 	return false
 }
 
@@ -244,16 +218,6 @@ func isInitializingParamExp(stmt *syntax.Stmt, pe *syntax.ParamExp) bool {
 		if assign.Name != nil && assign.Name.Value == "0" {
 			if assign.Value != nil && hasPromptExpansionOrZeroInWord(assign.Value) {
 				return true
-			}
-		}
-	}
-	if len(call.Args) > 0 {
-		firstArg := call.Args[0]
-		if len(firstArg.Parts) > 0 {
-			if lit, ok := firstArg.Parts[0].(*syntax.Lit); ok && strings.HasPrefix(lit.Value, "0=") {
-				if hasPromptExpansionOrZeroInWord(firstArg) {
-					return true
-				}
 			}
 		}
 	}

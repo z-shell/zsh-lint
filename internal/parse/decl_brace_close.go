@@ -89,7 +89,7 @@ func parseDeclarationBraceCloseWithParser(
 
 // declarationClauseWords are the command words the parser turns into a
 // DeclClause or LetClause, which read arguments until a stop token.
-// `integer` and `float` are ordinary calls and already stop at `}`.
+// `integer` and `float` stop at `}` in the fork.
 var declarationClauseWords = map[string]bool{
 	"declare":  true,
 	"export":   true,

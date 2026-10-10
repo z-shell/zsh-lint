@@ -25,6 +25,8 @@ func TestZeroHandling(t *testing.T) {
 			path: "my-plugin.plugin.zsh",
 		},
 		{name: "compliant prompt expansion initialization", src: "0=\"${(%):-%N}\"\nfpath+=( \"${0:h}/functions\" )\n", path: "my-plugin.plugin.zsh"},
+		{name: "ordinary zero assignment is not source initialization", src: "0=$value\nprint -r -- $0\n", path: "my-plugin.plugin.zsh", wantDiag: 1},
+		{name: "zero assignment word after command is not initialization", src: "print -r -- 0=$value\nprint -r -- $0\n", path: "my-plugin.plugin.zsh", wantDiag: 1},
 		{name: "usage of 0 inside function body", src: "my_func() { print -r -- \"Function name: $0\" }\n", path: "my-plugin.plugin.zsh"},
 		{name: "file inside functions directory", src: "print -r -- \"Arg zero: $0\"\n", path: "functions/.handler"},
 		{name: "suppressed finding", src: "# zsh-lint disable=plugin/zero-handling -- direct execution script\nfpath+=( \"${0:h}/functions\" )\n", path: "my-plugin.plugin.zsh"},
@@ -56,6 +58,8 @@ func TestConfiguredZeroHandlingPreservesCallerState(t *testing.T) {
 		want int
 	}{
 		{name: "top-level zero assignment is rejected", src: "0=\"${(%):-%N}\"\nfpath+=( \"${0:h}/functions\" )\n", want: 1},
+		{name: "zero assignment argument does not assign caller state", src: "print -r -- 0=value\n"},
+		{name: "quoted zero assignment word does not assign caller state", src: "\"0=value\"\n"},
 		{name: "canonical anonymous function argument is accepted", src: "() {\n  builtin emulate -L zsh\n  local -r source_path=${1:a}\n  local -r plugin_dir=${source_path:h}\n  fpath+=( \"${plugin_dir}/functions\" )\n} \"${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}\"\n"},
 		{name: "named function zero is not entrypoint location", src: "helper() { print -r -- \"$0\" }\n"},
 		{name: "literal tokens do not initialize zero", src: "print -r -- 'ZERO %N %x'\nfpath+=( \"${0:h}/functions\" )\n", want: 1},

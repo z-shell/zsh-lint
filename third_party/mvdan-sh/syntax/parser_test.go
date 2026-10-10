@@ -1743,7 +1743,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"declare 0=${o}",
-		langErr("1:9: invalid var name", LangBash|LangZsh),
+		langErr("1:9: invalid var name", LangBash),
 	),
 	errCase(
 		"declare ab=${o})",
