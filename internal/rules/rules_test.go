@@ -28,7 +28,7 @@ func TestRuleSeverities(t *testing.T) {
 		{FunctionScopedOptions{}, "rehash\n", "functions/handler", diag.Hint},
 		{SpecialParamShadow{}, "local ZSH_VERSION=1\n", "test.zsh", diag.Warning},
 		{ZeroHandling{}, "fpath+=( \"${0:h}/functions\" )\n", "plugin.zsh", diag.Warning},
-		{UnloadFunction{}, "add-zsh-hook precmd _hook\n", "plugin.zsh", diag.Hint},
+		{UnloadFunction{}, "add-zsh-hook precmd _hook\n", "example.plugin.zsh", diag.Hint},
 		{FpathHygiene{}, "fpath=( \"${0:h}/functions\" )\n", "plugin.zsh", diag.Warning},
 	}
 	for _, tt := range tests {

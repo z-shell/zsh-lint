@@ -23,6 +23,26 @@ func TestUnloadFunction(t *testing.T) {
 		{name: "unload function with indiscriminate function wipe", src: "my_plugin_unload() {\n  unfunction ${(k)functions}\n  unfunction my_plugin_unload\n}\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Warning},
 		{name: "compliant hook and unload function", src: "add-zsh-hook precmd _my_precmd\nmy_plugin_unload() {\n  add-zsh-hook -d precmd _my_precmd\n  unfunction _my_precmd my_plugin_unload\n}\n", path: "my-plugin.plugin.zsh"},
 		{name: "file inside functions directory", src: "add-zsh-hook precmd _my_precmd\n", path: "functions/.handler"},
+		{name: "ordinary source is not an entrypoint", src: "add-zsh-hook precmd _my_precmd\n", path: "lib/widgets.zsh"},
+		{name: "multiple registrations report once", src: "add-zsh-hook precmd _my_precmd\nzle -N example-widget\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
+		{name: "hook array append is a registration", src: "precmd_functions+=(_my_precmd)\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
+		{name: "scalar hook append is a registration", src: "precmd_functions+=_my_precmd\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
+		{name: "theme entrypoint", src: "zle -N example-widget\n", path: "themes/example.zsh-theme", want: 1, severity: diag.Hint},
+		{name: "init entrypoint", src: "add-zsh-hook precmd _my_precmd\n", path: "modules/example/init.zsh", want: 1, severity: diag.Hint},
+		{name: "windows init entrypoint", src: "add-zsh-hook precmd _my_precmd\n", path: `modules\example\init.zsh`, want: 1, severity: diag.Hint},
+		{name: "near miss init basename", src: "add-zsh-hook precmd _my_precmd\n", path: "modules/my-init.zsh"},
+		{name: "entrypoint suffix is exact", src: "add-zsh-hook precmd _my_precmd\n", path: "example.plugin.zsh.backup"},
+		{name: "hook array declaration", src: "typeset -ga precmd_functions+=(_my_precmd)\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
+		{name: "mixed registrations report once", src: "precmd_functions+=(_my_precmd)\nadd-zsh-hook preexec _my_preexec\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
+		{name: "hook array with unload", src: "precmd_functions+=(_my_precmd)\nmy_plugin_unload() { unfunction my_plugin_unload }\n", path: "my-plugin.plugin.zsh"},
+		{name: "empty hook array append", src: "precmd_functions+=()\n", path: "my-plugin.plugin.zsh"},
+		{name: "empty scalar hook append", src: "precmd_functions+=\n", path: "my-plugin.plugin.zsh"},
+		{name: "hook array reset", src: "precmd_functions=()\n", path: "my-plugin.plugin.zsh"},
+		{name: "hook array replacement is not an append", src: "precmd_functions=(_my_precmd)\n", path: "my-plugin.plugin.zsh"},
+		{name: "other array append", src: "handlers+=(_my_precmd)\n", path: "my-plugin.plugin.zsh"},
+		{name: "hook name substring", src: "precmd_functions_extra+=(_my_precmd)\n", path: "my-plugin.plugin.zsh"},
+		{name: "hook element append", src: "precmd_functions[1]+=suffix\n", path: "my-plugin.plugin.zsh"},
+		{name: "suppressed hook array finding", src: "# zsh-lint disable=plugin/unload-function -- static plugin\nprecmd_functions+=(_my_precmd)\n", path: "my-plugin.plugin.zsh"},
 		// The count of a repeat loop is a word, not a command (#281): a count
 		// spelled like a hook command is not a registration, and a
 		// registration in the body still is.
@@ -88,15 +108,58 @@ func TestUnloadFunctionExactLifecycleMatching(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			file, err := parse.Parse(strings.NewReader(test.src), "plugin.zsh")
+			file, err := parse.Parse(strings.NewReader(test.src), "example.plugin.zsh")
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			diagnostics := analyzer.New(UnloadFunction{}).Analyze(file, "plugin.zsh")
+			diagnostics := analyzer.New(UnloadFunction{}).Analyze(file, "example.plugin.zsh")
 			if len(diagnostics) != test.want {
 				t.Fatalf("diagnostics = %+v, want %d", diagnostics, test.want)
 			}
 		})
+	}
+}
+
+func TestUnloadFunctionConfiguredHookArrays(t *testing.T) {
+	for _, test := range []struct {
+		src  string
+		want int
+	}{
+		{"precmd_functions+=(_tick)\npreexec_functions+=(_run)\n", 2},
+		{"typeset -ga precmd_functions+=(_tick)\n", 1},
+		{"precmd_functions+=_tick\n", 1},
+		{"precmd_functions=(_tick)\n", 0},
+		{"precmd_functions+=()\n", 0},
+		{"handlers+=(_tick)\n", 0},
+		{"precmd_functions[1]+=suffix\n", 0},
+	} {
+		src := test.src
+		file, err := parse.Parse(strings.NewReader(src), "lib/hooks.zsh")
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		source := configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "")
+		an := analyzer.New(UnloadFunction{}, ProjectUnloadLifecycle{})
+		got := an.AnalyzeSource(file, "lib/hooks.zsh", source)
+		if len(got) != test.want {
+			t.Fatalf("%q: configured diagnostics = %v, want %d", src, got, test.want)
+		}
+		for _, diagnostic := range got {
+			if diagnostic.RuleID != "plugin/project-unload-lifecycle" {
+				t.Fatalf("configured diagnostic = %v, want project lifecycle rule", diagnostic)
+			}
+		}
+		unload, err := parse.Parse(strings.NewReader("example_plugin_unload() { unfunction example_plugin_unload }\n"), "lib/unload.zsh")
+		if err != nil {
+			t.Fatalf("parse unload: %v", err)
+		}
+		got = an.AnalyzeProject([]analyzer.ProjectInput{
+			{File: file, Path: "lib/hooks.zsh", Source: source},
+			{File: unload, Path: "lib/unload.zsh", Source: source},
+		})
+		if len(got) != 0 {
+			t.Fatalf("cross-file hook array diagnostics = %v, want none", got)
+		}
 	}
 }
 
@@ -111,11 +174,11 @@ func TestUnloadFunctionCommandForms(t *testing.T) {
 	} {
 		for _, command := range commandForms(registration.name) {
 			t.Run(command, func(t *testing.T) {
-				file, err := parse.Parse(strings.NewReader(command+" "+registration.args+"\n"), "plugin.zsh")
+				file, err := parse.Parse(strings.NewReader(command+" "+registration.args+"\n"), "example.plugin.zsh")
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
-				if got := analyzer.New(UnloadFunction{}).Analyze(file, "plugin.zsh"); len(got) != 1 {
+				if got := analyzer.New(UnloadFunction{}).Analyze(file, "example.plugin.zsh"); len(got) != 1 {
 					t.Fatalf("unconfigured diagnostics = %v, want one", got)
 				}
 				got := analyzer.New(ProjectUnloadLifecycle{}).AnalyzeSource(file, "plugin.zsh",
@@ -136,11 +199,11 @@ func TestUnloadFunctionCommandForms(t *testing.T) {
 				{`${(k)functions} example_plugin_unload`, 1},
 				{"g", 1},
 			} {
-				file, err := parse.Parse(strings.NewReader("example_plugin_unload() { "+command+" "+test.args+"; }"), "plugin.zsh")
+				file, err := parse.Parse(strings.NewReader("example_plugin_unload() { "+command+" "+test.args+"; }"), "example.plugin.zsh")
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
-				if got := analyzer.New(UnloadFunction{}).Analyze(file, "plugin.zsh"); len(got) != test.want {
+				if got := analyzer.New(UnloadFunction{}).Analyze(file, "example.plugin.zsh"); len(got) != test.want {
 					t.Fatalf("args %s: diagnostics = %v, want %d", test.args, got, test.want)
 				}
 			}
@@ -159,11 +222,11 @@ func TestUnloadFunctionPrefixedDeregistration(t *testing.T) {
 	} {
 		for _, command := range commandForms(test.name) {
 			t.Run(command, func(t *testing.T) {
-				file, err := parse.Parse(strings.NewReader(command+" "+test.args+"\n"), "plugin.zsh")
+				file, err := parse.Parse(strings.NewReader(command+" "+test.args+"\n"), "example.plugin.zsh")
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
-				if got := analyzer.New(UnloadFunction{}).Analyze(file, "plugin.zsh"); len(got) != 0 {
+				if got := analyzer.New(UnloadFunction{}).Analyze(file, "example.plugin.zsh"); len(got) != 0 {
 					t.Fatalf("diagnostics = %v, want none", got)
 				}
 			})
