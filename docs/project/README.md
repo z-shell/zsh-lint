@@ -20,6 +20,7 @@ Change them in the same PR as the behavior they describe.
 ## Dated records
 
 Point-in-time survey runs and decisions.
+New dated records are only for cross-cutting decisions; existing records stay as history.
 They are history, not policy; read the newest first and do not update older ones.
 The agent tooling plan keeps its Status section current; its inventory and plan text remain dated.
 

@@ -11,10 +11,13 @@ This organization source supplies complete native project guidance through the a
 
 `internal/parse` wraps `mvdan.cc/sh/v3/syntax` in its Zsh dialect and closes proven valid-Zsh gaps with local compatibility adapters.
 The contract is in [`docs/project/parser-gap-workflow.md`](../../docs/project/parser-gap-workflow.md); this file only routes you there and names the invariants that reviews check.
+Parser work targets valid Zsh that fails to parse or is misread into a wrong tree in organization code or the external corpus; false-accept issues are parked because `zsh -n` covers syntax validity.
 
 ## Before changing anything
 
-1. Prove the gap with both oracles: `go run ./cmd/zsh-lint-survey -judge <file>` reports `GAP`, with no native `zsh -f -n` diagnostic and a failing analyzer verdict. Judge the native result by stderr rather than exit status, as the project workflow requires (`! true` exits 1 without a diagnostic).
+1. Prove a parse failure with both oracles: `go run ./cmd/zsh-lint-survey -judge <file>` reports `GAP`, with no native `zsh -f -n` diagnostic and a failing analyzer verdict.
+   Judge the native result by stderr rather than exit status, as the project workflow requires (`! true` exits 1 without a diagnostic).
+   For valid Zsh that parses into a wrong tree, use the project contract's structural oracle to prove the defect.
    A file both reject is a broken script, not a gap.
    `zsh -f -n` also runs word expansion on a top-level simple command, but only the lexer inside a function body, so state which placement a row uses ([#287](https://github.com/z-shell/zsh-lint/issues/287), `parser-gap-workflow.md` section 3).
 2. Name the language feature from the Zsh manual (`zshmisc`, `zshexpn`, `zshparam`) and link its section in the issue body and in the fixture's `# Manual: <url>` line.
@@ -50,3 +53,8 @@ The contract is in [`docs/project/parser-gap-workflow.md`](../../docs/project/pa
 
 A `mvdan/sh` version bump is a parser behavior change, not a routine dependency update.
 Land it with tree-shape assertions for every affected fixture and a survey run before and after; a `gap-*` fixture that stops erroring must fail on tree shape, not pass silently.
+
+## Verification and evidence
+
+Run `.github/scripts/verify-parser-change.sh` as the project contract describes and paste its table into the pull request description.
+Put a parser or rule fix's survey and verification output in that description; add a dated record under `docs/project/` only for a cross-cutting decision.

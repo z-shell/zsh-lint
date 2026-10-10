@@ -1,6 +1,6 @@
 ---
 name: parser-gap-fix
-description: Fix a zsh-lint parser gap or false accept end to end, from proving it with both oracles to the pull request's verification table. Use for any change under internal/parse that makes valid Zsh parse or invalid Zsh fail. Advisory; the contract is docs/project/parser-gap-workflow.md.
+description: Fix a zsh-lint parser gap or wrong tree for valid Zsh in organization code or the external corpus, from proving it to the pull request's verification table. Advisory; the contract is docs/project/parser-gap-workflow.md.
 ---
 
 # Parser-gap fix
@@ -17,7 +17,8 @@ Zsh semantics follow the released manual through the organization's [Zsh scripti
    go run ./cmd/zsh-lint-survey -judge gap.zsh
    ```
 
-   Read the reduced source and confirm that `GAP` or `FALSE-ACCEPT` still identifies the intended language feature.
+   Read the reduced source and confirm that `GAP` still identifies the intended language feature, or prove the wrong tree for valid Zsh through the contract's structural oracle.
+   Park `FALSE-ACCEPT` issues as the contract requires.
    Read the survey command's help for reduction limits and candidate-build options.
 
 3. Search the parser-gap backlog for that feature and link its owning issue and released-manual section before implementation.
@@ -25,7 +26,7 @@ Zsh semantics follow the released manual through the organization's [Zsh scripti
 4. Add the failing regression first, following [Promote to fixture](../../../docs/project/parser-gap-workflow.md#4-promote-to-fixture), including its native-invalid, citation and structural-oracle contracts.
 5. Implement through the [front-end strategy](../../../docs/project/parser-gap-workflow.md#front-end-strategy) and [adapter invariants](../../instructions/parser-front-end.instructions.md#adapter-invariants).
    Verify non-trivial scanner or grammar logic with the organization's [independent verification workflow](https://github.com/z-shell/.github/blob/9c96960532066b8686b0bf74628f859990a9231b/.github/instructions/quality/independent-verification.instructions.md).
-6. Follow [Verification tools](../../../docs/project/parser-gap-workflow.md#verification-tools) and run:
+6. Run `.github/scripts/verify-parser-change.sh` as [Verification tools](../../../docs/project/parser-gap-workflow.md#verification-tools) describes and paste its table into the pull request description:
 
    Put the construct's valid and invalid variants in `bodies.txt`, separated by `---` lines.
 
@@ -40,5 +41,6 @@ Zsh semantics follow the released manual through the organization's [Zsh scripti
    Its runtime probe executes generated rows only; never use runtime comparison on corpus or consumer sources.
    Report every mutation result, including invalid and unsupported mutants; for changed lines the runner cannot mutate, run `.github/scripts/mutation.sh --spec FILE` per the [mutation contract](../../../docs/project/parser-gap-workflow.md#verification-tools).
 
-7. Add a dated survey record when corpus or consumer verdicts change, index it in `docs/project/README.md`, and reference it in the pull request with the verification summary and remaining gaps.
+7. Put the survey and verification output, changed corpus or consumer verdicts and remaining gaps in the pull request description.
+   Add a dated record under `docs/project/` only for a cross-cutting decision, never for an individual parser or rule fix.
    Follow [Close the loop](../../../docs/project/parser-gap-workflow.md#5-close-the-loop); file newly exposed gaps before merging.
