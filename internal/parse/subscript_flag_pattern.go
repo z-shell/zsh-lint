@@ -53,6 +53,7 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 	var patternStart int
 	var ok bool
 	positional := false
+	assignName := -1
 	switch {
 	case isLangErr:
 		// `,` after the cut is bash's case-modification operator. The
@@ -86,6 +87,7 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 			return nil, firstErr
 		}
 		patternStart, ok = flagPatternAfterAssignName(src, seed)
+		assignName = seed
 		// The assignment error is reported at the name, not at the
 		// premature `]`, so there is no cut byte to match below.
 		seed = -1
@@ -156,6 +158,24 @@ func parseSubscriptFlagBracketPattern(src []byte, name string, firstErr error) (
 	}
 	if !holdsFlagPattern(tree, patternStart, close) {
 		return nil, firstErr
+	}
+	if assignName >= 0 {
+		// An assignment error must repair an assignment at that name.
+		// Masking brackets must not turn Zsh's command-substitution
+		// reading into an arithmetic expansion instead (#266).
+		assignment := false
+		syntax.Walk(tree, func(node syntax.Node) bool {
+			if assignment {
+				return false
+			}
+			if assign, ok := node.(*syntax.Assign); ok && assign.Name != nil {
+				assignment = int(assign.Name.Pos().Offset()) == assignName
+			}
+			return !assignment
+		})
+		if !assignment {
+			return nil, firstErr
+		}
 	}
 	if err := restorePatternEdits(tree, src, edits); err != nil {
 		return nil, err
