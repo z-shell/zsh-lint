@@ -66,7 +66,7 @@ func (rule RepeatedExternalCommand) reportLoopCalls(ctx *analyzer.Context, state
 			if !ok || len(call.Args) == 0 {
 				return true
 			}
-			name := getWordLiteral(call.Args[0])
+			name, _ := effectiveCommand(call)
 			if !knownExternalCommand(name) || seen[call.Pos().Offset()] {
 				return true
 			}

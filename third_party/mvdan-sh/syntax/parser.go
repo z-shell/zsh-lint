@@ -951,7 +951,10 @@ func (p *Parser) followStmts(left string, lpos Pos, stops ...string) ([]*Stmt, [
 	// * [LangZsh]: "A list is a sequence of zero or more sublists...".
 	// * [LangMirBSDKorn]: "Lists of commands can be created by separating pipelines...";
 	//   note that the man page is not explicit, but the shell clearly allows e.g. `{ }`.
-	if p.got(semicolon) {
+	//
+	// In Zsh a `;` opening the list ends an empty sublist, and stmts steps
+	// over it, so `do; x; done` holds `x` (zsh-lint #238, #297).
+	if !p.lang.in(LangZsh) && p.got(semicolon) {
 		if p.lang.in(LangZsh | LangMirBSDKorn) {
 			return nil, nil // allow an empty list
 		}
@@ -1171,6 +1174,14 @@ func (p *Parser) stmts(yield func(*Stmt, error) bool, stops ...string) {
 loop:
 	for p.tok != _EOF {
 		newLine := p.got(_Newl)
+		if p.tok == semicolon && p.lang.in(LangZsh) {
+			// Zsh reads a list as zero or more sublists, so a `;` where a
+			// statement would start ends an empty one and does nothing
+			// (zsh-lint #332). It separates like any other `;`.
+			p.next()
+			gotEnd = true
+			continue
+		}
 		switch p.tok {
 		case _LitWord:
 			// A brace-form body's `{` follows the condition on its line: an
@@ -2461,7 +2472,8 @@ func (p *Parser) zshRecordSubscript() func() {
 	// at, or the newline of a backslash-newline, whose nextPos is past the
 	// backslash. An enclosing record has them already.
 	from := len(p.zshRec)
-	if p.zshRecOn == 0 && p.w > 0 && int(p.bsp) >= p.w {
+	// EOF has a synthetic width and position even with an empty buffer (#609).
+	if p.zshRecOn == 0 && p.r != runeEOF && p.w > 0 && int(p.bsp) >= p.w {
 		p.zshRec = append(p.zshRec, p.bs[int(p.bsp)-p.w:p.bsp]...)
 	} else if p.zshRecOn > 0 {
 		from -= p.w
@@ -3587,11 +3599,12 @@ func (p *Parser) getStmt(readEnd, binCmd, fnBody bool) *Stmt {
 		}
 		p.next()
 		p.got(_Newl)
-		if p.tok == semicolon && p.lang.in(LangZsh) && !p.zshSkipOperandSeparators() {
-			// Only the end of the list follows the separators, so the
-			// operator dangles: leave b.Y empty and report it where it
-			// stands, as before (zsh-lint #548).
-			b.Y = nil
+		if p.lang.in(LangZsh) && p.zshDanglingAndOr() {
+			// Only the end of the list follows the operator, so it
+			// dangles: Zsh runs the left operand alone (zsh-lint #548).
+			// The operator stands where the statement's terminator would.
+			s.Semicolon = b.OpPos
+			break
 		} else {
 			b.Y = p.getStmt(false, true, false)
 		}
@@ -3644,8 +3657,9 @@ func (p *Parser) getStmt(readEnd, binCmd, fnBody bool) *Stmt {
 // word that closes a list leaves the operator without a right operand
 // instead; reading it as a statement would report the word rather than the
 // operator. A stop token (the end of input, a `)`, `&`, `;;`, another
-// operator, or a closing backquote) needs no case here: the caller reads
-// nothing and reports the operator, as without this function.
+// operator, or a closing backquote) needs no case here: zshDanglingAndOr
+// sorts them for `&&` and `||`, and after a pipe the caller reads nothing
+// and reports the operator, as without this function.
 func (p *Parser) zshSkipOperandSeparators() bool {
 	for p.tok == semicolon || p.tok == _Newl {
 		p.next()
@@ -3657,6 +3671,29 @@ func (p *Parser) zshSkipOperandSeparators() bool {
 		}
 	}
 	return true
+}
+
+// zshDanglingAndOr steps over the `;` and newline separators after a `&&` or
+// `||` and reports whether the end of the list follows, leaving the operator
+// without a right operand. Zsh accepts such an operator as the last token of
+// a list and runs its left operand alone: the end of input, a `)` or
+// backquote that closes the list, a case terminator, or a reserved word that
+// closes the enclosing construct. A `&` or another operator is not an end.
+func (p *Parser) zshDanglingAndOr() bool {
+	if !p.zshSkipOperandSeparators() {
+		return true
+	}
+	switch p.tok {
+	case _EOF:
+		return true
+	case rightParen:
+		return p.quote == subCmd
+	case bckQuote:
+		return p.backquoteEnd()
+	case dblSemicolon, semiAnd, dblSemiAnd, semiOr:
+		return p.quote == switchCase
+	}
+	return false
 }
 
 func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {

@@ -215,10 +215,10 @@ func isHookRegistrationCall(call *syntax.CallExpr) bool {
 	if call == nil || len(call.Args) == 0 {
 		return false
 	}
-	cmdName := getWordLiteral(call.Args[0])
+	cmdName, args := effectiveCommand(call)
 	if cmdName == "add-zsh-hook" || cmdName == "add-zle-hook-widget" {
 		// Ignore deregistration (-d / -D)
-		for _, arg := range call.Args[1:] {
+		for _, arg := range args {
 			lit := getWordLiteral(arg)
 			if lit == "-d" || lit == "-D" {
 				return false
@@ -228,7 +228,7 @@ func isHookRegistrationCall(call *syntax.CallExpr) bool {
 	}
 	if cmdName == "zle" {
 		hasNew := false
-		for _, arg := range call.Args[1:] {
+		for _, arg := range args {
 			switch getWordLiteral(arg) {
 			case "-D":
 				return false
@@ -253,9 +253,9 @@ func checkUnloadFunctionHygiene(ctx *analyzer.Context, fn *syntax.FuncDecl, rule
 		if !ok || len(call.Args) == 0 {
 			return true
 		}
-		cmdName := getWordLiteral(call.Args[0])
+		cmdName, args := effectiveCommand(call)
 		if cmdName == "unfunction" {
-			for _, arg := range call.Args[1:] {
+			for _, arg := range args {
 				if isSelfUnfunctionArg(arg, fnName) {
 					selfUnfunctionFound = true
 				}

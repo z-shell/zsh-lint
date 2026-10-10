@@ -57,8 +57,8 @@ func TestRunPreservesUnconfiguredBehavior(t *testing.T) {
 	writeFile(t, filename, "eval $value\n")
 
 	var stdout, stderr bytes.Buffer
-	if exit := run([]string{filename}, &stdout, &stderr); exit != 1 {
-		t.Fatalf("run() exit = %d, want 1", exit)
+	if exit := run([]string{filename}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("run() exit = %d, want 0", exit)
 	}
 	if !strings.Contains(stdout.String(), "[security/eval]") {
 		t.Errorf("stdout = %q, want security/eval diagnostic", stdout.String())

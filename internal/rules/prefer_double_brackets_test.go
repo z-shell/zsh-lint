@@ -29,3 +29,23 @@ if [[ "$foo" == "bar" ]]; then echo 1; fi
 		}
 	}
 }
+
+func TestPreferDoubleBracketsCommandForms(t *testing.T) {
+	for _, name := range []string{"test", "["} {
+		for _, command := range commandForms(name) {
+			t.Run(command, func(t *testing.T) {
+				src := "f() { " + command + " -f x"
+				if name == "[" {
+					src += " ]"
+				}
+				file, err := parse.Parse(strings.NewReader(src+"; }"), "test.zsh")
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				if got := analyzer.New(PreferDoubleBrackets{}).Analyze(file, "test.zsh"); len(got) != 1 {
+					t.Fatalf("diagnostics = %v, want one", got)
+				}
+			})
+		}
+	}
+}

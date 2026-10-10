@@ -61,3 +61,21 @@ func TestRepeatedExternalCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestRepeatedExternalCommandForms(t *testing.T) {
+	for _, name := range []string{"awk", "cut", "find", "git", "grep", "sed", "sort", "tr"} {
+		for _, command := range commandForms(name) {
+			t.Run(command, func(t *testing.T) {
+				file, err := parse.Parse(strings.NewReader("for item in one two; do "+command+" arg; done\n"), "completion")
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				got := analyzer.New(RepeatedExternalCommand{}).AnalyzeSource(file, "completion",
+					configuredSource(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, projectconfig.RoleCompletion))
+				if len(got) != 1 || !strings.Contains(got[0].Message, "'"+name+"'") {
+					t.Fatalf("diagnostics = %v, want one for %s", got, name)
+				}
+			})
+		}
+	}
+}

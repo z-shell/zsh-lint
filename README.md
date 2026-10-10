@@ -194,7 +194,7 @@ Parser failures share it under the reserved rule `parse/error`, and an unpositio
   "diagnostics": [
     {
       "rule": "quoting/unquoted-var",
-      "severity": "warning",
+      "severity": "info",
       "message": "Variable expansion should be double-quoted",
       "file": "script.zsh",
       "range": {
@@ -207,8 +207,8 @@ Parser failures share it under the reserved rule `parse/error`, and an unpositio
     "files": 1,
     "diagnostics": 1,
     "errors": 0,
-    "warnings": 1,
-    "infos": 0,
+    "warnings": 0,
+    "infos": 1,
     "hints": 0
   }
 }

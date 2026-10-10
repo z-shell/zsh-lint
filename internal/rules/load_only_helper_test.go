@@ -17,6 +17,7 @@ func TestLoadOnlyHelper(t *testing.T) {
 	}{
 		{name: "leaked setup", src: "_example_setup() { :; }\n_example_setup\n", want: 1},
 		{name: "removed setup", src: "_example_setup() { :; }\n_example_setup\nunfunction _example_setup\n"},
+		{name: "builtin removed setup", src: "_example_setup() { :; }\n_example_setup\nbuiltin unfunction _example_setup\n"},
 		{name: "persistent callback use", src: "_example_setup() { :; }\n_example_callback() { _example_setup; }\n_example_setup\n"},
 		{name: "public function is not inferred", src: "example_setup() { :; }\nexample_setup\n"},
 		{name: "private API without load role", src: "_example_refresh() { :; }\n_example_refresh\n"},
@@ -34,6 +35,22 @@ func TestLoadOnlyHelper(t *testing.T) {
 			got := diagnosticsByID(diagnostics, "plugin/load-only-helper")
 			if len(got) != test.want {
 				t.Fatalf("findings = %+v, want %d", got, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadOnlyHelperCommandForms(t *testing.T) {
+	for _, command := range commandForms("unfunction") {
+		t.Run(command, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader("_example_setup() { :; }\n_example_setup\n"+command+" _example_setup\n"), "example.plugin.zsh")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			got := analyzer.New(LoadOnlyHelper{}).AnalyzeSource(file, "example.plugin.zsh",
+				sourceContext(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "example"))
+			if len(got) != 0 {
+				t.Fatalf("diagnostics = %v, want none", got)
 			}
 		})
 	}
