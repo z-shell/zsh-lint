@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
@@ -20,12 +21,14 @@ import (
 // function (`*_plugin_unload`), and checks that defined unload functions
 // cleanly unfunction themselves upon completion. Configured multi-file
 // invocations aggregate registration and unload presence across the project;
-// unconfigured analysis retains the legacy per-file path heuristic.
+// unconfigured analysis checks only *.plugin.zsh, *.zsh-theme and init.zsh
+// entrypoints and reports missing unload presence once per file, at the first
+// registration. Hook registrations include appends to *_functions arrays.
 //
 // Why: The Zsh Plugin Standard specifies that plugins with persistent side
 // effects (hooks via `add-zsh-hook`, line-editor widgets via
-// `add-zle-hook-widget` or `zle -N`) should provide a namespaced
-// `*_plugin_unload` function so plugin managers and users can cleanly unload the
+// `add-zle-hook-widget` or `zle -N`, and hook-array appends) should provide a
+// namespaced `*_plugin_unload` function so plugin managers and users can cleanly unload the
 // plugin without restarting the shell. The unload function must explicitly
 // remove only its own resources and unfunction itself upon completion.
 // See https://wiki.zshell.dev/community/zsh_plugin_standard#lifecycle-and-resource-ownership.
@@ -50,7 +53,10 @@ import (
 // are lifecycle recommendations. Indiscriminate function wiping is a Warning.
 //
 // False positives: Plugins intended only for static, once-per-session loading
-// without unload support. Suppress with a reason.
+// without unload support. The unconfigured entrypoint names and *_functions
+// assignment names are heuristics; explicit configuration selects source
+// profiles but cannot prove whether a custom array is a shell hook.
+// Suppress with a reason.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/unload-function -- <reason>` on the finding line or
@@ -74,8 +80,14 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	if !ok || !sourcedPluginRuleApplies(ctx) {
 		return
 	}
+	if !ctx.Source.Configured() {
+		name := filepath.Base(strings.ReplaceAll(ctx.FilePath, `\`, "/"))
+		if !strings.HasSuffix(name, ".plugin.zsh") && !strings.HasSuffix(name, ".zsh-theme") && name != "init.zsh" {
+			return
+		}
+	}
 
-	var hookRegistrations []*syntax.CallExpr
+	var hookRegistrations []syntax.Node
 	var unloadFuncs []*syntax.FuncDecl
 
 	// Traverse AST to collect hook registrations and unload function declarations
@@ -89,21 +101,24 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 			if isHookRegistrationCall(x) {
 				hookRegistrations = append(hookRegistrations, x)
 			}
+		case *syntax.Assign:
+			if isHookRegistrationAssignment(x) {
+				hookRegistrations = append(hookRegistrations, x)
+			}
 		}
 		return true
 	})
 
 	// Check if hooks are registered without any unload function in the file
 	if !ctx.Source.Configured() && len(hookRegistrations) > 0 && len(unloadFuncs) == 0 {
-		for _, call := range hookRegistrations {
-			ctx.Report(
-				call.Pos(),
-				call.End(),
-				rule.ID(),
-				diag.Hint,
-				"Plugin registers persistent hooks or widgets but defines no '<name>_plugin_unload' function",
-			)
-		}
+		call := hookRegistrations[0]
+		ctx.Report(
+			call.Pos(),
+			call.End(),
+			rule.ID(),
+			diag.Hint,
+			"Plugin registers persistent hooks or widgets but defines no '<name>_plugin_unload' function",
+		)
 	}
 
 	// Inspect hygiene of defined unload functions
@@ -120,9 +135,9 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 // Name: Project-wide unload entrypoint presence
 //
 // Summary: Reports each persistent hook or widget registration (`add-zsh-hook`,
-// `add-zle-hook-widget`, `zle -N`) in configured plugin and Zi annex
-// sourced-library sources when no configured source in the same invocation
-// defines a `*_plugin_unload` function.
+// `add-zle-hook-widget`, `zle -N`, or an append to a *_functions array) in
+// configured plugin and Zi annex sourced-library sources when no configured
+// source in the same invocation defines a `*_plugin_unload` function.
 //
 // Why: The Zsh Plugin Standard requires a plugin with persistent side effects
 // to provide a namespaced unload function. A project may register a hook in its
@@ -172,7 +187,7 @@ func (ProjectUnloadLifecycle) Analyze(_ *analyzer.Context, _ syntax.Node) {}
 func (rule ProjectUnloadLifecycle) AnalyzeProject(ctx *analyzer.ProjectContext) {
 	var registrations []struct {
 		input analyzer.ProjectInput
-		call  *syntax.CallExpr
+		call  syntax.Node
 	}
 	hasUnload := false
 	for _, input := range ctx.Inputs {
@@ -189,7 +204,14 @@ func (rule ProjectUnloadLifecycle) AnalyzeProject(ctx *analyzer.ProjectContext) 
 				if isHookRegistrationCall(value) {
 					registrations = append(registrations, struct {
 						input analyzer.ProjectInput
-						call  *syntax.CallExpr
+						call  syntax.Node
+					}{input: input, call: value})
+				}
+			case *syntax.Assign:
+				if isHookRegistrationAssignment(value) {
+					registrations = append(registrations, struct {
+						input analyzer.ProjectInput
+						call  syntax.Node
 					}{input: input, call: value})
 				}
 			}
@@ -239,6 +261,13 @@ func isHookRegistrationCall(call *syntax.CallExpr) bool {
 		return hasNew
 	}
 	return false
+}
+
+func isHookRegistrationAssignment(assign *syntax.Assign) bool {
+	return assign != nil && assign.Name != nil && assign.Append &&
+		strings.HasSuffix(assign.Name.Value, "_functions") && assign.Index == nil &&
+		((assign.Array != nil && len(assign.Array.Elems) > 0) ||
+			(assign.Value != nil && len(assign.Value.Parts) > 0))
 }
 
 func checkUnloadFunctionHygiene(ctx *analyzer.Context, fn *syntax.FuncDecl, ruleID diag.RuleID) {

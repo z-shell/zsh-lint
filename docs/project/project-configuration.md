@@ -32,6 +32,10 @@ Paths cannot override configured metadata.
 Path-based applicability remains available for inputs that use `--no-config`, have no discovered configuration, or match no source root in a discovered configuration.
 It is not a Standard 2 compatibility profile.
 
+Without configured source metadata, `plugin/unload-function` checks only `*.plugin.zsh`, `*.zsh-theme` and `init.zsh` entrypoints.
+It reports missing unload presence once per file at the first hook or widget registration, including appends to `*_functions` arrays.
+It cannot resolve an unload function sourced from another file; configure the complete input set for project-wide presence checks.
+
 In project profile version 2:
 
 - `plugin/function-scoped-options` applies to plugin and Zi annex `autoload-function` sources, including the `completion` role;
