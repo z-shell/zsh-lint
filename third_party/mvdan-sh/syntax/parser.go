@@ -2461,7 +2461,8 @@ func (p *Parser) zshRecordSubscript() func() {
 	// at, or the newline of a backslash-newline, whose nextPos is past the
 	// backslash. An enclosing record has them already.
 	from := len(p.zshRec)
-	if p.zshRecOn == 0 && p.w > 0 && int(p.bsp) >= p.w {
+	// EOF has a synthetic width and position even with an empty buffer (#609).
+	if p.zshRecOn == 0 && p.r != runeEOF && p.w > 0 && int(p.bsp) >= p.w {
 		p.zshRec = append(p.zshRec, p.bs[int(p.bsp)-p.w:p.bsp]...)
 	} else if p.zshRecOn > 0 {
 		from -= p.w
