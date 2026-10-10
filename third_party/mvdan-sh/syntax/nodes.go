@@ -735,6 +735,10 @@ type ParamExp struct {
 	// or either of those in a [*DblQuoted]. Only possible with [LangZsh].
 	NestedParam WordPart
 
+	// An expanded name before a naked arithmetic subscript, as in ${name}[i].
+	// Only possible with [LangZsh]; Param and NestedParam are nil in this form.
+	ArithmName *Word
+
 	// TODO(v4): rename Index to Subscript, which better matches bash and zsh terminology
 
 	Index ArithmExpr // ${a[i]}, ${a["k"]}, or a ${a[i,j]} slice with [LangZsh]
@@ -764,6 +768,9 @@ func (p *ParamExp) simple() bool {
 func (p *ParamExp) Pos() Pos {
 	if p.Dollar.IsValid() {
 		return p.Dollar
+	}
+	if p.ArithmName != nil {
+		return p.ArithmName.Pos()
 	}
 	return p.Param.Pos()
 }

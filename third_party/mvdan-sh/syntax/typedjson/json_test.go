@@ -88,6 +88,7 @@ coproc foo
 `},
 		// ${a[(r)foo]} produces a FlagsArithm node, which only appears with zsh.
 		{syntax.LangZsh, "echo ${a[(r)foo]}\n"},
+		{syntax.LangZsh, "(( ${target}[i + 1] = 2 ))\n(( ++a_$suffix ))\n"},
 		// RepeatClause only appears with zsh (zsh-lint #281).
 		{syntax.LangZsh, "repeat 3 do foo; done\n"},
 		{syntax.LangZsh, "[[ -prefix $x ]]\n[[ a -foo b ]]\n"},

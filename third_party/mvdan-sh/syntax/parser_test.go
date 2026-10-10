@@ -1207,12 +1207,12 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"echo $(($0=2))",
-		langErr("1:11: `=` must follow a name"),
+		langErr("1:11: `=` must follow a name", langResolvedVariants&^LangZsh),
 		flipConfirmAll,
 	),
 	errCase(
 		"echo $(($(a)=2))",
-		langErr("1:13: `=` must follow a name"),
+		langErr("1:13: `=` must follow a name", langResolvedVariants&^LangZsh),
 		flipConfirmAll,
 	),
 	// errCase(

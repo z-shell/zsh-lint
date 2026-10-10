@@ -767,7 +767,11 @@ func (p *Printer) wroteIndex(index ArithmExpr) bool {
 
 func (p *Printer) paramExp(pe *ParamExp) {
 	if pe.nakedIndex() { // arr[x]
-		p.writeLit(pe.Param.Value)
+		if pe.ArithmName != nil {
+			p.word(pe.ArithmName)
+		} else {
+			p.writeLit(pe.Param.Value)
+		}
 		p.wroteIndex(pe.Index)
 		return
 	}
