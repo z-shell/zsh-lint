@@ -23,7 +23,7 @@ func (p *Parser) arithmExprAssign(compact bool) ArithmExpr {
 		if compact && p.spaced {
 			return value
 		}
-		if !isArithName(value) {
+		if !p.isArithName(value) {
 			p.posErr(p.pos, "%#q must follow a name", p.tok)
 		}
 		pos := p.pos
@@ -172,10 +172,14 @@ func (p *Parser) arithmExprValue(compact bool) ArithmExpr {
 	case addAdd, subSub:
 		ue := &UnaryArithm{OpPos: p.pos, Op: UnAritOperator(p.tok)}
 		p.nextArith(compact)
-		if p.tok != _LitWord {
+		literal := p.tok == _LitWord
+		if !literal && !p.zshExpandedArithm() {
 			p.followErr(ue.OpPos, ue.Op, noQuote("a literal"))
 		}
 		ue.X = p.arithmExprValue(compact)
+		if !literal && !p.isArithName(ue.X) {
+			p.followErr(ue.OpPos, ue.Op, noQuote("a literal"))
+		}
 		return ue
 	case leftParen:
 		if p.quote == paramExpArithm && p.lang.in(LangZsh) {
@@ -211,6 +215,11 @@ func (p *Parser) arithmExprValue(compact bool) ArithmExpr {
 	default:
 		if w := p.getWord(); w != nil {
 			x = w
+			if p.zshExpandedArithm() && !p.spaced && p.tok == leftBrack {
+				pe := &ParamExp{Short: true, ArithmName: w}
+				pe.Index = p.eitherIndex()
+				x = p.wordOne(pe)
+			}
 		} else {
 			return nil
 		}
@@ -226,7 +235,7 @@ func (p *Parser) arithmExprValue(compact bool) ArithmExpr {
 	// we want real nil, not (*Word)(nil) as that
 	// sets the type to non-nil and then x != nil
 	if p.tok == addAdd || p.tok == subSub {
-		if !isArithName(x) {
+		if !p.isArithName(x) {
 			p.curErr("%#q must follow a name", p.tok)
 		}
 		u := &UnaryArithm{
@@ -311,6 +320,31 @@ func isArithName(left ArithmExpr) bool {
 	default:
 		return false
 	}
+}
+
+func (p *Parser) isArithName(x ArithmExpr) bool {
+	if isArithName(x) {
+		return true
+	}
+	w, ok := x.(*Word)
+	if !ok || !p.zshExpandedArithm() {
+		return false
+	}
+	// Zsh expands the word before the arithmetic evaluator resolves its name.
+	// Keep those expansions typed; their runtime value is not known here.
+	for _, part := range w.Parts {
+		switch part.(type) {
+		case *ParamExp, *CmdSubst, *ArithmExp, *DblQuoted, *SglQuoted:
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Parser) zshExpandedArithm() bool {
+	// Subscripts may be associative keys read by compatibility adapters;
+	// unquoted let arguments also retain their existing grammar.
+	return p.lang.in(LangZsh) && p.quote&(arithmExpr|arithmExprCmd) != 0
 }
 
 func (p *Parser) followArithm(ftok token, fpos Pos) ArithmExpr {

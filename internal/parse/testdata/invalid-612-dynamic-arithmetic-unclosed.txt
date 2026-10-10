@@ -1,0 +1,4 @@
+# Issue #612: an expanded arithmetic name does not hide a missing terminator.
+# Manual: https://zsh.sourceforge.io/Doc/Release/Arithmetic-Evaluation.html#Arithmetic-Evaluation
+# Test fixture, top-level native-invalid arithmetic command.
+(( ++a_$suffix
