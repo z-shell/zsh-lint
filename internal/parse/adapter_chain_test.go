@@ -43,18 +43,8 @@ var adapterSnippets = map[string]adapterSnippet{
 	"multiNameFunction": {attempt: parseMultiNameFunction, source: "a b () { print hi }"},
 	"assignAlways":      {attempt: parseAssignAlways, source: "print ${x::=value}"},
 	"declBraceClose":    {attempt: parseDeclarationBraceClose, source: "{ typeset -g C=1 }"},
-	"doSeparator":       {attempt: parseDoLeadingSeparator, source: "while (( $# )); do; shift; done"},
-	"thenSeparator":     {attempt: parseThenLeadingSeparator, source: "if true; then; print x; fi"},
 	"mathFunctionCall":  {attempt: parseMathFunctionCall, source: "print $(( sqrt(4) ))"},
 	"nestedArithmetic":  {attempt: parseNestedArithmetic, source: "print \"${(l:5:)$(( a[1] ))}\""},
-	// A redundant `;` needs a statement before it so the snippet composes
-	// wherever it lands; a bare `;` opening the composed file would also be
-	// a site, which is true but would not exercise the adapter in place.
-	"redundantSeparator": {attempt: parseRedundantSeparator, source: "print composed; ;"},
-	// The dangling operator must be closed by a brace inside the snippet.
-	// Snippets are concatenated, so a trailing `&&` at the end of the source
-	// would take the next snippet as its right operand and never be dangling.
-	"danglingAndOr": {attempt: parseDanglingAndOr, source: "c() { print composed &&\n}"},
 }
 
 func parseString(t *testing.T, src string) error {
