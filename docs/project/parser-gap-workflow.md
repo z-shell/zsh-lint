@@ -161,10 +161,8 @@ This exception does not permit general source rewriting or consuming separators 
 For a parser change, run `.github/scripts/verify-parser-change.sh` and paste its summary table and survey output into the pull request description.
 Put the construct's valid and invalid variants in `bodies.txt`, separated by `---` lines.
 
-```sh
-bash .github/scripts/verify-parser-change.sh --bodies bodies.txt [--rows rows.txt] \
-  [--list files.txt] [--regression-corpus DIR] [base-ref] <file.zsh ...>
-```
+    bash .github/scripts/verify-parser-change.sh --bodies bodies.txt [--rows rows.txt] \
+      [--list files.txt] [--regression-corpus DIR] [base-ref] <file.zsh ...>
 
 The script runs build, vet, tests, parser-fork tests, lint, base/candidate survey comparisons, supplied consumer and probe comparisons, parse-count traces and mutation checks, and prints a Markdown result table ([#560](https://github.com/z-shell/zsh-lint/issues/560)).
 Inspect each check's log and report failures, skipped checks and inconclusive mutation evidence alongside the table.
