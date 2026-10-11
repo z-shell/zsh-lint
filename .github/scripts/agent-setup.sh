@@ -12,8 +12,8 @@
 #   (with sudo when not root), plus zsh-doc for the manual when available;
 # - golangci-lint at the version Go CI runs, built with the Go release go.mod
 #   names (Go CI's toolchain). golangci-lint loads the standard library of the
-#   `go` it runs with, and v2.12.2 cannot analyze a newer release's library,
-#   so on a machine with a newer Go it must run as
+#   `go` it runs with, so use the module's release to avoid analyzing a newer
+#   release's library with an older build. On a machine with a newer Go, run
 #   `GOTOOLCHAIN=go<version> golangci-lint run ./...`; the script prints the
 #   exact command;
 # and it downloads the module dependencies and builds the module once.
@@ -52,7 +52,7 @@ else
   say "zsh missing and no apt-get; install zsh by hand, native-oracle tests will skip"
 fi
 
-# The release go.mod names, as a toolchain name (1.26.0 -> go1.26.0).
+# The release go.mod names, as a toolchain name (1.27.0 -> go1.27.0).
 lint_toolchain="go$(go list -m -f '{{.GoVersion}}')"
 lint_minor=${lint_toolchain%.*}
 

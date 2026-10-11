@@ -111,8 +111,8 @@ Both point at the wiki as the canonical reading surface.
     go build ./... && go vet ./... && go test ./...
     golangci-lint run ./...
 
-Go CI runs `golangci-lint` v2.12.2 over the whole module with `.golangci.yml`, so a finding anywhere fails the build, not only on changed lines.
+Go CI runs `golangci-lint` v2.14.0 over the whole module with `.golangci.yml`, so a finding anywhere fails the build, not only on changed lines.
 Use the lint command the setup script prints; it derives the toolchain from `go.mod` and includes `GOTOOLCHAIN` when the local Go release differs.
 Tests that need `zsh` skip without it, so install it before trusting a local pass.
 
-Go 1.26 (`GOTOOLCHAIN=auto` auto-fetches the toolchain; CI pins the same version explicitly). mvdan/sh v3.14 dropped Go 1.25.
+Go 1.27 (`GOTOOLCHAIN=auto` auto-fetches the toolchain; CI pins the same version explicitly).

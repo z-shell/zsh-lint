@@ -8,7 +8,7 @@ plugins:
       uri: https://github.com/trunk-io/plugins
 lint:
   enabled:
-    - gofmt@1.26.7
+    - gofmt@1.27.2
     - golangci-lint2@2.14.0
     - prettier@3.9.6
     - gitleaks@8.30.1
@@ -28,7 +28,7 @@ lint:
         - third_party/**
 runtimes:
   enabled:
-    - go@1.26.7
+    - go@1.27.2
     - node@22.16.0
 actions:
   enabled:
