@@ -279,7 +279,12 @@ func (p *Parser) arithmExprValue(compact bool) ArithmExpr {
 			X:     x,
 		}
 		p.nextArith(compact)
-		return u
+		x = u
+		for p.zshArithmFormat() {
+			b := p.outputBaseArithm()
+			b.Post, b.X = true, x
+			x = b
+		}
 	}
 	return x
 }

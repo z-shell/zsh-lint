@@ -67,3 +67,52 @@ func TestArithmeticFormatUnsupportedEvaluation(t *testing.T) {
 		}
 	}
 }
+
+func TestArithmeticFormatAfterPostfixTree(t *testing.T) {
+	for _, operator := range []string{"++", "--"} {
+		src := "(( key" + operator + " [#16] [##8] + 1 ))\nprint after\n"
+		ResetStats()
+		f, err := Parse(strings.NewReader(src), "postfix.zsh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := ReadStats(); got != (Stats{TreeParses: 1}) {
+			t.Fatalf("postfix formats require an adapter: %+v", got)
+		}
+		sum := f.AST().Stmts[0].Cmd.(*syntax.ArithmCmd).X.(*syntax.BinaryArithm)
+		last := sum.X.(*syntax.OutputBaseArithm)
+		first := last.X.(*syntax.OutputBaseArithm)
+		post := first.X.(*syntax.UnaryArithm)
+		wantOp := syntax.Inc
+		if operator == "--" {
+			wantOp = syntax.Dec
+		}
+		if sum.Op != syntax.Add || !first.Post || !last.Post || !post.Post || post.Op != wantOp || first.Format.Value != "#16" || last.Format.Value != "##8" {
+			t.Fatalf("postfix/format meanings lost: %+v %+v %+v", first, last, post)
+		}
+		if _, err := expand.Arithm(&expand.Config{}, first); err == nil || err.Error() != "unsupported" {
+			t.Fatalf("postfix format evaluation error = %v", err)
+		}
+		if post.Pos().Offset() != 3 || post.End().Offset() != 8 || post.OpPos.Offset() != 6 || first.Pos().Offset() != 3 || first.Lbrack.Offset() != 9 || first.End().Offset() != 14 || last.Lbrack.Offset() != 15 || last.End().Offset() != 20 {
+			t.Fatalf("postfix format positions lost: %+v %+v %+v", first, last, post)
+		}
+		var literals []string
+		syntax.Walk(sum, func(n syntax.Node) bool {
+			if lit, ok := n.(*syntax.Lit); ok {
+				literals = append(literals, lit.Value)
+			}
+			return true
+		})
+		if strings.Join(literals, "/") != "key/#16/##8/1" || f.AST().Stmts[1].Pos().Offset() != uint(strings.Index(src, "print after")) {
+			t.Fatalf("postfix tree traversal or statement boundary lost: %v", literals)
+		}
+		var encoded bytes.Buffer
+		if err := typedjson.Encode(&encoded, f.AST()); err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := typedjson.Decode(&encoded)
+		if err != nil || !reflect.DeepEqual(decoded, f.AST()) {
+			t.Fatalf("postfix arithmetic tree lost in typed JSON: %v", err)
+		}
+	}
+}
