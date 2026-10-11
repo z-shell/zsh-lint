@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-golangci_version=v2.12.2
+golangci_version=v2.14.0
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
