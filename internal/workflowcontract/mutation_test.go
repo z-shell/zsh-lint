@@ -115,6 +115,50 @@ func TestMutationInvalidAndBaselineFailuresDoNotPass(t *testing.T) {
 	}
 }
 
+func TestMutationTimeoutAfterKilledIsInconclusive(t *testing.T) {
+	t.Setenv("MUTATION_TIMEOUT", "3")
+	_, run, write := mutationFixture(t)
+	write("internal/parse/guard.go", "package parse\nfunc Accept(n int) bool { return true }\n")
+	write("mutants.json", `[{"file":"internal/parse/guard.go","line":2,"old":"true","new":"func() bool { for {} }()"}]`)
+	status, out := run("--spec", "mutants.json")
+	if status != 3 || !strings.Contains(out, "1 killed, 0 lived, 1 timed out, 0 invalid") || !strings.Contains(out, "inconclusive") {
+		t.Fatalf("one timeout must prevent a clean result even after a kill: status %d\n%s", status, out)
+	}
+	write("internal/parse/guard_test.go", "package parse\nimport \"testing\"\nfunc TestAccept(t *testing.T) { Accept(1) }\n")
+	status, out = run("--spec", "mutants.json")
+	if status != 1 || !strings.Contains(out, "0 killed, 1 lived, 1 timed out, 0 invalid") {
+		t.Fatalf("a survivor takes precedence without hiding the timeout: status %d\n%s", status, out)
+	}
+}
+
+func TestMutationVetAndCompileContract(t *testing.T) {
+	for _, file := range []string{"internal/parse/guard.go", "third_party/mvdan-sh/syntax/guard.go"} {
+		t.Run(file, func(t *testing.T) {
+			_, run, write := mutationFixture(t)
+			pkg := "parse"
+			if strings.HasPrefix(file, "third_party/") {
+				pkg = "syntax"
+			}
+			write(file, "package "+pkg+"\nimport \"fmt\"\nfunc Accept(n int) bool { fmt.Printf(\"%s\", \"value\"); return true }\n")
+			write("mutants.json", fmt.Sprintf(`[{"file":%q,"line":3,"old":"\"%%s\"","new":"\"%%d\""}]`, file))
+			status, out := run("--spec", "mutants.json")
+			if status != 1 || !strings.Contains(out, "LIVED "+file+":3:") || !strings.Contains(out, "1 killed, 1 lived, 0 timed out, 0 invalid") {
+				t.Fatalf("vet diagnostics must not decide a compiling mutant: status %d\n%s", status, out)
+			}
+			write("mutants.json", fmt.Sprintf(`[{"file":%q,"line":3,"old":"true","new":"unknownIdentifier"}]`, file))
+			status, out = run("--spec", "mutants.json")
+			if status != 3 || !strings.Contains(out, "INVALID "+file+":3:") || !strings.Contains(out, "1 killed, 0 lived, 0 timed out, 1 invalid") {
+				t.Fatalf("compile failures must remain invalid with vet disabled: status %d\n%s", status, out)
+			}
+			write(file, "package "+pkg+"\nimport \"fmt\"\nfunc Accept(n int) bool { fmt.Printf(\"%d\", \"value\"); return true }\n")
+			status, out = run()
+			if status != 2 || !strings.Contains(out, "baseline did not pass") || strings.Contains(out, "KILLED ") {
+				t.Fatalf("vet failure on the unmutated baseline must refuse mutation: status %d\n%s", status, out)
+			}
+		})
+	}
+}
+
 func TestMutationRunnerBuildFailureIsSetupFailure(t *testing.T) {
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "go"), []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
