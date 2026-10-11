@@ -56,6 +56,7 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 Zsh literal arithmetic output formats (`[#16]`, `[##16]`, `[#16_4]`) and character values (`#name`, `##character`) are retained as `OutputBaseArithm` and `CharArithm`, with original positions, walk, printer and typedjson support (`syntax/parser.go`, `syntax/parser_arithm.go`, `syntax/nodes.go`, `syntax/walk.go`, `syntax/printer.go`, `syntax/typedjson/`).
 Output formats containing shell expansions remain unsupported until they have typed expansion children.
 The output directive has no arithmetic precedence and may stand before or after an operand; `Post` preserves its source order, and `X` is nil for a directive alone.
+Directives following postfix increment or decrement wrap the complete postfix expression, preserving its value and side effects.
 The new grammar is limited to Zsh arithmetic commands and substitutions; associative subscript and unquoted `let` parsing keep their existing grammar.
 This implements the arithmetic part of [#612](https://github.com/z-shell/zsh-lint/issues/612).
 The Bash evaluator in `expand/arith.go` returns its existing unsupported error for these Zsh nodes rather than panicking.

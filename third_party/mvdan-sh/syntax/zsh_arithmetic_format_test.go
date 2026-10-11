@@ -18,6 +18,8 @@ func TestZshArithmeticFormatAndCharacter(t *testing.T) {
 		`##\x41 + 1`, `##\u0041 + 1`, `##\U00000041 + 1`, `##\123 + 1`,
 		`##\xAf + 1`, `##\xaf + 1`, `##\xAF + 1`, `##\u03b1 + 1`, `##\U0001F600 + 1`,
 		`##\007 + 1`, `##\377 + 1`, `##\x4 + 1`, `##\M-a`, `##\C-a`,
+		`key++ [#16]`, `key--[##16]`, `key++ [#16][#8] + 1`,
+		`key [#8]++ [##16]`, `#key-- [#16]`, `key[1]++ [#16]`,
 	} {
 		t.Run(expr, func(t *testing.T) {
 			for _, src := range []string{"(( " + expr + " ))\n", "print $(( " + expr + " ))\n"} {
@@ -39,15 +41,17 @@ func TestZshArithmeticFormatAndCharacter(t *testing.T) {
 
 func TestZshArithmeticFormatDialectAndErrors(t *testing.T) {
 	for _, lang := range []LangVariant{LangBash, LangBats, LangMirBSDKorn} {
-		if _, err := NewParser(Variant(lang)).Parse(strings.NewReader("(( [##16] 255 ))"), ""); err == nil {
-			t.Fatalf("%s accepted Zsh output format", lang)
+		for _, src := range []string{"(( [##16] 255 ))", "(( key++ [#16] ))"} {
+			if _, err := NewParser(Variant(lang)).Parse(strings.NewReader(src), ""); err == nil {
+				t.Fatalf("%s accepted Zsh output format: %s", lang, src)
+			}
 		}
 	}
 	f, err := NewParser(Variant(LangMirBSDKorn)).Parse(strings.NewReader("(( # key ))"), "")
 	if err != nil || !f.Stmts[0].Cmd.(*ArithmCmd).Unsigned {
 		t.Fatalf("mksh unsigned grammar changed: %v", err)
 	}
-	for _, src := range []string{"(( [##16] 255 )", "(( [#16] + ))", "(( ##) ))", "(( ##( ))", "(( ##a = 2 ))"} {
+	for _, src := range []string{"(( [##16] 255 )", "(( [#16] + ))", "(( ##) ))", "(( ##( ))", "(( ##a = 2 ))", "(( key++ [#16]++ ))", "(( 1++ [#16] ))", "(( key++ [#16 ))"} {
 		if _, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(src), ""); err == nil {
 			t.Fatalf("malformed arithmetic accepted: %s", src)
 		}
