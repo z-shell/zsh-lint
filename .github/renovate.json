@@ -58,6 +58,27 @@
       "matchPackageNames": ["golangci/golangci-lint"],
       "groupName": "golangci-lint",
       "groupSlug": "golangci-lint"
+    },
+    {
+      "description": "Tidy Go modules and their local replace dependents together",
+      "matchManagers": ["gomod"],
+      "postUpdateOptions": ["gomodTidyAll"]
+    },
+    {
+      "description": "Group non-major dependencies of the local parser fork",
+      "matchManagers": ["gomod"],
+      "matchFileNames": ["third_party/mvdan-sh/go.mod"],
+      "matchDepTypes": ["require", "indirect", "tool"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "parser fork dependencies",
+      "groupSlug": "parser-fork-dependencies"
+    },
+    {
+      "description": "Review Go workflow toolchain updates separately from action pins",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["go"],
+      "groupName": "Go toolchain",
+      "groupSlug": "go-toolchain"
     }
   ]
 }

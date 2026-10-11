@@ -9,7 +9,7 @@ plugins:
 lint:
   enabled:
     - gofmt@1.26.7
-    - golangci-lint2@2.12.2
+    - golangci-lint2@2.14.0
     - prettier@3.9.6
     - gitleaks@8.30.1
     - actionlint@1.7.12
