@@ -54,6 +54,26 @@ func closeBraceExemptWord(word *syntax.Word, stack []syntax.Node) bool {
 	if len(stack) == 0 {
 		return false
 	}
+	// The fork splits only the last raw `}` of a lexical word. A preceding
+	// one remains literal when the word touches its group's closer (#276).
+	for _, node := range stack {
+		var close, end syntax.Pos
+		switch n := node.(type) {
+		case *syntax.Block:
+			close, end = n.Rbrace, n.End()
+		case *syntax.IfClause:
+			close, end = n.FiPos, n.ZshEnd
+		case *syntax.WhileClause:
+			close, end = n.DonePos, n.ZshEnd
+		case *syntax.ForClause:
+			close, end = n.DonePos, n.ZshEnd
+		case *syntax.RepeatClause:
+			close, end = n.DonePos, n.ZshEnd
+		}
+		if close.IsValid() && word.End() == close && end.Offset() == close.Offset()+1 {
+			return true
+		}
+	}
 	switch parent := stack[len(stack)-1].(type) {
 	case *syntax.Assign:
 		return !parent.Naked && parent.Value == word

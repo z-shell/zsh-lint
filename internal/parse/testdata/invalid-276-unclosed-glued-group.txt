@@ -1,0 +1,3 @@
+# Issue #276: top-level glued group without its closing brace.
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Reserved-Words
+{print hi

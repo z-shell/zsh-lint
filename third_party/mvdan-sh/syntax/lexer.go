@@ -323,6 +323,15 @@ skipSpace:
 		}
 	}
 	p.pos = p.nextPos()
+	if p.spaced || p.tok == _Newl || p.tok == semicolon {
+		p.zshWordBraces, p.zshAssignValue = 0, false
+	}
+	switch p.tok {
+	case _Newl, semicolon, and, or, andAnd, orOr, orAnd, andPipe, andBang,
+		dblSemicolon, semiAnd, dblSemiAnd, semiOr:
+		p.zshCmdPos = true
+		p.zshWordBraces, p.zshAssignValue = 0, false
+	}
 	switch {
 	case p.quote&allRegTokens != 0:
 		switch r {
@@ -1338,6 +1347,7 @@ func (p *Parser) zshNumRange() bool {
 func (p *Parser) advanceLitNone(r rune) {
 	p.eqlOffs = -1
 	tok := _LitWord
+	wordStart := p.spaced || p.zshCmdPos || p.stopToken() && p.tok != rightParen
 	// In the opened group of a Zsh case item, a blank inside a bracket
 	// expression is pattern text (#483); see zshCaseBracketOpen. A bracket
 	// left open by an earlier literal of the same word, as in `(a[$x b])`,
@@ -1346,6 +1356,16 @@ func (p *Parser) advanceLitNone(r rune) {
 loop:
 	for p.newLit(r); r != runeEOF; r = p.rune() {
 		switch r {
+		case '{':
+			if p.lang.in(LangZsh) && p.zshCommandWord() {
+				if len(p.litBs) == 1 && p.zshWordBraces == 0 && !p.zshAssignValue && p.zshCmdPos && !p.zshWordsOnly && (p.quote != unquotedWordCont || p.spaced) {
+					// Zsh's gettokstr returns a command-position `{`
+					// immediately, before reading the following command.
+					p.rune()
+					break loop
+				}
+				p.zshWordBraces++
+			}
 		case ' ', '\t':
 			if p.zshCaseOpen && zshCaseBracketOpen(brack, p.litBs[:len(p.litBs)-1]) {
 				continue
@@ -1391,6 +1411,19 @@ loop:
 				p.eqlOffs = len(p.litBs) - 1
 			}
 		case '}':
+			if p.lang.in(LangZsh) && p.zshCommandWord() {
+				if p.zshWordBraces > 0 {
+					p.zshWordBraces--
+				} else if !p.zshAssignValue && p.zshBraceWordEnd() {
+					if len(p.litBs) == 1 {
+						if !p.spaced && (!p.stopToken() || p.tok == rightParen) {
+							tok = rightBrace
+						}
+						p.rune()
+					}
+					break loop
+				}
+			}
 			if p.quote == subCmdBraces && len(p.litBs) == 1 {
 				// A word-initial `}` closes the substitution even if
 				// more characters follow, as in `${ foo;}bar`.
@@ -1414,6 +1447,27 @@ loop:
 	if p.zshCaseOpen {
 		p.zshCaseBrack = zshCaseBracketOpen(brack, []byte(p.val))
 	}
+	if p.lang.in(LangZsh) && p.zshCommandWord() && wordStart && p.val == "}" && p.r == '}' {
+		// Splitting `}}` leaves the reserved word `}`, whereas `a}}`
+		// leaves the literal word `a}` followed by its closer.
+		p.tok = rightBrace
+	}
+}
+
+func (p *Parser) zshCommandWord() bool {
+	return p.quote&(noState|unquotedWordCont|subCmd|subCmdBckquo) != 0 && !p.zshCaseOpen && !p.zshBraceIndex
+}
+
+func (p *Parser) zshBraceWordEnd() bool {
+	b := p.peek()
+	if int(p.bsp) >= len(p.bs) {
+		return true
+	}
+	switch b {
+	case ' ', '\t', '\r', '\n', ';', '&', '|', '(', ')', '<', '>':
+		return true
+	}
+	return false
 }
 
 // zshCaseBracketBlank reports whether a blank at the start of the next token

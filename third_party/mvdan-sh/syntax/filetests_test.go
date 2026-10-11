@@ -2161,6 +2161,7 @@ var fileTests = []fileTestCase{
 	fileTest(
 		[]string{`{foo}`},
 		langFile(litWord(`{foo}`)),
+		langFile(block(litStmt("foo")), LangZsh),
 	),
 	fileTest(
 		[]string{`{"foo"`},
@@ -5651,6 +5652,8 @@ func (c sanityChecker) visit(node Node) bool {
 				// ended by whitespace
 			case regOps(rune(end)):
 				// ended by end character
+			case end == '}':
+				// Zsh permits a group closer glued to its last command.
 			case endOff > 0 && c.src[endOff-1] == ';':
 				// ended by semicolon
 			case endOff > 0 && c.src[endOff-1] == '&':

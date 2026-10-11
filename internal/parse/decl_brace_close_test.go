@@ -242,7 +242,7 @@ func TestParseDeclarationBraceCloseRejectsInvalidSources(t *testing.T) {
 		line    uint
 		col     uint
 	}{
-		{"invalid-231-double-brace-close.txt", unmatchedEOF, 1, 1},
+		{"invalid-231-double-brace-close.txt", "`}` can only be used to close a block", 1, 14},
 		{"invalid-231-comment-glued-to-brace.txt", unmatchedEOF, 1, 1},
 		{"invalid-231-brace-glued-to-assignment.txt", unmatchedEOF, 1, 1},
 		{"invalid-231-redirect-glued-to-brace.txt", unmatchedEOF, 1, 1},
