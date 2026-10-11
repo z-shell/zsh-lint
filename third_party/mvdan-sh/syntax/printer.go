@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"unicode"
@@ -268,6 +269,7 @@ type Printer struct {
 	levelIncs []bool
 
 	nestedBinary bool
+	gluedBrace   Pos
 
 	// pendingHdocs is the list of pending heredocs to write.
 	pendingHdocs []*Redirect
@@ -288,6 +290,7 @@ func (p *Printer) reset() {
 	p.lastLevel, p.level = 0, 0
 	p.levelIncs = p.levelIncs[:0]
 	p.nestedBinary = false
+	p.gluedBrace = Pos{}
 	p.pendingHdocs = p.pendingHdocs[:0]
 }
 
@@ -1047,7 +1050,17 @@ func (p *Printer) testExprSameLine(expr TestExpr) {
 }
 
 func (p *Printer) word(w *Word) {
-	p.wordParts(w.Parts, false)
+	parts := w.Parts
+	if p.gluedBrace.IsValid() && w.End() == p.gluedBrace && zshNameClosesBrace(w) {
+		// Only the last raw brace of a lexical word closes the group.
+		// Printing a separator would make the preceding literal brace a
+		// closer too, so escape it without changing the source tree (#276).
+		parts = slices.Clone(parts)
+		last := *parts[len(parts)-1].(*Lit)
+		last.Value = last.Value[:len(last.Value)-1] + `\}`
+		parts[len(parts)-1] = &last
+	}
+	p.wordParts(parts, false)
 	p.wantSpace = spaceRequired
 }
 
@@ -1255,6 +1268,28 @@ func (p *Printer) printRedirsUntil(redirs []*Redirect, startRedirs int, pos Pos)
 }
 
 func (p *Printer) command(cmd Command, redirs []*Redirect) (startRedirs int) {
+	oldBrace := p.gluedBrace
+	defer func() { p.gluedBrace = oldBrace }()
+	switch c := cmd.(type) {
+	case *Block:
+		p.gluedBrace = c.Rbrace
+	case *IfClause:
+		if c.ZshEnd == posAddCol(c.FiPos, 1) {
+			p.gluedBrace = c.FiPos
+		}
+	case *WhileClause:
+		if c.ZshEnd == posAddCol(c.DonePos, 1) {
+			p.gluedBrace = c.DonePos
+		}
+	case *ForClause:
+		if c.ZshEnd == posAddCol(c.DonePos, 1) {
+			p.gluedBrace = c.DonePos
+		}
+	case *RepeatClause:
+		if c.ZshEnd == posAddCol(c.DonePos, 1) {
+			p.gluedBrace = c.DonePos
+		}
+	}
 	p.advanceLine(cmd.Pos().Line())
 	p.spacePad(cmd.Pos())
 	switch cmd := cmd.(type) {

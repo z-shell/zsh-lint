@@ -418,6 +418,7 @@ func (p *Parser) Words(r io.Reader, fn func(*Word) bool) error {
 // of a word. This will be fixed in the future.
 func (p *Parser) WordsSeq(r io.Reader) iter.Seq2[*Word, error] {
 	p.reset()
+	p.zshWordsOnly = true
 	p.f = &File{}
 	p.src = r
 	return func(yield func(*Word, error) bool) {
@@ -517,6 +518,14 @@ type Parser struct {
 	// zshBraceStop ended at a statement with no separator after it, which
 	// in Zsh starts a one-sublist body (SHORT_LOOPS, zsh-lint #459).
 	zshShortStop bool
+
+	// Braces of an ordinary Zsh word nest across its literal parts. A
+	// command-position `{` opens a block instead, and assignment values
+	// keep a trailing `}` as text (#276).
+	zshWordBraces  int
+	zshAssignValue bool
+	zshCmdPos      bool
+	zshWordsOnly   bool // WordsSeq keeps braces in argument position.
 
 	// zshDquoteParam reports that the parameter expansion being lexed sits
 	// inside a double-quoted string, where Zsh reads a `'` in its word as an
@@ -673,6 +682,9 @@ func (p *Parser) reset() {
 	p.wordBatch = nil
 	p.litBs = nil
 	p.zshMathScan, p.zshMathEnd = false, nil
+	p.zshWordBraces, p.zshAssignValue = 0, false
+	p.zshCmdPos = true
+	p.zshWordsOnly = false
 }
 
 // nextPos returns the position of the next rune, [Parser.r].
@@ -796,6 +808,10 @@ type saveState struct {
 	zshCaseHash    bool
 	zshCaseOpen    bool
 	zshCaseBrack   bool
+	zshWordBraces  int
+	zshAssignValue bool
+	zshCmdPos      bool
+	zshWordsOnly   bool
 }
 
 func (p *Parser) preNested(quote quoteState) (s saveState) {
@@ -804,6 +820,10 @@ func (p *Parser) preNested(quote quoteState) (s saveState) {
 	s.zshCaseHash, p.zshCaseHash = p.zshCaseHash, false
 	s.zshCaseOpen, p.zshCaseOpen = p.zshCaseOpen, false
 	s.zshCaseBrack, p.zshCaseBrack = p.zshCaseBrack, false
+	s.zshWordBraces, p.zshWordBraces = p.zshWordBraces, 0
+	s.zshAssignValue, p.zshAssignValue = p.zshAssignValue, false
+	s.zshCmdPos, p.zshCmdPos = p.zshCmdPos, true
+	s.zshWordsOnly, p.zshWordsOnly = p.zshWordsOnly, false
 	return s
 }
 
@@ -811,6 +831,9 @@ func (p *Parser) postNested(s saveState) {
 	p.quote, p.buriedHdocs, p.zshCondOperand, p.zshBrokenGroup = s.quote, s.buriedHdocs, s.zshCondOperand, s.zshBrokenGroup
 	p.zshCaseHash = s.zshCaseHash
 	p.zshCaseOpen, p.zshCaseBrack = s.zshCaseOpen, s.zshCaseBrack
+	p.zshWordBraces, p.zshAssignValue = s.zshWordBraces, s.zshAssignValue
+	p.zshCmdPos = s.zshCmdPos
+	p.zshWordsOnly = s.zshWordsOnly
 }
 
 func (p *Parser) unquotedWordBytes(w *Word) ([]byte, bool) {
@@ -893,7 +916,11 @@ func (p *Parser) got(tok token) bool {
 
 func (p *Parser) gotRsrv(val string) (Pos, bool) {
 	pos := p.pos
-	if p.tok == _LitWord && p.val == val {
+	if p.tok == _LitWord && p.val == val || p.tok == rightBrace && val == "}" {
+		switch val {
+		case "{", "}", "then", "elif", "else", "do":
+			p.zshCmdPos = true
+		}
 		p.next()
 		return pos, true
 	}
@@ -1190,6 +1217,13 @@ loop:
 			continue
 		}
 		switch p.tok {
+		case rightBrace:
+			for _, stop := range stops {
+				if stop == "}" {
+					break loop
+				}
+			}
+			p.curErr(`%#q can only be used to close a block`, rightBrace)
 		case _LitWord:
 			// A brace-form body's `{` follows the condition on its line: an
 			// if directly after the last statement, a while or until also
@@ -2879,6 +2913,9 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	if val := p.endLit(); val != "" {
 		zf.X = p.wordOne(p.lit(argPos, val))
 	}
+	// A flag argument cut at a nested subscript's `]` leaves its raw
+	// expansion braces in the containing lexical word (#382).
+	p.zshWordBraces += inParam
 	p.quote = old
 	p.next()
 	return zf
@@ -3433,6 +3470,9 @@ func (p *Parser) hasValidIdent() bool {
 }
 
 func (p *Parser) getAssign(needEqual bool) *Assign {
+	oldAssign := p.zshAssignValue
+	p.zshAssignValue = true
+	defer func() { p.zshAssignValue = oldAssign }()
 	as := &Assign{}
 	if p.eqlOffs > 0 { // foo=bar
 		nameEnd := p.eqlOffs
@@ -3750,6 +3790,8 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 	}
 	redirsStart := len(s.Redirs)
 	switch p.tok {
+	case rightBrace:
+		p.curErr(`%#q can only be used to close a block`, rightBrace)
 	case _LitWord:
 		switch p.val {
 		case "{":
@@ -3856,11 +3898,13 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			break
 		}
 		name := p.lit(p.pos, p.val)
+		p.zshCmdPos = false
 		p.next()
 		// In zsh, ( after a word is a glob qualifier unless followed
 		// immediately by ), which is the func declaration syntax.
 		if p.tok == leftParen && (!p.lang.in(LangZsh) || p.r == ')') {
 			p.next()
+			p.zshCmdPos = true
 			p.follow(name.ValuePos, "foo(", rightParen)
 			if p.lang.in(LangPOSIX) && !ValidName(name.Value) {
 				p.posErr(name.Pos(), "invalid func name")
@@ -3891,9 +3935,11 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			p.callExpr(s, nil, true)
 			break
 		}
+		p.zshCmdPos = false
 		w := p.wordAnyNumber()
 		if p.lang.in(LangZsh) && p.tok == leftParen && p.r == ')' {
 			p.next()
+			p.zshCmdPos = true
 			p.follow(w.Pos(), "foo(", rightParen)
 			p.funcDecl(s, w.Pos(), false, true, Pos{}, p.wordToLit(w))
 			break
@@ -3994,6 +4040,7 @@ func (p *Parser) arithmExpCmd(s *Stmt) {
 
 func (p *Parser) block(s *Stmt) {
 	b := &Block{Lbrace: p.pos}
+	p.zshCmdPos = true
 	p.next()
 	b.Stmts, b.Last = p.followStmts("{", b.Lbrace, "}")
 	if pos, ok := p.gotRsrv("}"); ok {
@@ -4208,6 +4255,7 @@ func (p *Parser) whileClause(s *Stmt, until bool) {
 
 func (p *Parser) forClause(s *Stmt) {
 	fc := &ForClause{ForPos: p.pos}
+	p.zshCmdPos = false
 	p.next()
 	if p.lang.in(LangZsh) {
 		if p.tok == dblLeftParen {
@@ -4240,6 +4288,7 @@ func (p *Parser) forClause(s *Stmt) {
 
 func (p *Parser) foreachClause(s *Stmt) {
 	fc := &ForClause{ForPos: p.pos}
+	p.zshCmdPos = false
 	p.next()
 	fc.Loop = p.zshWordIter("foreach", fc.ForPos, true)
 	p.zshLoopBody(s, fc, "foreach")
@@ -4336,6 +4385,9 @@ func (p *Parser) zshWordIter(ftok string, fpos Pos, multi bool) *WordIter {
 		wi.InPos = pos
 		for !p.stopToken() {
 			if w := p.getWord(); w == nil {
+				if p.tok == rightBrace {
+					p.curErr(`%#q can only be used to close a block`, rightBrace)
+				}
 				p.curErr("word list can only contain words")
 			} else {
 				wi.Items = append(wi.Items, w)
@@ -4524,6 +4576,7 @@ func (p *Parser) zshEmptyLoopBody() bool {
 
 func (p *Parser) selectClause(s *Stmt) {
 	fc := &ForClause{ForPos: p.pos, Select: true}
+	p.zshCmdPos = false
 	p.next()
 	if p.lang.in(LangZsh) {
 		fc.Loop = p.zshWordIter("select", fc.ForPos, false)
@@ -4540,8 +4593,12 @@ func (p *Parser) selectClause(s *Stmt) {
 
 func (p *Parser) caseClause(s *Stmt) {
 	cc := &CaseClause{Case: p.pos}
+	p.zshCmdPos = false
 	p.next()
 	cc.Word = p.getWord()
+	if p.tok == rightBrace {
+		p.curErr(`%#q can only be used to close a block`, rightBrace)
+	}
 	if cc.Word == nil {
 		p.followErr(cc.Case, "case", noQuote("a word"))
 	}
@@ -5029,17 +5086,22 @@ func (p *Parser) testExprUnary() TestExpr {
 
 func (p *Parser) declClause(s *Stmt) {
 	ds := &DeclClause{Variant: p.lit(p.pos, p.val)}
+	p.zshCmdPos = false
 	p.next()
 	zshNumeric := p.lang.in(LangZsh) && (ds.Variant.Value == "integer" || ds.Variant.Value == "float")
 	// These Zsh declaration words can also name functions. Preserve that
 	// reading when adding their declaration syntax (zsh-lint #612).
 	if zshNumeric && p.tok == leftParen && p.r == ')' {
 		p.next()
+		p.zshCmdPos = true
 		p.follow(ds.Variant.ValuePos, "foo(", rightParen)
 		p.funcDecl(s, ds.Variant.ValuePos, false, true, Pos{}, ds.Variant)
 		return
 	}
 	for !p.stopToken() && !p.peekRedir() {
+		if p.tok == rightBrace {
+			break
+		}
 		// A whole-word closing brace terminates these declarations, including
 		// inside quoted substitutions where the brace adapter cannot retry.
 		if zshNumeric && p.tok == _LitWord && p.val == "}" {
@@ -5140,6 +5202,7 @@ func (p *Parser) letClause(s *Stmt) {
 
 func (p *Parser) bashFuncDecl(s *Stmt) {
 	fpos := p.pos
+	p.zshCmdPos = false
 	p.next()
 	names := make([]*Lit, 0, 1)
 	if p.lang.in(LangZsh) {
@@ -5181,6 +5244,7 @@ func (p *Parser) bashFuncDecl(s *Stmt) {
 	var parensEnd Pos
 	if hasParens {
 		rpos := p.pos
+		p.zshCmdPos = true
 		p.follow(fpos, "function foo(", rightParen)
 		parensEnd = posAddCol(rpos, 1)
 	}
@@ -5210,6 +5274,7 @@ func (p *Parser) unexpectedInCallExpr(ce *CallExpr) {
 }
 
 func (p *Parser) callExpr(s *Stmt, w *Word, assign bool) {
+	p.zshCmdPos = false
 	ce := p.call(w)
 	if w == nil {
 		ce.Args = ce.Args[:0]
@@ -5220,6 +5285,8 @@ func (p *Parser) callExpr(s *Stmt, w *Word, assign bool) {
 loop:
 	for {
 		switch p.tok {
+		case rightBrace:
+			break loop
 		case _EOF, _Newl, semicolon, and, or, andAnd, orOr, orAnd, andPipe, andBang,
 			dblSemicolon, semiAnd, dblSemiAnd, semiOr:
 			break loop

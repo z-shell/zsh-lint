@@ -79,14 +79,16 @@ func TestRejectCloseBraceWordsOnTree(t *testing.T) {
 		{"echo x >a}\n", "1:10"},
 		{"for x in '}' \"}\" \\} {; do :; done\n", ""},
 		{"cat <<EOF\n}\na}\nEOF\n", ""},
-		{"f() { print x }\n", ""},
+		{"f() { print x; }\n", ""},
 		{"print a}b {a} a{b} {{a}} a{} a}#c a}${x}\n", ""},
 		{"x=a} y=${x}} a}=1\n", ""},
 		{"export z=a}\n", ""},
 		{"case x in (a}) ;; esac\n", ""},
 		{"print a\\}\n", ""},
 	} {
-		tree, err := parseTree([]byte(test.src), "guard.zsh")
+		// Construct the tree independently of the Zsh lexer, which now
+		// rejects glued command closers before this remaining guard runs.
+		tree, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(test.src), "guard.zsh")
 		if err != nil {
 			t.Fatalf("parseTree(%q) error: %v", test.src, err)
 		}

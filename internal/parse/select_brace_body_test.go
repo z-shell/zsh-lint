@@ -20,6 +20,7 @@ func TestParseSelectBraceBody(t *testing.T) {
 		first string   // position and text of the first body statement, or ""
 	}{
 		{"one line", "select o in a b c; { print $o; break }\n", []string{"1:1:1:20:1:38/2"}, "1:22 print $o;"},
+		{"glued body", "select o in a; {break}\n", []string{"1:1:1:16:1:22/1"}, "1:17 break"},
 		{"no list no term", "select o { break }\n", []string{"1:1:1:10:1:18/1"}, "1:12 break"},
 		{"no list", "select o; { break }\n", []string{"1:1:1:11:1:19/1"}, "1:13 break"},
 		{"newline term", "select o in a b c\n{ break }\n", []string{"1:1:2:1:2:9/1"}, "2:3 break"},
@@ -117,14 +118,13 @@ func TestParseSelectBraceBodyTailBindsToLoop(t *testing.T) {
 }
 
 // A negated block after the header is a negated sublist (the short form),
-// not a brace body; a `{` glued to its first word is a word.
+// not a brace body.
 func TestParseSelectBraceBodyLeavesOtherBlocksToTheShortForm(t *testing.T) {
 	for _, test := range []struct {
 		src     string
 		negated bool
 	}{
 		{"select o in a; ! { break }\n", true},
-		{"select o in a; {break}\n", false},
 	} {
 		file, err := Parse(strings.NewReader(test.src), "other.zsh")
 		if err != nil {
