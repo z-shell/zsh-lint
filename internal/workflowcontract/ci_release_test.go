@@ -1,7 +1,9 @@
 package workflowcontract
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -476,6 +478,92 @@ func TestTrunkModelHasNoMainBranchSourceGuard(t *testing.T) {
 		t.Fatal("trunk-on-main must not retain the next-to-main source guard workflow")
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("inspect retired main branch guard: %v", err)
+	}
+}
+
+func TestGoCIForkRequiresBash53(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github", "workflows", "go-ci.yml")
+	install := workflowJobStep(t, workflow, "build-test", "Install Bash 5.3 for fork confirmation")
+	fork := workflowJobStep(t, workflow, "build-test", "🧪 Test the parser fork")
+	if strings.Index(workflow, install) > strings.Index(workflow, fork) {
+		t.Fatal("Bash 5.3 must be prepared before required-shell tests")
+	}
+	script := workflowRunScript(t, install)
+	const releaseDigest = "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+	if !strings.Contains(script, "https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz") || !strings.Contains(script, releaseDigest) {
+		t.Fatal("the required Bash release must retain its verified download and checksum")
+	}
+	dir := t.TempDir()
+	release := filepath.Join(dir, "release", "bash-5.3")
+	bin := filepath.Join(dir, "bin")
+	for _, path := range []string{release, bin} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configure := filepath.Join(release, "configure")
+	if err := os.WriteFile(configure, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dir, "release.tar.gz")
+	pack := func() {
+		t.Helper()
+		cmd := exec.Command("tar", "-czf", archive, "-C", filepath.Dir(release), "bash-5.3")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("prepare Bash release fixture: %v\n%s", err, out)
+		}
+	}
+	pack()
+	contents, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script = strings.Replace(script, releaseDigest, fmt.Sprintf("%x", sha256.Sum256(contents)), 1)
+	shell := filepath.Join(dir, "bash53")
+	if err := os.WriteFile(shell, []byte("#!/bin/sh\nprintf 'GNU bash, version 5.3.0(1)-release\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{
+		"curl": "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --output ]; then cp \"$TEST_RELEASE\" \"$2\"; exit; fi; shift; done\nexit 1\n",
+		"make": "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TEST_MAKE_CALLS\"\nif [ \"$1\" = install ]; then mkdir -p \"$RUNNER_TEMP/fork-bash/bin\"; cp \"$TEST_BASH\" \"$RUNNER_TEMP/fork-bash/bin/bash\"; fi\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(text), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, calls := filepath.Join(dir, "paths"), filepath.Join(dir, "make-calls")
+	run := func() error {
+		cmd := exec.Command("bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", script)
+		cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "RUNNER_TEMP="+dir, "GITHUB_PATH="+paths, "TEST_RELEASE="+archive, "TEST_BASH="+shell, "TEST_MAKE_CALLS="+calls)
+		return cmd.Run()
+	}
+	if err := run(); err != nil {
+		t.Fatalf("matching release and required Bash version must pass: %v", err)
+	}
+	pathText, err := os.ReadFile(paths)
+	if err != nil || !strings.Contains(string(pathText), filepath.Join(dir, "fork-bash", "bin")) {
+		t.Fatalf("the prepared Bash must reach subsequent steps: %v\n%s", err, pathText)
+	}
+	if err := os.WriteFile(shell, []byte("#!/bin/sh\nprintf 'GNU bash, version 5.2.0(1)-release\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); err == nil {
+		t.Fatal("a build producing the wrong Bash series must be refused")
+	}
+	before, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configure, []byte("#!/bin/sh\n# altered but valid release archive\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pack()
+	if err := run(); err == nil {
+		t.Fatal("a changed release archive must fail its checksum")
+	}
+	after, err := os.ReadFile(calls)
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("an unverified release must not reach a build: %v", err)
 	}
 }
 
