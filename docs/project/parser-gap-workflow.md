@@ -186,17 +186,25 @@ It executes the rows, so use it on generated probe rows only, never on corpus or
 `.github/scripts/mutation.sh [options] [base-ref]` mutates supported constructs on changed Go source lines and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425), [#544](https://github.com/z-shell/zsh-lint/issues/544)).
 The standard-library Go runner changes comparisons, integer bounds, boolean guards and increments without depending on a coverage block, so `case` expressions are included.
 Each mutant runs in an isolated snapshot; the contributor's files stay untouched.
-Fork changes under `third_party/mvdan-sh` run that module's `go test ./syntax/` and the root `go test ./internal/parse/ ./internal/survey/`; other source changes run their package's tests.
+Fork changes under `third_party/mvdan-sh` run that module's `go test -failfast ./syntax/` first and run the root `go test -failfast ./internal/parse/ ./internal/survey/` only if the fork suite passes; `LIVED` requires both suites to pass.
+Other source changes run their package's tests with `-failfast`; `--failfast=false` restores the non-failfast commands for comparisons.
 Each build/test gets a process group, and its descendants are killed on timeout or normal completion.
 `MUTATION_TIMEOUT` sets a whole-mutant deadline in seconds; otherwise it is at least 30 seconds and `MUTATION_TIMEOUT_COEFFICIENT` (default 30) times the baseline test duration.
 Baseline tests run with `-vet=all`, have a 120-second deadline and must pass before mutation starts; mutants run with `-vet=off`, so vet diagnostics cannot decide them and compile failures remain `INVALID`.
-Exit 3 means inconclusive evidence: any mutant times out, a mutant does not build, a changed file has no supported automatic or explicit mutation, or the run is capped ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
+`--workers N` selects 1 to 3 workers (default 1), each with its own source snapshot; workers calibrate their baseline durations concurrently before any mutation starts, so automatic deadlines account for the requested load.
+Explicit `MUTATION_TIMEOUT` deadlines are not scaled, and result rows retain canonical mutant order regardless of completion order.
+Exit 3 means inconclusive evidence: any mutant times out, a mutant does not build, a changed file has no supported automatic or explicit mutation, or the run is capped or samples fewer than all generated mutants ([#463](https://github.com/z-shell/zsh-lint/issues/463)).
 A survivor still takes precedence with exit 1; setup or baseline failure exits 2.
-Exit 0 means every generated mutant was killed, or there was no eligible changed Go source; always report the timeout count, including when a survivor makes the run exit 1.
+Exit 0 means every requested mutant was killed, or there was no eligible changed Go source; an explicit-only pass covers only its spec, not the generated campaign.
+Always report the timeout count, including when a survivor makes the run exit 1.
 The report lists `KILLED`, `LIVED`, `TIMED OUT`, `INVALID` and `UNSUPPORTED`, rather than presenting uncovered lines as a clean result.
 
 Options precede the base: `--candidate REV` replays a committed diff without changing branches, and `--max-mutants N` bounds a diagnostic sample while reporting incomplete evidence.
 `--spec FILE` extends the generated mutants with a JSON array of `file`, `line`, `old` and `new` fields.
+Add `--spec-only` for a supplemental run that tests only those entries, without repeating the generated campaign or assessing files outside the spec; an empty spec is refused.
+`--sample N --seed S` selects a random subset of up to N generated mutants with a PCG seed (default 1), then adds every explicit spec entry.
+Sampling is off by default; it is reproducible for the same snapshot and runner, and cannot combine with `--spec-only` or `--max-mutants`.
+For a bounded check use `bash .github/scripts/mutation.sh --sample 30 --seed 1`; retain the seed, selection size, survivor identities and every timeout in the pull request, and use the uncapped default command for a full campaign.
 Each entry must name a changed repository-relative Go source line, and its `old` text must match once on that line; specs do not execute commands.
 For example, `{"file":"path/to/file.go","line":42,"old":"n < limit","new":"n >= limit"}` replaces that comparison when it is present on the specified changed line.
 Use specs for changes the automatic operators cannot express and report the sample limit and any survivors or inconclusive evidence in the pull request.

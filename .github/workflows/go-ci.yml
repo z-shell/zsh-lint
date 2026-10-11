@@ -56,8 +56,41 @@ jobs:
         run: go test ./...
       # The parser fork keeps upstream's tests, which must keep passing
       # (ADR-0030, third_party/mvdan-sh/FORK.md).
+      - name: Install fork confirmation shells
+        run: |
+          mkdir -p "$RUNNER_TEMP/fork-shells"
+          cd "$RUNNER_TEMP/fork-shells"
+          apt-get download dash mksh
+          for package in ./*.deb; do
+            dpkg-deb --extract "$package" "$RUNNER_TEMP/fork-shells/root"
+          done
+          printf '%s\n' "$RUNNER_TEMP/fork-shells/root/bin" "$RUNNER_TEMP/fork-shells/root/usr/bin" >> "$GITHUB_PATH"
+      - name: Install Bash 5.3 for fork confirmation
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fork-bash-build"
+          curl --fail --show-error --silent --location --proto '=https' --proto-redir '=https' \
+            --retry 3 --output "$RUNNER_TEMP/fork-bash-build/bash.tar.gz" https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz
+          printf '%s  %s\n' '0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba' \
+            "$RUNNER_TEMP/fork-bash-build/bash.tar.gz" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/fork-bash-build/bash.tar.gz" -C "$RUNNER_TEMP/fork-bash-build"
+          (
+            cd "$RUNNER_TEMP/fork-bash-build/bash-5.3"
+            ./configure --prefix="$RUNNER_TEMP/fork-bash" --disable-readline
+            make -j2
+            make install
+          )
+          bash_version=$("$RUNNER_TEMP/fork-bash/bin/bash" --version)
+          case "$bash_version" in
+            *"version 5.3."*) ;;
+            *) printf '%s\n' 'Bash 5.3 is required for fork confirmation' >&2; exit 1 ;;
+          esac
+          printf '%s\n' "$bash_version"
+          printf '%s\n' "$RUNNER_TEMP/fork-bash/bin" >> "$GITHUB_PATH"
       - name: 🧪 Test the parser fork
         working-directory: third_party/mvdan-sh
+        env:
+          REQUIRE_SHELLS: "1"
         run: go test ./syntax/ ./pattern/ ./expand/
       - name: 🔍 Lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0

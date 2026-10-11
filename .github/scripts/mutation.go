@@ -13,6 +13,7 @@ import (
 	"go/token"
 	"io"
 	"math"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -56,12 +58,26 @@ func run(ctx context.Context) (int, error) {
 	flags := flag.NewFlagSet("mutation", flag.ContinueOnError)
 	candidate := flags.String("candidate", "", "replay a committed candidate")
 	spec := flags.String("spec", "", "extend mutants with JSON file, line, old, new entries")
+	specOnly := flags.Bool("spec-only", false, "test only --spec entries, not generated mutants")
 	limit := flags.Int("max-mutants", 0, "cap a diagnostic run, reporting incomplete evidence")
+	failfast := flags.Bool("failfast", true, "stop each test suite at its first failure")
+	workers := flags.Int("workers", 1, "isolated workers (1 to 3); baselines calibrate under concurrent load")
+	sample := flags.Int("sample", 0, "seeded random subset of generated mutants (0 runs all)")
+	seed := flags.Uint64("seed", 1, "PCG sampling seed, reproducible for the same snapshot and runner")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return 2, err
 	}
 	if flags.NArg() > 1 || *limit < 0 {
 		return 2, errors.New("options must precede the optional base revision")
+	}
+	if *specOnly && *spec == "" {
+		return 2, errors.New("--spec-only requires --spec")
+	}
+	if *workers < 1 || *workers > 3 {
+		return 2, errors.New("--workers must be between 1 and 3")
+	}
+	if *sample < 0 || (*sample > 0 && (*specOnly || *limit > 0)) {
+		return 2, errors.New("--sample must be nonnegative and cannot combine with --spec-only or --max-mutants")
 	}
 	base := "origin/main"
 	if flags.NArg() == 1 {
@@ -156,7 +172,24 @@ func run(ctx context.Context) (int, error) {
 		}
 		mutants = append(mutants, generated...)
 	}
+	mutants = sortMutants(mutants)
+	sampled := *sample > 0 && len(mutants) > *sample
+	if *sample > 0 {
+		fmt.Printf("mutation: sampling: testing %d of %d generated mutants; seed %d\n", min(*sample, len(mutants)), len(mutants), *seed)
+		if sampled {
+			order := rand.New(rand.NewPCG(*seed, 0)).Perm(len(mutants))
+			selected := make([]mutant, 0, *sample)
+			for _, index := range order[:*sample] {
+				selected = append(selected, mutants[index])
+			}
+			mutants = selected
+		}
+	}
 	if *spec != "" {
+		if *specOnly {
+			mutants = nil
+			clear(unsupported)
+		}
 		body, e := os.ReadFile(*spec)
 		if e != nil {
 			return 2, e
@@ -169,6 +202,9 @@ func run(ctx context.Context) (int, error) {
 		}
 		if e := decoder.Decode(new(any)); e != io.EOF {
 			return 2, errors.New("spec must contain one JSON array")
+		}
+		if *specOnly && len(entries) == 0 {
+			return 2, errors.New("--spec-only requires at least one explicit mutant")
 		}
 		for _, entry := range entries {
 			if !changed[entry.File][entry.Line] || entry.Old == "" || entry.New == entry.Old {
@@ -198,18 +234,10 @@ func run(ctx context.Context) (int, error) {
 	for name := range unsupported {
 		fmt.Printf("UNSUPPORTED %s: no supported automatic or explicit mutations on changed lines\n", name)
 	}
-	slices.SortFunc(mutants, func(a, b mutant) int {
-		if order := strings.Compare(a.File, b.File); order != 0 {
-			return order
-		}
-		if a.offset != b.offset {
-			return a.offset - b.offset
-		}
-		return strings.Compare(a.Old+"\x00"+a.New, b.Old+"\x00"+b.New)
-	})
-	mutants = slices.CompactFunc(mutants, func(a, b mutant) bool {
-		return a.File == b.File && a.offset == b.offset && a.Old == b.Old && a.New == b.New
-	})
+	mutants = sortMutants(mutants)
+	if *specOnly {
+		fmt.Printf("mutation: spec-only: testing %d explicit mutants; generated campaign not run\n", len(mutants))
+	}
 	if len(mutants) == 0 {
 		fmt.Println("mutation: no supported mutations on changed Go source lines")
 		if len(unsupported) > 0 {
@@ -233,46 +261,16 @@ func run(ctx context.Context) (int, error) {
 		explicit = time.Duration(seconds * float64(time.Second))
 	}
 	killed, lived, timedOut, invalid := 0, 0, 0, 0
-	baselines := map[string]time.Duration{}
 	truncated := *limit > 0 && len(mutants) > *limit
 	if truncated {
 		fmt.Printf("mutation: truncated: testing %d of %d mutants\n", *limit, len(mutants))
 		mutants = mutants[:*limit]
 	}
-	for _, m := range mutants {
-		commands := testCommands(m.File)
-		key := fmt.Sprint(commands)
-		if baselines[key] == 0 {
-			fmt.Printf("mutation: baseline %s\n", key)
-			start := time.Now()
-			status, output := test(ctx, work, commands, 120*time.Second, "all")
-			if status != "LIVED" {
-				return 2, fmt.Errorf("baseline did not pass (%s):\n%s", status, output)
-			}
-			baselines[key] = time.Since(start)
-		}
-		timeout := max(30*time.Second, time.Duration(float64(baselines[key])*coefficient))
-		if explicit > 0 {
-			timeout = explicit
-		}
-		path := filepath.Join(work, m.File)
-		original, e := os.ReadFile(path)
-		if e != nil {
-			return 2, e
-		}
-		value := append([]byte{}, original[:m.offset]...)
-		value = append(value, m.New...)
-		value = append(value, original[m.offset+len(m.Old):]...)
-		if e := os.WriteFile(path, value, 0o600); e != nil {
-			return 2, e
-		}
-		status, _ := test(ctx, work, commands, timeout, "off")
-		if e := os.WriteFile(path, original, 0o600); e != nil {
-			return 2, e
-		}
-		if ctx.Err() != nil {
-			return 2, ctx.Err()
-		}
+	results, err := runMutants(ctx, work, mutants, *workers, coefficient, explicit, *failfast)
+	if err != nil {
+		return 2, err
+	}
+	for _, status := range results {
 		switch status {
 		case "KILLED":
 			killed++
@@ -283,17 +281,206 @@ func run(ctx context.Context) (int, error) {
 		default:
 			invalid++
 		}
-		fmt.Printf("%s %s:%d:%d %q -> %q\n", status, m.File, m.Line, m.column, m.Old, m.New)
 	}
 	fmt.Printf("mutation: against %s, %d killed, %d lived, %d timed out, %d invalid\n", base, killed, lived, timedOut, invalid)
 	if lived > 0 {
 		return 1, nil
 	}
-	if truncated || invalid > 0 || len(unsupported) > 0 || timedOut > 0 {
+	if sampled || truncated || invalid > 0 || len(unsupported) > 0 || timedOut > 0 {
 		fmt.Println("mutation: inconclusive: incomplete, invalid, unsupported or timed-out run")
 		return 3, nil
 	}
 	return 0, nil
+}
+
+func sortMutants(mutants []mutant) []mutant {
+	slices.SortFunc(mutants, func(a, b mutant) int {
+		if order := strings.Compare(a.File, b.File); order != 0 {
+			return order
+		}
+		if a.offset != b.offset {
+			return a.offset - b.offset
+		}
+		return strings.Compare(a.Old+"\x00"+a.New, b.Old+"\x00"+b.New)
+	})
+	return slices.CompactFunc(mutants, func(a, b mutant) bool {
+		return a.File == b.File && a.offset == b.offset && a.Old == b.Old && a.New == b.New
+	})
+}
+
+// Each worker owns its source snapshot and timeout calibration. All baselines
+// run before any source is mutated, concurrently at the requested worker load.
+func runMutants(parent context.Context, source string, mutants []mutant, count int, coefficient float64, explicit time.Duration, failfast bool) ([]string, error) {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	count = min(count, len(mutants))
+	type worker struct {
+		work     string
+		timeouts map[string]time.Duration
+		err      error
+	}
+	pool := make([]worker, count)
+	commands := map[string][]testCommand{}
+	for _, m := range mutants {
+		c := testCommands(m.File)
+		commands[fmt.Sprint(c)] = c
+	}
+	keys := make([]string, 0, len(commands))
+	for key := range commands {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for i := range pool {
+		pool[i].work = source
+		if count > 1 {
+			work, err := os.MkdirTemp("", "zsh-lint-mutation-worker-")
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = os.RemoveAll(work) }()
+			if err := copySnapshot(source, work); err != nil {
+				return nil, err
+			}
+			pool[i].work = work
+		}
+		pool[i].timeouts = make(map[string]time.Duration)
+	}
+	var ready sync.WaitGroup
+	for i := range pool {
+		w := &pool[i]
+		ready.Go(func() {
+			for _, key := range keys {
+				start := time.Now()
+				status, output := test(ctx, w.work, commands[key], 120*time.Second, "all", failfast)
+				if status != "LIVED" {
+					w.err = fmt.Errorf("baseline did not pass (%s):\n%s", status, output)
+					cancel()
+					return
+				}
+				timeout := max(30*time.Second, time.Duration(float64(time.Since(start))*coefficient))
+				if explicit > 0 {
+					timeout = explicit
+				}
+				w.timeouts[key] = timeout
+			}
+		})
+	}
+	ready.Wait()
+	for i, w := range pool {
+		if w.err != nil {
+			return nil, w.err
+		}
+		for _, key := range keys {
+			fmt.Printf("mutation: baseline worker %d %s; mutant timeout %s\n", i+1, key, w.timeouts[key])
+		}
+	}
+	type result struct {
+		index  int
+		status string
+		err    error
+	}
+	jobs := make(chan int, len(mutants))
+	for i := range mutants {
+		jobs <- i
+	}
+	close(jobs)
+	completed := make(chan result, count)
+	var running sync.WaitGroup
+	for _, w := range pool {
+		running.Go(func() {
+			for i := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				m := mutants[i]
+				c := testCommands(m.File)
+				status, err := testMutant(ctx, w.work, m, c, w.timeouts[fmt.Sprint(c)], failfast)
+				completed <- result{i, status, err}
+				if err != nil {
+					cancel()
+					return
+				}
+			}
+		})
+	}
+	go func() {
+		running.Wait()
+		close(completed)
+	}()
+	statuses := make([]string, len(mutants))
+	next := 0
+	var failure error
+	for r := range completed {
+		if r.err != nil && failure == nil {
+			failure = r.err
+		}
+		statuses[r.index] = r.status
+		for next < len(mutants) && statuses[next] != "" {
+			m := mutants[next]
+			fmt.Printf("%s %s:%d:%d %q -> %q\n", statuses[next], m.File, m.Line, m.column, m.Old, m.New)
+			next++
+		}
+	}
+	if failure != nil {
+		return nil, failure
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return statuses, nil
+}
+
+func copySnapshot(source, target string) error {
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		to := filepath.Join(target, name)
+		if entry.IsDir() {
+			return os.MkdirAll(to, 0o700)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("worker snapshot requires regular files: %s", name)
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(to, body, info.Mode().Perm())
+	})
+}
+
+func testMutant(ctx context.Context, work string, m mutant, commands []testCommand, timeout time.Duration, failfast bool) (string, error) {
+	path := filepath.Join(work, m.File)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if m.offset < 0 || m.offset+len(m.Old) > len(original) || string(original[m.offset:m.offset+len(m.Old)]) != m.Old {
+		return "", fmt.Errorf("mutant anchor changed: %s:%d", m.File, m.Line)
+	}
+	value := append([]byte{}, original[:m.offset]...)
+	value = append(value, m.New...)
+	value = append(value, original[m.offset+len(m.Old):]...)
+	if err := os.WriteFile(path, value, 0o600); err != nil {
+		return "", err
+	}
+	status, _ := test(ctx, work, commands, timeout, "off", failfast)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		return "", err
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	return status, nil
 }
 
 func snapshot(root, target, candidate string) error {
@@ -432,7 +619,7 @@ func testCommands(name string) []testCommand {
 	return []testCommand{{"", []string{"./" + filepath.ToSlash(filepath.Dir(name)) + "/"}}}
 }
 
-func test(parent context.Context, work string, commands []testCommand, timeout time.Duration, vet string) (string, string) {
+func test(parent context.Context, work string, commands []testCommand, timeout time.Duration, vet string, failfast bool) (string, string) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	var output strings.Builder
@@ -441,7 +628,11 @@ func test(parent context.Context, work string, commands []testCommand, timeout t
 		if err != nil {
 			return "INVALID", err.Error()
 		}
-		args := append([]string{"test", "-json", "-count=1", "-timeout=0", "-vet=" + vet}, command.args...)
+		args := []string{"test", "-json", "-count=1", "-timeout=0", "-vet=" + vet}
+		if failfast {
+			args = append(args, "-failfast")
+		}
+		args = append(args, command.args...)
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = filepath.Join(work, command.dir)
 		cmd.Env = append(os.Environ(), "GOWORK=off")
