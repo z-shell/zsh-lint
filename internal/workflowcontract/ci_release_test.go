@@ -479,6 +479,47 @@ func TestTrunkModelHasNoMainBranchSourceGuard(t *testing.T) {
 	}
 }
 
+func TestGoCIForkRequiresExternalShells(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github", "workflows", "go-ci.yml")
+	fork := workflowJobStep(t, workflow, "build-test", "🧪 Test the parser fork")
+	env := workflowBlock(t, fork, "env:", 8)
+	if values := directWorkflowMapping(env, 10)["REQUIRE_SHELLS"]; len(values) != 1 || values[0] != `"1"` {
+		t.Fatalf("fork tests must require native shells, not silently skip them:\n%s", fork)
+	}
+	install := workflowJobStep(t, workflow, "build-test", "Install fork confirmation shells")
+	if strings.Index(workflow, install) > strings.Index(workflow, fork) {
+		t.Fatal("shell installation must precede required-shell tests")
+	}
+	script := workflowRunScript(t, install)
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"apt-get":  "#!/bin/sh\n[ \"$*\" = 'download dash mksh' ] || exit 1\n: > dash.deb\n: > mksh.deb\n",
+		"dpkg-deb": "#!/bin/sh\n[ \"$1\" = --extract ] || exit 1\nprintf '%s\\n' \"$2\" >> \"$TEST_EXTRACTED\"\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pathFile, extracted := filepath.Join(dir, "paths"), filepath.Join(dir, "extracted")
+	cmd := exec.Command("bash", "--noprofile", "--norc", "-c", script)
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "RUNNER_TEMP="+dir, "GITHUB_PATH="+pathFile, "TEST_EXTRACTED="+extracted)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("shell preparation failed: %v\n%s", err, out)
+	}
+	packages, err := os.ReadFile(extracted)
+	if err != nil || !strings.Contains(string(packages), "dash.deb") || !strings.Contains(string(packages), "mksh.deb") {
+		t.Fatalf("both native shells must be extracted: %v\n%s", err, packages)
+	}
+	paths, err := os.ReadFile(pathFile)
+	if err != nil || !strings.Contains(string(paths), filepath.Join(dir, "fork-shells", "root", "bin")) {
+		t.Fatalf("shell binaries must be on following steps' PATH: %v\n%s", err, paths)
+	}
+}
+
 func TestGoCIBuildTestReportsOnEveryPullRequest(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github", "workflows", "go-ci.yml")
 	onBlock := workflowBlock(t, workflow, "on:", 0)

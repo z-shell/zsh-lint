@@ -56,8 +56,19 @@ jobs:
         run: go test ./...
       # The parser fork keeps upstream's tests, which must keep passing
       # (ADR-0030, third_party/mvdan-sh/FORK.md).
+      - name: Install fork confirmation shells
+        run: |
+          mkdir -p "$RUNNER_TEMP/fork-shells"
+          cd "$RUNNER_TEMP/fork-shells"
+          apt-get download dash mksh
+          for package in ./*.deb; do
+            dpkg-deb --extract "$package" "$RUNNER_TEMP/fork-shells/root"
+          done
+          printf '%s\n' "$RUNNER_TEMP/fork-shells/root/bin" "$RUNNER_TEMP/fork-shells/root/usr/bin" >> "$GITHUB_PATH"
       - name: 🧪 Test the parser fork
         working-directory: third_party/mvdan-sh
+        env:
+          REQUIRE_SHELLS: "1"
         run: go test ./syntax/ ./pattern/ ./expand/
       - name: 🔍 Lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
