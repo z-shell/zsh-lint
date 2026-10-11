@@ -40,7 +40,6 @@ func adapterChain() []adapterAttempt {
 		parseSecondSubscript,
 		parseSubscriptFlagBracketPattern,
 		parseSubscriptPatternAfterComma,
-		parseLengthOperator,
 		parseTryAlways,
 		parseANSICHeredocDelimiter,
 		parseFunctionSemicolonBody,
