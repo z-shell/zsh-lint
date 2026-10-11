@@ -12,8 +12,7 @@ import (
 
 // A length prefix composes with every expansion operator in Zsh: `#` applies
 // to the result of the rest of the expansion (zshexpn, Parameter Expansion).
-// mvdan/sh rejects the combination outright, so each row below is valid Zsh
-// that failed to parse before this adapter. Every row was verified with
+// The fork retains the prefix and suffix directly, without a masked retry. Every row was verified with
 // `zsh -f -n` AND by running it, because `-n` only parses.
 func TestParseLengthOperator(t *testing.T) {
 	t.Parallel()
@@ -48,9 +47,8 @@ func TestParseLengthOperator(t *testing.T) {
 	}
 }
 
-// The mask writes `_` over the length `#`, so the tree must be checked, not
-// just the absence of an error: a parse that succeeded with `_a` as the
-// parameter name would report the wrong name and lose the length.
+// The typed tree must retain both the length prefix and the suffix, with the
+// original parameter name and byte positions.
 func TestLengthOperatorRestoresNameAndLength(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -160,35 +158,11 @@ func TestLengthOperatorRoundTrips(t *testing.T) {
 	}
 }
 
-// Rows the adapter must decline, so the parser's own error stands. Each is
-// either invalid Zsh or a construct that belongs to another adapter.
-func TestLengthOperatorDeclines(t *testing.T) {
+// The existence prefix has different semantics and remains unsupported here.
+func TestLengthOperatorDoesNotWidenExistencePrefix(t *testing.T) {
 	t.Parallel()
-	for _, test := range []struct {
-		name string
-		src  string
-	}{
-		// `_*` and `_@` are not names, so the mask cannot parse. Valid
-		// Zsh, but out of this adapter's reach; documented in the issue.
-		{"a star parameter", "print ${#*:#x}\n"},
-		{"an at parameter", "print ${#@:#x}\n"},
-		// The `+` prefix is a different operator with its own semantics.
-		{"an existence prefix", "print ${+a:#x}\n"},
-		// Slices and bare modifiers are refused deliberately: the
-		// un-prefixed path they are masked into is more permissive than
-		// Zsh, and spreading that to shapes rejected today would be a
-		// false accept. These are valid Zsh that stays rejected, at the
-		// verdict it already has on main. See lengthOperatorIsDecidable.
-		{"an offset slice", "print ${#a:1}\n"},
-		{"an offset and length slice", "print ${#a:1:2}\n"},
-		{"a bare modifier", "print ${#a:h}\n"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			if _, err := parseWithAdapters([]byte(test.src), "t.zsh"); err == nil {
-				t.Fatalf("parse %q succeeded, want the parser error to stand", test.src)
-			}
-		})
+	if _, err := parseWithAdapters([]byte("print ${+a:#x}\n"), "t.zsh"); err == nil {
+		t.Fatal("existence prefix accepted a suffix")
 	}
 }
 
@@ -226,7 +200,7 @@ func TestLengthOperatorRejectsInvalidSource(t *testing.T) {
 		wantMsg string
 		wantCol int
 	}{
-		{"testdata/invalid-373-unclosed-expansion.txt", "cannot combine multiple parameter expansion operators", 14},
+		{"testdata/invalid-373-unclosed-expansion.txt", "reached EOF without matching `${` with `}`", 7},
 		{"testdata/invalid-373-unclosed-subscript.txt", "ternary operator missing `?` before `:`", 13},
 		{"testdata/invalid-373-space-after-length.txt", "not a valid parameter expansion operator: ` `", 10},
 		// Rows an earlier revision of this adapter accepted: the mask
@@ -260,51 +234,6 @@ func TestLengthOperatorRejectsInvalidSource(t *testing.T) {
 	}
 }
 
-// The error-text gate decides whether the adapter runs at all. It is
-// verdict-redundant with the positional scan: measured across 189 tree
-// fixtures and 83 probe rows, removing it changed no verdict, because
-// lengthPrefixBefore refuses anything that is not `${#name` before the
-// reported offset. It is kept because it bounds the cost (without it every
-// parse error in the file would trigger a reparse) and because it says which
-// construct this adapter owns. Since no source can discriminate it, it is
-// pinned here directly.
-func TestLengthOperatorGatesOnItsOwnError(t *testing.T) {
-	t.Parallel()
-	src := []byte("print ${#a[@]:#x}\n")
-	parsed := false
-	parse := func([]byte, string) (*syntax.File, error) {
-		parsed = true
-		return parseTree(src, "t.zsh")
-	}
-
-	t.Run("a different parse error is declined", func(t *testing.T) {
-		other := syntax.ParseError{
-			Filename: "t.zsh",
-			Pos:      syntax.NewPos(13, 1, 14),
-			Text:     "not a valid parameter expansion operator: `[`",
-		}
-		_, err := parseLengthOperatorWithParser(src, "t.zsh", other, parse)
-		if !errors.Is(err, error(other)) && err.Error() != other.Error() {
-			t.Errorf("error = %v, want the original %v", err, other)
-		}
-		if parsed {
-			t.Error("the adapter reparsed on an error it does not own")
-		}
-	})
-
-	t.Run("a non-parse error is declined", func(t *testing.T) {
-		parsed = false
-		plain := errors.New("read error")
-		_, err := parseLengthOperatorWithParser(src, "t.zsh", plain, parse)
-		if !errors.Is(err, plain) {
-			t.Errorf("error = %v, want the original %v", err, plain)
-		}
-		if parsed {
-			t.Error("the adapter reparsed on a non-parse error")
-		}
-	})
-}
-
 // A file with two length operators must not report the first one forever.
 // Fixing one exposes the next error; returning the original error there blames
 // a construct this adapter just proved readable, which is what hid zi's real
@@ -327,77 +256,5 @@ func TestLengthOperatorReportsTheLaterBlocker(t *testing.T) {
 	}
 	if strings.Contains(perr.Text, "_") {
 		t.Fatalf("the mask byte reached a diagnostic: %q", perr.Text)
-	}
-}
-
-// An error inside the masked construct itself must NOT be preferred: its
-// position describes a parameter name the user never wrote.
-func TestLengthOperatorKeepsItsOwnErrorForTheMaskedConstruct(t *testing.T) {
-	t.Parallel()
-	for _, name := range []string{
-		"testdata/invalid-373-unrecognized-modifier.txt",
-		"testdata/invalid-373-negative-slice-length.txt",
-	} {
-		src, readErr := os.ReadFile(name)
-		if readErr != nil {
-			t.Fatalf("read %s: %v", name, readErr)
-		}
-		_, err := Parse(bytes.NewReader(src), name)
-		if err == nil {
-			t.Fatalf("%s: expected a refusal", name)
-		}
-		var perr syntax.ParseError
-		if !errors.As(err, &perr) {
-			t.Fatalf("%s: expected a ParseError, got %T", name, err)
-		}
-		if perr.Text != invalidCombinedLengthOperator {
-			t.Fatalf("%s: expected the adapter's own error text, got %q",
-				name, perr.Text)
-		}
-	}
-}
-
-// lengthPrefixBefore is the gate. Test it directly: some of its refusals
-// cannot be reached through Parse, because the parser fails earlier or with a
-// different error, and an end-to-end test would pass whether or not the guard
-// exists.
-func TestLengthPrefixBefore(t *testing.T) {
-	t.Parallel()
-	for _, test := range []struct {
-		name     string
-		src      string
-		operator int
-		want     int
-		wantOK   bool
-	}{
-		{"name directly before the operator", "print ${#a:#x}", 10, 9 - 1, true},
-		{"a subscript before the operator", "print ${#a[@]:#x}", 13, 8, true},
-		{"nested brackets in the subscript", "print ${#a[b[1]]:#x}", 16, 8, true},
-		{"no name between prefix and operator", "print ${#:#x}", 9, 0, false},
-		{"a second subscript is not ours", "print ${#a[1][2]}", 13, 0, false},
-		{"no length prefix", "print ${a:#x}", 9, 0, false},
-		{"a newline inside the subscript", "print ${#a[b\n]:#x}", 14, 0, false},
-		{"operator at the start", "x", 0, 0, false},
-		{"operator past the end", "x", 9, 0, false},
-		{"unclosed subscript", "print ${#a]:#x}", 11, 0, false},
-		// A `#` that is not an expansion's length prefix. Unreachable
-		// through Parse, because the parser does not report this
-		// adapter's error there, so it is pinned here instead: without
-		// the `${` check the scan would accept the `#` in `${a#b:-c}`
-		// and mask a byte that is an operator, not a prefix.
-		{"a strip operator, not a length prefix", "print ${a#b:-c}", 11, 0, false},
-		{"a hash outside any expansion", "print a#b:-c", 9, 0, false},
-		{"a hash with no brace before it", "print $#a:-c", 9, 0, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			got, ok := lengthPrefixBefore([]byte(test.src), test.operator)
-			if ok != test.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, test.wantOK)
-			}
-			if ok && got != test.want {
-				t.Errorf("offset = %d, want %d", got, test.want)
-			}
-		})
 	}
 }

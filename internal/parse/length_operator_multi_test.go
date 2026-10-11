@@ -7,10 +7,8 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// restoreLengthPrefix returns after its first match, so a line holding two
-// masked expansions is the shape most likely to leave one unrestored. The
-// chain re-enters on each parse error, so the second should be fixed by a
-// later pass -- this asserts it, rather than trusting the exit code.
+// Every expansion retains its own length prefix, including adjacent and
+// nested expansions which used to require separate masked retries.
 func TestLengthOperatorRestoresEveryExpansion(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -68,8 +66,7 @@ func TestLengthOperatorRestoresEveryExpansion(t *testing.T) {
 	}
 }
 
-// Positions reported to users must match the ORIGINAL source, because the
-// mask is byte-preserving. A construct placed after a fixed expansion is the
+// Positions reported to users must match the original source. A construct placed after a length expansion is the
 // direct check: its column is computed from the source string itself, so the
 // assertion cannot drift with the implementation.
 func TestLengthOperatorKeepsLaterPositions(t *testing.T) {
@@ -113,10 +110,8 @@ func TestLengthOperatorKeepsLaterPositions(t *testing.T) {
 	}
 }
 
-// A one-character name makes the restored value exactly one byte, which is
-// the boundary of the `len(lit.Value) < 2` guard, and a name that already
-// starts with `_` is the case where the mask byte is indistinguishable from
-// source text by value alone (the offset check is what separates them).
+// Names retain every original byte, including leading underscores which
+// previously had to be distinguished from the adapter's mask byte.
 func TestLengthOperatorNameBoundaries(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

@@ -2199,7 +2199,10 @@ zshPrefixLoop:
 		p.next()
 		return pe
 	}
-	if p.tok != _EOF && (pe.Length || pe.Width || pe.IsSet) {
+	// Zsh measures the result of suffix operators, rather than only the name.
+	// A second subscript still belongs to the front end's subscript adapter.
+	_, quotedLength := pe.NestedParam.(*DblQuoted)
+	if p.tok != _EOF && (pe.Length && (!p.lang.in(LangZsh) || p.tok == leftBrack || quotedLength) || pe.Width || pe.IsSet) {
 		p.curErr("cannot combine multiple parameter expansion operators")
 	}
 	switch p.tok {
@@ -2216,6 +2219,20 @@ zshPrefixLoop:
 	case colon: // slicing
 		if p.lang.in(LangZsh) && (p.r == '&' || asciiLetter(p.r)) {
 			pos := p.pos
+			lengthColon := p.pos
+			if pe.Length {
+				pos = p.nextPos()
+			}
+			appendModifier := func() {
+				value := p.endLit()
+				// Keep length modifiers bounded to the corpus's path forms.
+				// The existing unprefixed scanner also accepts unknown modifiers.
+				if pe.Length && (len(value) == 0 || (value[0] != 'h' && value[0] != 't') ||
+					len(value) > 1 && !numberLiteral(value[1:])) {
+					p.posErr(lengthColon, "cannot combine multiple parameter expansion operators")
+				}
+				pe.Modifiers = append(pe.Modifiers, p.lit(pos, value))
+			}
 		loop:
 			for p.newLit(p.r); ; p.rune() {
 				switch p.r {
@@ -2224,12 +2241,12 @@ zshPrefixLoop:
 					p.matchingErr(pe.Dollar, dollBrace, rightBrace)
 					break loop
 				case '}':
-					pe.Modifiers = append(pe.Modifiers, p.lit(pos, p.endLit()))
+					appendModifier()
 					pe.Rbrace = p.nextPos()
 					p.rune()
 					break loop
 				case ':':
-					pe.Modifiers = append(pe.Modifiers, p.lit(pos, p.endLit()))
+					appendModifier()
 					p.rune()
 					pos = p.nextPos()
 					p.newLit(p.r)
@@ -2242,6 +2259,7 @@ zshPrefixLoop:
 		p.checkLang(p.pos, langBashLike|LangMirBSDKorn|LangZsh, "slicing")
 		pe.Slice = &Slice{}
 		colonPos := p.pos
+		lengthColon := p.pos
 		p.quote = paramExpSlice
 		if p.next(); p.tok != colon {
 			pe.Slice.Offset = p.followArithm(colon, colonPos)
@@ -2249,6 +2267,14 @@ zshPrefixLoop:
 		colonPos = p.pos
 		if p.got(colon) {
 			pe.Slice.Length = p.followArithm(colon, colonPos)
+		}
+		if pe.Length && pe.Slice.Length != nil {
+			// Dynamic and signed lengths can hide native-invalid negative values.
+			// Offset-only slices and unsigned literal lengths need no evaluation.
+			length, ok := pe.Slice.Length.(*Word)
+			if !ok || !numberLiteral(length.Lit()) {
+				p.posErr(lengthColon, "cannot combine multiple parameter expansion operators")
+			}
 		}
 		// Need to use a different matched style so arithm errors
 		// get reported correctly

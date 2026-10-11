@@ -36,7 +36,6 @@ var adapterSnippets = map[string]adapterSnippet{
 	"secondSubscript":   {attempt: parseSecondSubscript, source: "print ${a[b][1,50]}"},
 	"flagBracket":       {attempt: parseSubscriptFlagBracketPattern, source: "print ${line[(i)[a]]}"},
 	"patternAfterComma": {attempt: parseSubscriptPatternAfterComma, source: "print ${line[(r)a,--[^:]##]}"},
-	"lengthOperator":    {attempt: parseLengthOperator, source: "print ${#reply[@]:#skip}"},
 	"tryAlways":         {attempt: parseTryAlways, source: "{ true } always { true }"},
 	"ansiCHeredoc":      {attempt: parseANSICHeredocDelimiter, source: "cat <<$'E\\x4fF'\nbody\nEOF"},
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
