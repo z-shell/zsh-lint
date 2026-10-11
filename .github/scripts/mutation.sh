@@ -17,8 +17,11 @@
 # and on normal completion so a descendant cannot outlive the run.
 # MUTATION_TIMEOUT caps a mutant in seconds; otherwise its timeout is at least
 # 30s and MUTATION_TIMEOUT_COEFFICIENT (default 30) times its baseline duration.
-# Exit 0: all caught; 1: lived; 2: setup/baseline failure; 3: inconclusive
-# (timeouts outnumber decided mutants, invalid/unsupported or truncated run).
+# Baselines run go test -vet=all; mutants run with -vet=off so vet diagnostics
+# cannot decide them. Compile failures remain INVALID, not KILLED.
+# Exit 0: all generated mutants killed (or no eligible changed Go source);
+# 1: lived, even with unresolved results; 2: setup/baseline failure;
+# 3: inconclusive (any timeout, invalid/unsupported or truncated run).
 #
 # Expect minutes, not seconds: every mutant reruns the tests of its package.
 

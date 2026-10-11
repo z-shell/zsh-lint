@@ -245,7 +245,7 @@ func run(ctx context.Context) (int, error) {
 		if baselines[key] == 0 {
 			fmt.Printf("mutation: baseline %s\n", key)
 			start := time.Now()
-			status, output := test(ctx, work, commands, 120*time.Second)
+			status, output := test(ctx, work, commands, 120*time.Second, "all")
 			if status != "LIVED" {
 				return 2, fmt.Errorf("baseline did not pass (%s):\n%s", status, output)
 			}
@@ -266,7 +266,7 @@ func run(ctx context.Context) (int, error) {
 		if e := os.WriteFile(path, value, 0o600); e != nil {
 			return 2, e
 		}
-		status, _ := test(ctx, work, commands, timeout)
+		status, _ := test(ctx, work, commands, timeout, "off")
 		if e := os.WriteFile(path, original, 0o600); e != nil {
 			return 2, e
 		}
@@ -289,8 +289,8 @@ func run(ctx context.Context) (int, error) {
 	if lived > 0 {
 		return 1, nil
 	}
-	if truncated || invalid > 0 || len(unsupported) > 0 || timedOut > killed+lived {
-		fmt.Println("mutation: inconclusive: incomplete, invalid, unsupported or timeout-dominated run")
+	if truncated || invalid > 0 || len(unsupported) > 0 || timedOut > 0 {
+		fmt.Println("mutation: inconclusive: incomplete, invalid, unsupported or timed-out run")
 		return 3, nil
 	}
 	return 0, nil
@@ -432,7 +432,7 @@ func testCommands(name string) []testCommand {
 	return []testCommand{{"", []string{"./" + filepath.ToSlash(filepath.Dir(name)) + "/"}}}
 }
 
-func test(parent context.Context, work string, commands []testCommand, timeout time.Duration) (string, string) {
+func test(parent context.Context, work string, commands []testCommand, timeout time.Duration, vet string) (string, string) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	var output strings.Builder
@@ -441,7 +441,7 @@ func test(parent context.Context, work string, commands []testCommand, timeout t
 		if err != nil {
 			return "INVALID", err.Error()
 		}
-		args := append([]string{"test", "-json", "-count=1", "-timeout=0"}, command.args...)
+		args := append([]string{"test", "-json", "-count=1", "-timeout=0", "-vet=" + vet}, command.args...)
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = filepath.Join(work, command.dir)
 		cmd.Env = append(os.Environ(), "GOWORK=off")
