@@ -24,7 +24,7 @@
     </a>
     <a href="https://go.dev/">
       <img
-        src="https://img.shields.io/badge/go-1.26-00add8?logo=go&logoColor=white"
+        src="https://img.shields.io/badge/go-1.27-00add8?logo=go&logoColor=white"
         alt="Go version"
       />
     </a>
@@ -62,7 +62,7 @@ It parses shell source code into an abstract syntax tree using `mvdan/sh`, evalu
 
 ## Requirements
 
-- **Go 1.26** or newer (when compiling from source or installing via `go install`).
+- **Go 1.27** or newer (when compiling from source or installing via `go install`).
 
 > [!NOTE]
 > `zsh-lint` neither sources nor executes the files it analyzes, and it does not call `zsh`. A native syntax check such as `zsh -f -n -- file.zsh` is a separate, recommended step.

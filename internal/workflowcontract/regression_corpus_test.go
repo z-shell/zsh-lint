@@ -100,9 +100,9 @@ func TestRegressionCorpusScriptFailsOnlyOnARegression(t *testing.T) {
 			}
 			for name, contents := range map[string]string{
 				"zsh-lint/docs/project/regression-corpus.txt": manifest,
-				"corpus/a/x/a.zsh":                            "true\n",
-				"corpus/a/x/b.zsh":                            "true\n",
-				"corpus/a/empty/":                             "",
+				"corpus/a/x/a.zsh": "true\n",
+				"corpus/a/x/b.zsh": "true\n",
+				"corpus/a/empty/":  "",
 			} {
 				if strings.HasSuffix(name, "/") {
 					if err := os.MkdirAll(filepath.Join(dir, name), 0o700); err != nil {
