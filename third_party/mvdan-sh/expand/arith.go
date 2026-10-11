@@ -40,7 +40,11 @@ func Arithm(cfg *Config, expr syntax.ArithmExpr) (int, error) {
 	case *syntax.UnaryArithm:
 		switch expr.Op {
 		case syntax.Inc, syntax.Dec:
-			name := expr.X.(*syntax.Word).Lit()
+			word, ok := expr.X.(*syntax.Word)
+			if !ok {
+				return 0, fmt.Errorf("unsupported")
+			}
+			name := word.Lit()
 			old := atoi(cfg.envGet(name))
 			val := old
 			if expr.Op == syntax.Inc {
@@ -116,7 +120,7 @@ func Arithm(cfg *Config, expr syntax.ArithmExpr) (int, error) {
 			return 0, err
 		}
 		return binArit(expr.Op, left, right)
-	case *syntax.FlagsArithm: // e.g. zsh's ${a[(r)b]}
+	case *syntax.FlagsArithm, *syntax.OutputBaseArithm, *syntax.CharArithm:
 		return 0, fmt.Errorf("unsupported")
 	default:
 		panic(fmt.Sprintf("unexpected arithm expr: %T", expr))
@@ -207,7 +211,11 @@ func atoiLargeBase(s string, base int64) int64 {
 }
 
 func (cfg *Config) assgnArit(b *syntax.BinaryArithm) (int, error) {
-	name := b.X.(*syntax.Word).Lit()
+	word, ok := b.X.(*syntax.Word)
+	if !ok {
+		return 0, fmt.Errorf("unsupported")
+	}
+	name := word.Lit()
 	val := atoi(cfg.envGet(name))
 	arg_, err := Arithm(cfg, b.Y)
 	if err != nil {

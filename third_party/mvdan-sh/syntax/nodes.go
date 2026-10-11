@@ -845,17 +845,60 @@ func (a *ArithmCmd) End() Pos { return posAddCol(a.Right, 2) }
 
 // ArithmExpr represents all nodes that form arithmetic expressions.
 //
-// These are [*BinaryArithm], [*UnaryArithm], [*ParenArithm], [*FlagsArithm], and [*Word].
+// These are [*BinaryArithm], [*UnaryArithm], [*ParenArithm], [*FlagsArithm],
+// [*OutputBaseArithm], [*CharArithm], and [*Word].
 type ArithmExpr interface {
 	Node
 	arithmExprNode()
 }
 
-func (*BinaryArithm) arithmExprNode() {}
-func (*UnaryArithm) arithmExprNode()  {}
-func (*ParenArithm) arithmExprNode()  {}
-func (*FlagsArithm) arithmExprNode()  {}
-func (*Word) arithmExprNode()         {}
+func (*BinaryArithm) arithmExprNode()     {}
+func (*UnaryArithm) arithmExprNode()      {}
+func (*ParenArithm) arithmExprNode()      {}
+func (*FlagsArithm) arithmExprNode()      {}
+func (*Word) arithmExprNode()             {}
+func (*OutputBaseArithm) arithmExprNode() {}
+func (*CharArithm) arithmExprNode()       {}
+
+// OutputBaseArithm retains a Zsh output format directive such as [##16].
+// It changes the output format without adding an arithmetic operation.
+// Post places the directive after X; X may be nil for a directive alone.
+type OutputBaseArithm struct {
+	Lbrack, Rbrack Pos
+	Format         *Lit
+	Post           bool
+	X              ArithmExpr
+}
+
+func (b *OutputBaseArithm) Pos() Pos {
+	if b.Post {
+		return b.X.Pos()
+	}
+	return b.Lbrack
+}
+
+func (b *OutputBaseArithm) End() Pos {
+	if !b.Post && b.X != nil {
+		return b.X.End()
+	}
+	return posAddCol(b.Rbrack, 1)
+}
+
+// CharArithm is Zsh's #name character value or ##character literal.
+// Value keeps shell expansions typed; a bare # has no Value.
+type CharArithm struct {
+	Hash    Pos
+	Literal bool
+	Value   *Word
+}
+
+func (c *CharArithm) Pos() Pos { return c.Hash }
+func (c *CharArithm) End() Pos {
+	if c.Value != nil {
+		return c.Value.End()
+	}
+	return posAddCol(c.Hash, 1)
+}
 
 // BinaryArithm represents a binary arithmetic expression.
 //
