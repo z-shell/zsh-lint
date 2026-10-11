@@ -53,6 +53,13 @@ Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint is
 | Numeric parameter names in scalar, append and subscripted assignments are typed assignments; `integer` and `float` are declaration clauses, while their function definitions and quoted or prefixed command calls retain their existing trees | `syntax/parser.go`, `syntax/zsh_assignment_declaration_test.go` | [#612](https://github.com/z-shell/zsh-lint/issues/612) |
 | Expanded names in arithmetic commands and substitutions can be assignment or increment targets; a dynamic name before a naked subscript is retained in `ParamExp.ArithmName`, with typed index, positions, walk, printer and typedjson support. Associative-key and unquoted `let` parsing retain their existing grammar | `syntax/parser_arithm.go`, `syntax/nodes.go`, `syntax/walk.go`, `syntax/printer.go`, `syntax/zsh_dynamic_arithm_test.go`, `syntax/typedjson/json_test.go` | [#612](https://github.com/z-shell/zsh-lint/issues/612) |
 
+Zsh literal arithmetic output formats (`[#16]`, `[##16]`, `[#16_4]`) and character values (`#name`, `##character`) are retained as `OutputBaseArithm` and `CharArithm`, with original positions, walk, printer and typedjson support (`syntax/parser.go`, `syntax/parser_arithm.go`, `syntax/nodes.go`, `syntax/walk.go`, `syntax/printer.go`, `syntax/typedjson/`).
+Output formats containing shell expansions remain unsupported until they have typed expansion children.
+The output directive has no arithmetic precedence and may stand before or after an operand; `Post` preserves its source order, and `X` is nil for a directive alone.
+The new grammar is limited to Zsh arithmetic commands and substitutions; associative subscript and unquoted `let` parsing keep their existing grammar.
+This implements the arithmetic part of [#612](https://github.com/z-shell/zsh-lint/issues/612).
+The Bash evaluator in `expand/arith.go` returns its existing unsupported error for these Zsh nodes rather than panicking.
+
 ## Taking an upstream release
 
 Copy the new release's packages over this directory, reapply the changes above, and run upstream's tests here and zsh-lint's full suite, with the tree-shape checks ADR-0023 point 3 requires.

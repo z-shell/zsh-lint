@@ -195,12 +195,41 @@ func (p *Parser) arithmExprValue(compact bool) ArithmExpr {
 		}
 		x = pe
 	case leftBrack:
+		if p.zshArithmFormat() {
+			b := p.outputBaseArithm()
+			b.X = p.arithmExprUnary(compact)
+			return b
+		}
 		p.curErr("%#q must follow a name like a[i]", p.tok)
+	case hash:
+		if !p.zshExpandedArithm() {
+			return nil
+		}
+		c := &CharArithm{Hash: p.pos, Literal: p.r == '#'}
+		if c.Literal {
+			p.rune()
+			if p.r != '$' && p.r != '`' {
+				c.Value = p.zshArithmCharacter()
+				p.next()
+				x = c
+				break
+			}
+		}
+		p.next()
+		c.Value = p.getWord()
+		if !c.Literal && p.tok == leftBrack && c.Value != nil && !p.spaced {
+			if lit := c.Value.Lit(); lit != "" {
+				pe := &ParamExp{Short: true, Param: c.Value.Parts[0].(*Lit)}
+				pe.Index = p.eitherIndex()
+				c.Value = p.wordOne(pe)
+			}
+		}
+		x = c
 	case colon:
 		p.curErr("ternary operator missing %#q before %#q", quest, colon)
 	case _LitWord:
 		l := p.getLit()
-		if p.tok != leftBrack {
+		if p.tok != leftBrack || p.zshArithmFormat() && (p.spaced || !ValidName(l.Value)) {
 			x = p.wordOne(l)
 			break
 		}
@@ -223,6 +252,11 @@ func (p *Parser) arithmExprValue(compact bool) ArithmExpr {
 		} else {
 			return nil
 		}
+	}
+	for p.zshArithmFormat() {
+		b := p.outputBaseArithm()
+		b.Post, b.X = true, x
+		x = b
 	}
 
 	if compact && p.spaced {
@@ -323,6 +357,14 @@ func isArithName(left ArithmExpr) bool {
 }
 
 func (p *Parser) isArithName(x ArithmExpr) bool {
+	if p.zshExpandedArithm() {
+		switch n := x.(type) {
+		case *OutputBaseArithm:
+			return p.isArithName(n.X)
+		case *CharArithm:
+			return !n.Literal && n.Value != nil && p.isArithName(n.Value)
+		}
+	}
 	if isArithName(x) {
 		return true
 	}
@@ -339,6 +381,79 @@ func (p *Parser) isArithName(x ArithmExpr) bool {
 		}
 	}
 	return false
+}
+
+func (p *Parser) zshArithmFormat() bool {
+	return p.zshExpandedArithm() && p.tok == leftBrack && p.r == '#'
+}
+
+func (p *Parser) outputBaseArithm() *OutputBaseArithm {
+	b := &OutputBaseArithm{Lbrack: p.pos}
+	pos := p.nextPos()
+	for p.newLit(p.r); p.r != ']' && p.r != runeEOF; p.rune() {
+		if p.r == '$' || p.r == '`' {
+			p.curErr("shell expansions in arithmetic output formats are not supported")
+			break
+		}
+	}
+	b.Format = p.lit(pos, p.endLit())
+	b.Rbrack = p.nextPos()
+	if p.r != ']' {
+		p.matchingErr(b.Lbrack, leftBrack, rightBrack)
+	} else {
+		p.rune()
+		p.next()
+	}
+	return b
+}
+
+// A literal character may itself be an arithmetic operator. Read it before
+// asking the arithmetic lexer for the following token. Control/meta prefixes
+// belong to the character, as in ##^A and ##\M-\C-x.
+func (p *Parser) zshArithmCharacter() *Word {
+	pos := p.nextPos()
+	for p.newLit(p.r); ; {
+		switch p.r {
+		case '(', ')':
+			p.curErr("parenthesis must be escaped in a character literal")
+			return p.wordOne(p.lit(pos, p.endLit()))
+		case '^':
+			p.rune()
+		case '\\':
+			p.rune()
+			if (p.r == 'M' || p.r == 'C') && p.peek() == '-' {
+				p.rune()
+				p.rune()
+				continue
+			}
+			n, hex := 0, true
+			switch p.r {
+			case 'x':
+				n = 2
+			case 'u':
+				n = 4
+			case 'U':
+				n = 8
+			case '0', '1', '2', '3', '4', '5', '6', '7':
+				n, hex = 2, false
+			}
+			for ; n > 0; n-- {
+				b := p.peek()
+				if hex && (asciiDigit(b) || 'a' <= b && b <= 'f' || 'A' <= b && b <= 'F') || !hex && '0' <= b && b <= '7' {
+					p.rune()
+				} else {
+					break
+				}
+			}
+		}
+		if p.r == runeEOF {
+			p.curErr("character value must follow `##`")
+			break
+		}
+		p.rune()
+		break
+	}
+	return p.wordOne(p.lit(pos, p.endLit()))
 }
 
 func (p *Parser) zshExpandedArithm() bool {

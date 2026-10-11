@@ -146,6 +146,18 @@ func Walk(node Node, f func(Node) bool) {
 		if node.X != nil {
 			Walk(node.X, f)
 		}
+	case *OutputBaseArithm:
+		if node.Post {
+			Walk(node.X, f)
+		}
+		Walk(node.Format, f)
+		if !node.Post && node.X != nil {
+			Walk(node.X, f)
+		}
+	case *CharArithm:
+		if node.Value != nil {
+			Walk(node.Value, f)
+		}
 	case *ParenTest:
 		Walk(node.X, f)
 	case *CaseClause:

@@ -968,6 +968,25 @@ func (p *Printer) arithmExprRecurse(expr ArithmExpr, compact, spacePlusMinus boo
 		if expr.X != nil {
 			p.arithmExprRecurse(expr.X, compact, false)
 		}
+	case *OutputBaseArithm:
+		if expr.Post {
+			p.arithmExprRecurse(expr.X, compact, false)
+			p.space() // a glued name[#...] is a subscript in Zsh
+		}
+		p.w.WriteByte('[')
+		p.w.WriteString(expr.Format.Value)
+		p.w.WriteByte(']')
+		if !expr.Post && expr.X != nil {
+			p.arithmExprRecurse(expr.X, compact, false)
+		}
+	case *CharArithm:
+		p.w.WriteByte('#')
+		if expr.Literal {
+			p.w.WriteByte('#')
+		}
+		if expr.Value != nil {
+			p.word(expr.Value)
+		}
 	}
 }
 

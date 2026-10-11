@@ -328,10 +328,12 @@ var nodeByName = map[string]reflect.Type{
 	"CoprocClause": reflect.TypeFor[syntax.CoprocClause](),
 	"TestDecl":     reflect.TypeFor[syntax.TestDecl](),
 
-	"UnaryArithm":  reflect.TypeFor[syntax.UnaryArithm](),
-	"BinaryArithm": reflect.TypeFor[syntax.BinaryArithm](),
-	"ParenArithm":  reflect.TypeFor[syntax.ParenArithm](),
-	"FlagsArithm":  reflect.TypeFor[syntax.FlagsArithm](),
+	"UnaryArithm":      reflect.TypeFor[syntax.UnaryArithm](),
+	"BinaryArithm":     reflect.TypeFor[syntax.BinaryArithm](),
+	"ParenArithm":      reflect.TypeFor[syntax.ParenArithm](),
+	"FlagsArithm":      reflect.TypeFor[syntax.FlagsArithm](),
+	"OutputBaseArithm": reflect.TypeFor[syntax.OutputBaseArithm](),
+	"CharArithm":       reflect.TypeFor[syntax.CharArithm](),
 
 	"ModuleTest": reflect.TypeFor[syntax.ModuleTest](),
 	"UnaryTest":  reflect.TypeFor[syntax.UnaryTest](),

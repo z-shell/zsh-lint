@@ -1768,7 +1768,7 @@ func (p *Parser) wordPart(cont bool) WordPart {
 		}
 		old := p.preNested(arithmExpr)
 		p.next()
-		if p.got(hash) {
+		if !p.lang.in(LangZsh) && p.got(hash) {
 			p.checkLang(ar.Pos(), LangMirBSDKorn, "unsigned expressions")
 			ar.Unsigned = true
 		}
@@ -3957,7 +3957,7 @@ func (p *Parser) arithmExpCmd(s *Stmt) {
 	ar := &ArithmCmd{Left: p.pos}
 	old := p.preNested(arithmExprCmd)
 	p.next()
-	if p.got(hash) {
+	if !p.lang.in(LangZsh) && p.got(hash) {
 		p.checkLang(ar.Pos(), LangMirBSDKorn, "unsigned expressions")
 		ar.Unsigned = true
 	}
