@@ -488,7 +488,8 @@ done
 if [[ -s $logs/mutation.log ]]; then
   echo
   echo "mutation:"
-  grep -E '^ *(KILLED|LIVED|TIMED OUT|INVALID|UNSUPPORTED) |^mutation: ' "$logs/mutation.log"
+  # Unstructured setup errors may have no summary lines; keep the real verdict.
+  grep -E '^ *(KILLED|LIVED|TIMED OUT|INVALID|UNSUPPORTED) |^mutation: ' "$logs/mutation.log" || [[ $? == 1 ]]
 fi
 }
 report | tee "$logs/summary.md" || die "cannot write verification summary"

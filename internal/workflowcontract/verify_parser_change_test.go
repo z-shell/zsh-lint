@@ -216,6 +216,10 @@ done
 	write(filepath.Join(bin, "golangci-lint"), "#!/usr/bin/env bash\nexit 0\n")
 	write(filepath.Join(repo, ".github", "scripts", "mutation.sh"), `#!/usr/bin/env bash
 printf '%s\n' "$@" > "$PILOT_MUTATION_ARGS"
+if [[ ${PILOT_MUTATION_LOG:-} == unstructured ]]; then
+  echo 'mktemp: cannot create temporary file' >&2
+  exit "$PILOT_MUTATION_EXIT"
+fi
 echo 'KILLED 2'
 if [[ $PILOT_MUTATION_EXIT == 1 ]]; then echo 'LIVED 1'; else echo 'LIVED 0'; fi
 echo 'TIMED OUT 0'
@@ -253,6 +257,7 @@ exit "$PILOT_MUTATION_EXIT"
 		{"sampled-survivors", nil, "1", 3, false},
 		{"sampled-incomplete", nil, "3", 3, false},
 		{"setup-failure", nil, "2", 1, false},
+		{"unstructured-setup-failure", nil, "2", 1, false},
 		{"full-survivors", []string{"--full-mutation"}, "1", 1, false},
 		{"full-clean", []string{"--full-mutation"}, "0", 0, false},
 		{"skip", []string{"--skip-mutation"}, "1", 0, false},
@@ -290,6 +295,9 @@ exit "$PILOT_MUTATION_EXIT"
 			cmd := exec.Command("bash", append(args, "HEAD")...)
 			cmd.Dir = caller
 			cmd.Env = append(env, "PILOT_MUTATION_ARGS="+argsFile, "PILOT_MUTATION_EXIT="+tc.mutation)
+			if tc.name == "unstructured-setup-failure" {
+				cmd.Env = append(cmd.Env, "PILOT_MUTATION_LOG=unstructured")
+			}
 			if tc.change {
 				cmd.Env = append(cmd.Env, "PILOT_CHANGE_SOURCE=1")
 			}
@@ -320,6 +328,14 @@ exit "$PILOT_MUTATION_EXIT"
 			summary, err := os.ReadFile(filepath.Join(output, "summary.md"))
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.name == "unstructured-setup-failure" {
+				mutationLog, err := os.ReadFile(filepath.Join(output, "mutation.log"))
+				if err != nil || !strings.Contains(string(mutationLog), "mktemp: cannot create temporary file") ||
+					!strings.Contains(string(summary), "| mutation | FAIL |") ||
+					strings.Contains(string(out), "cannot write verification summary") {
+					t.Fatalf("setup failure evidence lost: %v\n%s\n%s", err, mutationLog, summary)
+				}
 			}
 			for _, text := range []string{"verification source:", "| Check | Result | Seconds |", "zsh"} {
 				if !strings.Contains(string(summary), text) {
