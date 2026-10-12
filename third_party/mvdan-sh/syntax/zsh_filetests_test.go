@@ -24,6 +24,18 @@ var zshFileTests = []fileTestCase{
 			Y:  litStmt("print", "ok"),
 		})))), LangZsh),
 	),
+	// Full-string replacement from #625 keeps the same shared checks.
+	fileTest(
+		[]string{`${var:/a/b}`},
+		langFile(&ParamExp{
+			Param: lit("var"),
+			Repl: &Replace{
+				Whole: true,
+				Orig:  litWord("a"),
+				With:  litWord("b"),
+			},
+		}, LangZsh),
+	),
 	// A brace-form else must retain the else tree and print as else (#541).
 	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Alternate-Forms-For-Complex-Commands
 	fileTest(
