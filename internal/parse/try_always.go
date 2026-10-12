@@ -58,6 +58,8 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 	inComment := false
 	var heredocs []pendingHeredoc
 	arithmeticDepth := 0
+	// params tells a `#` inside a `${...}`, as in `${#x}`, from a comment.
+	var params parameterWordTracker
 
 	for i := 0; i < len(src); i++ {
 		b := src[i]
@@ -130,16 +132,19 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 			inDoubleQuote = true
 			continue
 		case '#':
-			if i == 0 || isTryAlwaysBoundary(src[i-1]) {
+			if startsSourceComment(src, i) && !params.inWord(i) {
 				inComment = true
 			}
 			continue
+		case '`':
+			params.open(src, i)
 		case '$':
 			if i+1 < len(src) && src[i+1] == '\'' {
 				inANSICQuote = true
 				i++
 				continue
 			}
+			params.open(src, i)
 		}
 		if arithmeticDepth == 0 && b == '<' && i+1 < len(src) && src[i+1] == '<' {
 			heredoc, end, isHeredoc, ok := heredocAt(src, i)
@@ -200,10 +205,6 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 
 func isTryAlwaysSpace(b byte) bool {
 	return b == ' ' || b == '\t'
-}
-
-func isTryAlwaysBoundary(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == ';' || b == '{' || b == '}'
 }
 
 func applyTryAlwaysEdits(src []byte, edits []tryAlwaysEdit) []byte {
