@@ -803,6 +803,7 @@ type Slice struct {
 // Replace represents a search and replace expression inside a [ParamExp].
 type Replace struct {
 	All        bool
+	Whole      bool // ${a:/x/y}, match the entire string with [LangZsh]
 	Orig, With *Word
 }
 

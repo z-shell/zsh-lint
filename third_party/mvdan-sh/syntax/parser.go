@@ -2239,10 +2239,16 @@ zshPrefixLoop:
 	if p.tok != _EOF && (pe.Length && (!p.lang.in(LangZsh) || p.tok == leftBrack || quotedLength) || pe.Width || pe.IsSet) {
 		p.curErr("cannot combine multiple parameter expansion operators")
 	}
+	// Zsh's colon-slash form replaces only a whole-string pattern match,
+	// rather than starting an arithmetic slice (#625).
+	wholeReplace := p.lang.in(LangZsh) && p.tok == colon && p.r == '/'
+	if wholeReplace {
+		p.tok = p.paramToken(p.r)
+	}
 	switch p.tok {
 	case slash, dblSlash: // pattern search and replace
 		p.checkLang(p.pos, langBashLike|LangMirBSDKorn|LangZsh, "search and replace")
-		pe.Repl = &Replace{All: p.tok == dblSlash}
+		pe.Repl = &Replace{All: p.tok == dblSlash, Whole: wholeReplace}
 		p.quote = paramExpRepl
 		p.next()
 		pe.Repl.Orig = p.getWord()
