@@ -538,6 +538,12 @@ type Parser struct {
 	zshMathScan bool
 	zshMathEnd  *Parser
 
+	// zshCmdParens holds the `$((` that zshMathSubstAhead read as `$(` and a
+	// subshell. One parse and every lookahead it starts share the set, so a
+	// nested command-form `$((` is decided once rather than again when its
+	// containing substitution is parsed (#654).
+	zshCmdParens map[zshMathKey]struct{}
+
 	// zshParamBraces counts the `{` bytes still open in the word of the
 	// unquoted Zsh parameter expansion being lexed. Outside double quotes Zsh
 	// nests braces there (bct in gettokstr, Src/lex.c), so in `${x:-{a}b}`
@@ -682,6 +688,7 @@ func (p *Parser) reset() {
 	p.wordBatch = nil
 	p.litBs = nil
 	p.zshMathScan, p.zshMathEnd = false, nil
+	p.zshCmdParens = nil
 	p.zshWordBraces, p.zshAssignValue = 0, false
 	p.zshCmdPos = true
 	p.zshWordsOnly = false
