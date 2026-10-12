@@ -1,7 +1,7 @@
 # Parser workflow pilot plan
 
-Status: local pilot implemented; independent review, delivery and agent-effectiveness evaluation pending.
-Updated: 2026-10-12.
+Status: pilot delivered (#652); matched trials reported; observing learning on subsequent work (step 5).
+Updated: 2026-10-13.
 Tracking: [agent replay evaluation, #565](https://github.com/z-shell/zsh-lint/issues/565).
 
 ## Goal and ownership
@@ -75,6 +75,10 @@ Retain unsuccessful runs and budget exhaustion; do not report only accepted outp
 Completion: three comparable baseline/pilot pairs, reviewer outcomes, limitations and retained run evidence are reported against #565.
 The small pilot supports a rollout decision, not a general performance claim.
 
+Outcome: four trials are reported in the [2026-10-12 matched trials record](2026-10-12-parser-workflow-matched-trials.md), with the replay procedure.
+The open #643 replaced #572, whose fix has no faithful pre-fix arm, and one trial was rerun without confounds.
+The pilot did not produce measurably better fixes.
+
 ### 5. Observe learning on subsequent work
 
 Apply the contract's [learning and reuse checkpoints](parser-gap-workflow.md#learning-and-reuse) on the next authorized parser repairs.
@@ -119,7 +123,8 @@ The 116-file corpus comparison and 156-probe comparison were unchanged, with one
 No eligible production Go mutants were generated for the test/tooling diff, and consumer tracing was skipped because no consumer source changed.
 Deterministic pre/post replays for #266, #541, #572 and the committed #625 candidate passed using the existing structural oracle.
 These results belong to the initial frozen candidate; retain its identity and supplement the documentation extension with its own checks.
-Agent reasoning quality, revision count, maintainer intervention and throughput remain unmeasured.
+The [matched trials](2026-10-12-parser-workflow-matched-trials.md) measured correctness, tests-first order, verification use and time for four baseline/pilot pairs and found no measurable advantage; one pair per case leaves run-to-run variance unresolved.
+Observed learning reuse remains unmeasured.
 Actual project hooks, MCP loading and discovery across other runtimes remain unverified.
 Legacy Zsh error-case confirmation and organization-source reconciliation are separate follow-ups; the pilot does not claim to settle them.
 
@@ -128,4 +133,4 @@ Legacy Zsh error-case confirmation and organization-source reconciliation are se
 A continuation names the current source revision and working diff, verified and pending phases, retained evidence, task ownership, the next concrete action and authorization still needed.
 Carry one concise progress entry per phase change through the existing handoff procedure.
 Before resuming, verify the source, ownership and latest continuation; recorded plans and findings are evidence rather than additional authority.
-The next planned phase is independent review of the complete local pilot.
+The next phase is step 5: observe learning reuse on the next applicable parser repairs.

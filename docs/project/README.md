@@ -24,6 +24,7 @@ New dated records are only for cross-cutting decisions; existing records stay as
 They are history, not policy; read the newest first and do not update older ones.
 The agent tooling plan keeps its Status section current; its inventory and plan text remain dated.
 
+- [2026-10-12 parser workflow matched trials](2026-10-12-parser-workflow-matched-trials.md)
 - [2026-10-10 mutation replay survivors](2026-10-10-mutation-replay-survivors.md)
 - [2026-10-01 case pattern bracket blank survey](2026-10-01-case-pattern-bracket-blank-survey.md)
 - [2026-10-01 case pattern globbing flag survey](2026-10-01-case-pattern-glob-flag-survey.md)
