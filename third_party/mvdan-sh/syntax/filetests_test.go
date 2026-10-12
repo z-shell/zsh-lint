@@ -2588,6 +2588,17 @@ var fileTests = []fileTestCase{
 		}),
 	),
 	fileTest(
+		[]string{`${var:/a/b}`},
+		langFile(&ParamExp{
+			Param: lit("var"),
+			Repl: &Replace{
+				Whole: true,
+				Orig:  litWord("a"),
+				With:  litWord("b"),
+			},
+		}, LangZsh),
+	),
+	fileTest(
 		[]string{`${var/'a'/b'c'd}`},
 		langFile(&ParamExp{
 			Param: lit("var"),

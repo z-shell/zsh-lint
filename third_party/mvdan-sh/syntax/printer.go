@@ -839,6 +839,9 @@ func (p *Printer) paramExp(pe *ParamExp) {
 			p.arithmExpr(pe.Slice.Length, true, false)
 		}
 	case pe.Repl != nil:
+		if pe.Repl.Whole {
+			p.w.WriteByte(':')
+		}
 		if pe.Repl.All {
 			p.w.WriteByte('/')
 		}
