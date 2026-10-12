@@ -85,6 +85,17 @@ func TestParseDeclarationBraceClose(t *testing.T) {
 		{"quoted assignment", "{ local \"x=1\" }\n", []string{"1:15"}, "local"},
 		{"array value", "{ local x=(1 2) }\n", []string{"1:17"}, "local"},
 		{"braced expansion value", "{ local x=${y} }\n", []string{"1:16"}, "local"},
+		// A `#` inside a `${...}` does not begin a word, so it is not a
+		// comment, even after the expansion's `{` or a blank in its word.
+		{"length expansion value", "{ local n=${#y} }\n", []string{"1:17"}, "local"},
+		{"hash after blank in expansion value", "{ local n=${y:- #a} }\n", []string{"1:21"}, "local"},
+		{"hash after blank in expansion flag", "{ local n=${(j: #:)y} }\n", []string{"1:23"}, "local"},
+		{"length expansion before declaration", "{ print -r -- ${#y}; local x=1 }\n", []string{"1:32"}, "local"},
+		{"comment holding length expansion", "{ local x=1 } # ${#y} }\n", []string{"1:13"}, "local"},
+		{"hash after nested braces in expansion value", "{ local n=${y:-{a} #b} }\n", []string{"1:24"}, "local"},
+		{"hash after quoted brace in expansion value", "{ local n=${y:-'}' #b} }\n", []string{"1:24"}, "local"},
+		{"hash after parameter in expansion value", "{ local n=${y:-$x #b} }\n", []string{"1:23"}, "local"},
+		{"hash after legacy substitution in expansion value", "{ local n=${y:-`print -r -- a` #b} }\n", []string{"1:36"}, "local"},
 		{"pipe in substitution value", "{ typeset -g x=$(a | b) }\n", []string{"1:25"}, "typeset"},
 		{"list in substitution value", "{ local x=$(f; g) }\n", []string{"1:19"}, "local"},
 		{"newline in substitution value", "{ local x=$(f\n g) }\n", []string{"2:5"}, "local"},
@@ -122,6 +133,14 @@ func TestParseDeclarationBraceClose(t *testing.T) {
 		{"continued line inside clause", "{ local \\\n  x=1 }\n", []string{"2:7"}, "local"},
 		{"negated", "{ ! local x=1 }\n", []string{"1:15"}, "local"},
 		{"timed", "{ time local x=1 }\n", []string{"1:18"}, "local"},
+		// A `#` glued to word text is not a comment (#643).
+		{"length expansion value", "{ local n=${#x} }\n", []string{"1:17"}, "local"},
+		{"length of nested expansion value", "{ local n=${#${x}} }\n", []string{"1:20"}, "local"},
+		{"hash after braced expansion", "{ local n=${x}#y }\n", []string{"1:18"}, "local"},
+		{"hash after escaped brace", "{ local n=\\{#y }\n", []string{"1:16"}, "local"},
+		{"length expansion in function body", "f() { local n=${#x} }\n", []string{"1:21"}, "local"},
+		{"length expansion before always", "{ local n=${#x} } always { : }\n", []string{"1:17"}, "local"},
+		{"comment after group brace", "{# c }\n local x=1 }\n", []string{"2:12"}, "local"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -329,6 +348,10 @@ func TestFindDeclarationBraceCloseSkipsInactiveBraces(t *testing.T) {
 		{"brace in ansi-c quotes", "{ local x=$'a }' }\n", true, 16, 17},
 		{"escaped brace", "{ local x=\\} }\n", true, 12, 13},
 		{"brace in expansion", "{ local x=${y} }\n", true, 14, 15},
+		{"hash in expansion", "{ local n=${#y} }\n", true, 15, 16},
+		{"hash after blank in expansion", "{ local n=${y:- #a} }\n", true, 19, 20},
+		{"hash in substitution in expansion", "{ local n=${y:-$(a #b }\n)} }\n", true, 26, 27},
+		{"brace in comment in substitution in expansion", "{ local n=${y:-$(a #b) }\n)} }\n", true, 27, 28},
 		{"brace in heredoc body", "{ local x=1 <<EOF\n}\nEOF\n}\n", false, 0, 0},
 		{"separators in substitution", "{ local x=$(a | b; c) }\n", true, 21, 22},
 		{"separators in legacy substitution", "{ local x=`a | b; c` }\n", true, 20, 21},
@@ -342,6 +365,9 @@ func TestFindDeclarationBraceCloseSkipsInactiveBraces(t *testing.T) {
 		{"after time", "{ time local x=1 }\n", true, 16, 17},
 		{"continued line before brace", "{ local x=1 \\\n}\n", true, 12, 14},
 		{"brace glued to continued value", "{ local x=1\\\n}\n", false, 0, 0},
+		{"length expansion", "{ local n=${#x} }\n", true, 15, 16},
+		{"hash after braced expansion", "{ local n=${x}#y }\n", true, 16, 17},
+		{"brace in comment after group brace", "{# local x=1 }\n:\n}\n", false, 0, 0},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

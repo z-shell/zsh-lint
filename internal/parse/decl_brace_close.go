@@ -113,6 +113,8 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 	inComment := false
 	var heredocs []pendingHeredoc
 	arithmeticDepth := 0
+	// params tells a `#` inside a `${...}`, as in `${#x}`, from a comment.
+	var params parameterWordTracker
 
 	// atCommandStart is true where the next word is a command name. A
 	// declaration word elsewhere (`print local`) is an argument.
@@ -225,7 +227,7 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 			inDoubleQuote = true
 			continue
 		case '#':
-			if i == 0 || isDeclarationWordBoundary(src[i-1]) {
+			if startsSourceComment(src, i) && !params.inWord(i) {
 				inComment = true
 				continue
 			}
@@ -238,6 +240,7 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 				atCommandStart = false
 				continue
 			}
+			params.open(src, i)
 		case ' ', '\t':
 			continue
 		case '\n', ';', '&', '|':
@@ -246,6 +249,7 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 			}
 			continue
 		case '`':
+			params.open(src, i)
 			if inClause {
 				inBacktick = !inBacktick
 			} else {
@@ -359,8 +363,8 @@ func isDeclarationSpace(b byte) bool {
 	return b == ' ' || b == '\t'
 }
 
-// isDeclarationWordBoundary reports whether b ends a word before a `#`
-// comment or a declaration command word.
+// isDeclarationWordBoundary reports whether b separates a declaration command
+// word from the text around it.
 func isDeclarationWordBoundary(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == ';' || b == '{' || b == '}'
 }
