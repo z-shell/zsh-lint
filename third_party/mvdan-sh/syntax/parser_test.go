@@ -297,10 +297,15 @@ func confirmParse(in, cmd string, wantErr bool) func(*testing.T) {
 		t.Parallel()
 		t.Logf("input: %s", in)
 		var opts []string
+		nativeZsh := cmd == "zsh"
 		if strings.Contains(in, "\\\r\n") {
 			t.Skip("shells do not generally support CRLF line endings")
 		}
-		if cmd == "bash" && extGlobRe.MatchString(in) {
+		if nativeZsh {
+			// Zsh fixtures are syntax probes, including rejected inputs. Never
+			// execute them, and do not inherit user startup files.
+			opts = append(opts, "-f", "-n")
+		} else if cmd == "bash" && extGlobRe.MatchString(in) {
 			// otherwise bash refuses to parse these
 			// properly. Also avoid -n since that too makes
 			// bash bail.
@@ -329,8 +334,20 @@ func confirmParse(in, cmd string, wantErr bool) func(*testing.T) {
 		cmd.Stderr = &stderrBuf
 		err := cmd.Run()
 
+		if cmd.ProcessState == nil {
+			t.Fatalf("cannot start native shell: %v", err)
+		}
 		if cmd.ProcessState.ExitCode() == -1 {
 			t.Fatalf("shell terminated by signal: %v", err)
+		}
+
+		if nativeZsh {
+			// A negated top-level command can exit 1 without a diagnostic
+			// under NO_EXEC. Only stderr decides Zsh syntax validity.
+			err = nil
+			if stderr := stderrBuf.String(); stderr != "" {
+				err = fmt.Errorf("native Zsh diagnostic: %s", stderr)
+			}
 		}
 
 		// bash sometimes likes to error on an input via stderr

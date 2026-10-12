@@ -157,7 +157,7 @@ func TestVerifyParserChangeDocumentsItsOptions(t *testing.T) {
 	script := readRepositoryFile(t, ".github", "scripts", "verify-parser-change.sh")
 	skill := readRepositoryFile(t, ".github", "skills", "parser-gap-fix", "SKILL.md")
 	workflow := readRepositoryFile(t, "docs", "project", "parser-gap-workflow.md")
-	for _, option := range []string{"--bodies", "--rows", "--root", "--list", "--regression-corpus", "--candidate", "--skip-mutation", "--check-base"} {
+	for _, option := range []string{"--bodies", "--rows", "--root", "--list", "--regression-corpus", "--candidate", "--skip-mutation", "--full-mutation", "--output", "--check-base"} {
 		if !strings.Contains(script, "\n  "+option+")\n") {
 			t.Errorf("verify-parser-change.sh does not parse %s", option)
 		}
@@ -175,5 +175,191 @@ func TestVerifyParserChangeDocumentsItsOptions(t *testing.T) {
 	}
 	if !strings.Contains(skill, "bash .github/scripts/verify-parser-change.sh") {
 		t.Error("the parser-gap-fix skill must run .github/scripts/verify-parser-change.sh")
+	}
+}
+
+// Exercise orchestration with cheap stand-ins for builds and mutation, keeping
+// the real Git snapshots, option handling, evidence and exit classifications.
+func TestVerifyParserChangeMutationPolicy(t *testing.T) {
+	for _, tool := range []string{"bash", "git", "zsh"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is required for the script behavior test", tool)
+		}
+	}
+	script := repositoryFilePath(t, ".github", "scripts", "verify-parser-change.sh")
+	dir := t.TempDir()
+	repo, bin := filepath.Join(dir, "repo"), filepath.Join(dir, "bin")
+	write := func(name, contents string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(contents), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(bin, "go"), `#!/usr/bin/env bash
+set -eu
+case $1 in
+version) echo 'go version go1.27.0 test'; exit 0 ;;
+list) echo '1.27.0'; exit 0 ;;
+esac
+while (($# > 0)); do
+  if [[ $1 == -o ]]; then
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$2"
+    chmod +x "$2"
+    exit 0
+  fi
+  shift
+done
+`)
+	write(filepath.Join(bin, "golangci-lint"), "#!/usr/bin/env bash\nexit 0\n")
+	write(filepath.Join(repo, ".github", "scripts", "mutation.sh"), `#!/usr/bin/env bash
+printf '%s\n' "$@" > "$PILOT_MUTATION_ARGS"
+if [[ ${PILOT_MUTATION_LOG:-} == unstructured ]]; then
+  echo 'mktemp: cannot create temporary file' >&2
+  exit "$PILOT_MUTATION_EXIT"
+fi
+echo 'KILLED 2'
+if [[ $PILOT_MUTATION_EXIT == 1 ]]; then echo 'LIVED 1'; else echo 'LIVED 0'; fi
+echo 'TIMED OUT 0'
+if [[ ${PILOT_CHANGE_SOURCE:-} == 1 ]]; then
+  echo changed > new-source.go
+fi
+exit "$PILOT_MUTATION_EXIT"
+`)
+	write(filepath.Join(repo, "internal", "survey", "testdata", "corpus", "ok-sample.zsh"), "print sample\n")
+	if err := os.MkdirAll(filepath.Join(repo, "third_party", "mvdan-sh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = repo, env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-q", "-m", "baseline")
+	for _, tc := range []struct {
+		name       string
+		options    []string
+		mutation   string
+		wantStatus int
+		change     bool
+	}{
+		{"sampled-survivors", nil, "1", 3, false},
+		{"sampled-incomplete", nil, "3", 3, false},
+		{"setup-failure", nil, "2", 1, false},
+		{"unstructured-setup-failure", nil, "2", 1, false},
+		{"full-survivors", []string{"--full-mutation"}, "1", 1, false},
+		{"full-clean", []string{"--full-mutation"}, "0", 0, false},
+		{"skip", []string{"--skip-mutation"}, "1", 0, false},
+		{"conflicting-options", []string{"--skip-mutation", "--full-mutation"}, "0", 2, false},
+		{"existing-output", nil, "0", 2, false},
+		{"output-in-checkout", nil, "0", 2, false},
+		{"relative-output", nil, "0", 0, false},
+		{"changed-source", nil, "0", 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, argsFile := filepath.Join(dir, tc.name), filepath.Join(dir, tc.name+".args")
+			if tc.name == "existing-output" {
+				write(filepath.Join(output, "preserve"), "existing evidence")
+			}
+			if tc.name == "output-in-checkout" {
+				output = filepath.Join(repo, "new-output")
+			}
+			caller, outputArg := repo, output
+			if tc.name == "relative-output" {
+				// Resolve output from the caller, not the repository root.
+				caller = filepath.Join(repo, "internal", "workflowcontract")
+				output = filepath.Join(dir, "evidence", tc.name)
+				for _, parent := range []string{caller, filepath.Dir(output)} {
+					if err := os.MkdirAll(parent, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var err error
+				outputArg, err = filepath.Rel(caller, output)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			args := append([]string{script, "--output", outputArg}, tc.options...)
+			cmd := exec.Command("bash", append(args, "HEAD")...)
+			cmd.Dir = caller
+			cmd.Env = append(env, "PILOT_MUTATION_ARGS="+argsFile, "PILOT_MUTATION_EXIT="+tc.mutation)
+			if tc.name == "unstructured-setup-failure" {
+				cmd.Env = append(cmd.Env, "PILOT_MUTATION_LOG=unstructured")
+			}
+			if tc.change {
+				cmd.Env = append(cmd.Env, "PILOT_CHANGE_SOURCE=1")
+			}
+			out, err := cmd.CombinedOutput()
+			status := 0
+			if exit, ok := err.(*exec.ExitError); ok {
+				status = exit.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if status != tc.wantStatus {
+				t.Fatalf("status %d, want %d:\n%s", status, tc.wantStatus, out)
+			}
+			if status == 2 {
+				if tc.name == "existing-output" {
+					got, err := os.ReadFile(filepath.Join(output, "preserve"))
+					if err != nil || string(got) != "existing evidence" {
+						t.Fatalf("existing evidence changed: %v, %q", err, got)
+					}
+				}
+				if tc.name == "output-in-checkout" {
+					if _, err := os.Stat(output); !os.IsNotExist(err) {
+						t.Fatalf("created output in checkout: %v", err)
+					}
+				}
+				return
+			}
+			summary, err := os.ReadFile(filepath.Join(output, "summary.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "unstructured-setup-failure" {
+				mutationLog, err := os.ReadFile(filepath.Join(output, "mutation.log"))
+				if err != nil || !strings.Contains(string(mutationLog), "mktemp: cannot create temporary file") ||
+					!strings.Contains(string(summary), "| mutation | FAIL |") ||
+					strings.Contains(string(out), "cannot write verification summary") {
+					t.Fatalf("setup failure evidence lost: %v\n%s\n%s", err, mutationLog, summary)
+				}
+			}
+			for _, text := range []string{"verification source:", "| Check | Result | Seconds |", "zsh"} {
+				if !strings.Contains(string(summary), text) {
+					t.Errorf("summary lacks %q", text)
+				}
+			}
+			mutationArgs, err := os.ReadFile(argsFile)
+			if tc.name == "skip" {
+				if !os.IsNotExist(err) || !strings.Contains(string(summary), "| mutation | skipped |") {
+					t.Fatalf("skipped mutation ran: %v\n%s", err, summary)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			sampled := strings.HasPrefix(string(mutationArgs), "--sample\n30\n--seed\n1\n")
+			full := strings.HasPrefix(tc.name, "full-")
+			if sampled == full {
+				t.Fatalf("wrong mutation arguments: %s", mutationArgs)
+			}
+			if tc.change && !strings.Contains(string(summary), "| source | FAIL |") {
+				t.Fatalf("changed source accepted:\n%s", summary)
+			}
+		})
 	}
 }

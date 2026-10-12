@@ -5,46 +5,31 @@ description: Fix a zsh-lint parser gap or wrong tree for valid Zsh in organizati
 
 # Parser-gap fix
 
-Read the [project contract](../../../docs/project/parser-gap-workflow.md) and the complete native [parser instructions](../../instructions/parser-front-end.instructions.md) before following this working order.
-The contract owns commands, fixtures, oracle behavior and verification gates; this skill adds no rule.
+Read the [project contract](../../../docs/project/parser-gap-workflow.md) and the complete native [parser instructions](../../instructions/parser-front-end.instructions.md).
+The contract owns the [working order](../../../docs/project/parser-gap-workflow.md#working-order), diagnosis, implementation, fixtures, oracles and evidence; follow it through learning capture and delivery.
 Zsh semantics follow the released manual through the organization's [Zsh scripting instructions](https://github.com/z-shell/.github/blob/9c96960532066b8686b0bf74628f859990a9231b/.github/instructions/zsh/scripting.instructions.md).
 
-1. Prepare once per session with `bash .github/scripts/agent-setup.sh`; use its printed lint command.
-2. Prove and minimize the failure using the contract's [Minimize section](../../../docs/project/parser-gap-workflow.md#3-minimize):
+Prepare once per session with `bash .github/scripts/agent-setup.sh`; inspect its requirements and use its printed lint command.
+Build a tight failing loop, trace the owning decision, and choose contrasting cases before adopting a production edit.
+Use the contract's shared fork cases and retain focused interface regressions.
 
-   ```sh
-   go run ./cmd/zsh-lint-survey -reduce big.zsh > gap.zsh
-   go run ./cmd/zsh-lint-survey -judge gap.zsh
-   ```
+```sh
+go run ./cmd/zsh-lint-survey -reduce big.zsh > gap.zsh
+go run ./cmd/zsh-lint-survey -judge gap.zsh
+```
 
-   Read the reduced source and confirm that `GAP` still identifies the intended language feature, or prove the wrong tree for valid Zsh through the contract's structural oracle.
-   Park `FALSE-ACCEPT` issues as the contract requires.
-   Read the survey command's help for reduction limits and candidate-build options.
+Finish adversarial and native-Zsh review, freeze the diff, then run the consolidated verification command once on that final candidate:
 
-3. Search the parser-gap backlog for that feature and link its owning issue and released-manual section before implementation.
-   Use the parser-gap issue form when filing a new issue.
-   Reproduce every example in the linked issue against native Zsh and the base build, and separate the target feature from independent gaps the same examples hit.
-   Those examples choose the pull request's keyword: `Closes` only when the candidate fixes all of them, otherwise `Refs` with the uncovered examples named.
-4. Add the failing regression first, following [Promote to fixture](../../../docs/project/parser-gap-workflow.md#4-promote-to-fixture), including its native-invalid, citation and structural-oracle contracts.
-5. Implement through the [front-end strategy](../../../docs/project/parser-gap-workflow.md#front-end-strategy) and [adapter invariants](../../instructions/parser-front-end.instructions.md#adapter-invariants).
-   Verify non-trivial scanner or grammar logic with the organization's [independent verification workflow](https://github.com/z-shell/.github/blob/9c96960532066b8686b0bf74628f859990a9231b/.github/instructions/quality/independent-verification.instructions.md).
-6. Finish the adversarial and native-Zsh review of step 5 and freeze the diff first.
-   Then run `.github/scripts/verify-parser-change.sh` once on that final diff, as [Verification tools](../../../docs/project/parser-gap-workflow.md#verification-tools) describes, and paste its table into the pull request description; a run on a diff you still expect to change is superseded, not evidence:
+```sh
+bash .github/scripts/verify-parser-change.sh --bodies bodies.txt [--rows rows.txt] \
+  [--list files.txt] [--regression-corpus DIR] [--output DIR] [base-ref] <file.zsh ...>
+```
 
-   Put the construct's valid and invalid variants in `bodies.txt`, separated by `---` lines.
+Inspect every log and retain the summary with changed verdicts, probe counts, retry costs and all mutation outcomes.
+The default is a reproducible 30-mutant sample with seed 1; use `--full-mutation` at batch boundaries and explicit supplements through `mutation.sh --spec FILE --spec-only`.
+Read the script header for prerequisites: `--check-base` checks revisions without building, `--skip-mutation` supports functional iteration, and `--candidate REV` supplies comparison evidence only because it skips functional checks and mutation.
+Its runtime comparison executes generated probe rows only.
 
-   ```sh
-   bash .github/scripts/verify-parser-change.sh --bodies bodies.txt [--rows rows.txt] \
-     [--list files.txt] [--regression-corpus DIR] [base-ref] <file.zsh ...>
-   ```
-
-   Inspect every check's log and the summary; report changed verdicts, probe counts, retry costs and surviving or uncovered mutants.
-   Read the [script header](../../scripts/verify-parser-change.sh) for options and prerequisites; `--check-base` verifies the current base and candidate before building.
-   `--candidate REV` replays another commit's build and skips Go checks and mutation; `--skip-mutation` is for iteration, not final mutation evidence.
-   Its runtime probe executes generated rows only; never use runtime comparison on corpus or consumer sources.
-   Report every mutation result, including invalid and unsupported mutants; for changed lines the runner cannot mutate, run `.github/scripts/mutation.sh --spec FILE` per the [mutation contract](../../../docs/project/parser-gap-workflow.md#verification-tools).
-
-7. Put the survey and verification output, changed corpus or consumer verdicts and remaining gaps in the pull request description.
-   Write the description after the push and check it against the organization [pull request runbook](https://github.com/z-shell/.github/blob/9c96960532066b8686b0bf74628f859990a9231b/runbooks/pull-requests.md) before opening the pull request.
-   Add a dated record under `docs/project/` only for a cross-cutting decision, never for an individual parser or rule fix.
-   Follow [Close the loop](../../../docs/project/parser-gap-workflow.md#5-close-the-loop); file newly exposed gaps before merging.
+Put the causal explanation and verified summary in the PR after the push, following the organization's pull-request runbook.
+Check every linked issue example before choosing `Closes`; use `Refs` for partial coverage and name remaining gaps.
+Individual fixes need no dated project record; use the contract's [learning and reuse checkpoints](../../../docs/project/parser-gap-workflow.md#learning-and-reuse) in the existing repair evidence.
