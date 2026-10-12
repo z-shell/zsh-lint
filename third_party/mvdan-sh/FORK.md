@@ -7,6 +7,7 @@ Only the packages zsh-lint builds are kept: `syntax`, `expand`, `pattern`, `file
 ## Local changes
 
 Every change is Zsh-only, behind `LangZsh`, and listed here with the zsh-lint issue that made it.
+Fork-local grammar cases in `syntax/zsh_filetests_test.go` share upstream's tree, print, printer-option, native-confirmation and fuzz-seed paths. Zsh confirmation checks `zsh -f -n` stderr without executing rejected sources; position sanity checks recognize Zsh brace and short `if` endings. Focused interface and state regressions remain separate (workflow pilot, refs zsh-lint #565).
 
 | Change | Files | Issue |
 | --- | --- | --- |

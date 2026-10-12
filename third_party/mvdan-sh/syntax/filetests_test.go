@@ -5,6 +5,7 @@ package syntax
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -185,7 +186,11 @@ func langErr2(wantErr string, langSets ...LangVariant) func(*fileTestCase) {
 	return func(c *fileTestCase) { c.setForLangs(wantErr, langSets...) }
 }
 
-var fileTests = []fileTestCase{
+// Consumers append other tables, sometimes concurrently. Keep no spare
+// capacity so those appends cannot overwrite each other's rows.
+var fileTests = slices.Clip(append(commonFileTests, zshFileTests...))
+
+var commonFileTests = []fileTestCase{
 	fileTest(
 		[]string{"", " ", "\t", "\n \n", "\r \r\n"},
 		langFile(&File{}),
@@ -5733,6 +5738,22 @@ func (c sanityChecker) visit(node Node) bool {
 		c.checkPos(node, node.Lbrace, "{")
 		c.checkPos(node, node.Rbrace, "}")
 	case *IfClause:
+		if node.ZshEnd.IsValid() {
+			c.checkPos(node, node.Position, "if", "elif", "else")
+			c.checkPos(node, node.ZshEnd)
+			if node.ZshEnd.After(node.FiPos) {
+				// Brace forms end just after the closing brace; short forms
+				// keep the body's end in both fields and have no delimiters.
+				c.checkPos(node, node.FiPos, "}")
+				if node.ThenPos.IsValid() {
+					c.checkPos(node, node.ThenPos, "{")
+				}
+			} else {
+				c.checkPos(node, node.FiPos)
+				c.checkPos(node, node.ThenPos)
+			}
+			break
+		}
 		if node.ThenPos.IsValid() {
 			c.checkPos(node, node.Position, "if", "elif")
 			c.checkPos(node, node.ThenPos, "then")

@@ -20,6 +20,10 @@
 #                       to re-run a merged change's verification; the Go
 #                       checks and mutation then do not run
 #     --skip-mutation   leave out the mutation run (minutes, not seconds)
+#     --full-mutation   run the uncapped campaign instead of the default
+#                       30-mutant sample with seed 1 (use at batch boundaries)
+#     --output DIR      retain logs and summary.md in a new directory outside
+#                       the checkout; its parent must already exist
 #     --check-base      check the base and the candidate, print both ids and
 #                       stop, without building anything
 #
@@ -36,7 +40,9 @@
 # toolchain go.mod names; a base build exported with git archive; the
 # -compare -native verdict comparison on the corpus fixtures and the given
 # files, roots and lists; the regression corpus; the probe grids;
-# -trace-parses on both builds; and mutation.sh.
+# -trace-parses on both builds; and mutation.sh --sample 30 --seed 1.
+# Sampled survivors and incomplete mutation evidence are inconclusive, not
+# functional failures. --full-mutation retains the runner's failure verdict.
 #
 # A probe grid is also judged with -runtime: a row that `zsh -f -n` accepts
 # and the change now rejects is RUNTIME-REJECTED rather than REGRESSED when
@@ -66,6 +72,8 @@ bodies=
 candidate_ref=
 regression_corpus=
 mutation=1
+full_mutation=0
+output=
 check_base=0
 rows=()
 roots=()
@@ -106,6 +114,15 @@ while (($# > 0)); do
     mutation=0
     shift
     ;;
+  --full-mutation)
+    full_mutation=1
+    shift
+    ;;
+  --output)
+    need "$1" $#
+    output=$2
+    shift 2
+    ;;
   --check-base)
     check_base=1
     shift
@@ -118,6 +135,7 @@ while (($# > 0)); do
   *) break ;;
   esac
 done
+((mutation || !full_mutation)) || die "--full-mutation cannot combine with --skip-mutation"
 base=origin/main
 named_base=0
 if (($# > 0)) && [[ $1 != *.zsh ]]; then
@@ -151,6 +169,10 @@ if [[ -n $regression_corpus ]]; then
   [[ -d $regression_corpus ]] || die "not a directory: $regression_corpus"
   regression_corpus=$(realpath "$regression_corpus")
 fi
+if [[ -n $output ]]; then
+  parent=$(cd -- "$(dirname -- "$output")" && pwd -P) || die "output parent must exist"
+  output=$parent/$(basename -- "$output")
+fi
 
 root=$(git rev-parse --show-toplevel) || exit 2
 cd "$root" || exit 2
@@ -180,7 +202,7 @@ else
   head_id=$(git rev-parse HEAD)
   head_what=HEAD
   head_note=HEAD
-  [[ -z $(git status --porcelain --untracked-files=no) ]] || head_note="HEAD plus uncommitted changes"
+  [[ -z $(git status --porcelain) ]] || head_note="HEAD plus uncommitted changes"
 fi
 git merge-base --is-ancestor "$base_id" "$head_id" ||
   die "$head_what ${head_id:0:12} does not contain the base ${base_id:0:12}; rebase onto it first, or its fixes will read as regressions"
@@ -201,18 +223,50 @@ fi
 
 work=$(mktemp -d)
 logs=$work/logs
+if [[ -n $output ]]; then
+  [[ $output != "$root" && $output != "$root/"* ]] || die "output must be outside the checkout"
+  [[ ! -e $output && ! -L $output ]] || die "output already exists: $output"
+  mkdir -- "$output" || die "cannot create output directory"
+  logs=$output
+fi
 mkdir -p "$logs" "$work/base" "$work/bin"
 trap 'rm -rf "$work/base" "$work/candidate" "$work/bin" "$work/grids" "$work/regression"' EXIT
 
 names=()
 results=()
+durations=()
 failed=0
 inconclusive=0
+
+# Include untracked source bytes, not just HEAD or the tracked diff. Generated
+# ignored runtime files and retained logs outside the checkout are excluded.
+fingerprint() {
+  {
+    git rev-parse HEAD || return
+    git diff --binary HEAD || return
+    while IFS= read -r -d '' file; do
+      printf '%s\0' "$file"
+      git hash-object -- "$file" || return
+    done < <(git ls-files --others --exclude-standard -z)
+  } | git hash-object --stdin
+}
+source_id=$(fingerprint) || die "cannot fingerprint source"
+{
+  echo "base: $base_id"
+  echo "candidate: $head_id ($head_note)"
+  echo "verification source: $source_id"
+  echo "mutation policy: sample 30, seed 1 (full=$full_mutation, enabled=$mutation)"
+  zsh --version
+  go version
+  bash --version | head -n 1
+  if [[ -z $candidate_ref ]]; then "$lint" version; fi
+} >"$logs/identity.log"
 
 # record NAME RESULT: RESULT is pass, FAIL, skipped or inconclusive.
 record() {
   names+=("$1")
   results+=("$2")
+  durations+=("${3:--}")
   printf 'verify: %-18s %s\n' "$1" "$2"
   if [[ $2 == FAIL ]]; then
     failed=1
@@ -225,11 +279,13 @@ record() {
 # check NAME COMMAND...: runs COMMAND with its output in NAME's log.
 check() {
   local name=$1
+  local started=$SECONDS
   shift
+  { printf '%q ' "$@"; echo; } >>"$logs/commands.log"
   if "$@" >"$logs/$name.log" 2>&1; then
-    record "$name" pass
+    record "$name" pass "$((SECONDS - started))"
   else
-    record "$name" FAIL
+    record "$name" FAIL "$((SECONDS - started))"
   fi
 }
 
@@ -262,8 +318,9 @@ build() {
   go build -o "$work/bin/survey" ./cmd/zsh-lint-survey || return
   go build -o "$work/bin/probe" ./cmd/zsh-lint-probe
 }
+build_started=$SECONDS
 if build >"$logs/build.log" 2>&1; then
-  record build pass
+  record build pass "$((SECONDS - build_started))"
   compare=("$work/bin/survey" -compare "$work/bin/survey-base" -candidate "$work/bin/survey-head" -native)
   corpus=("$candidate_dir"/internal/survey/testdata/corpus/*.zsh)
   check compare "${compare[@]}" "${corpus[@]#"$root"/}" "${files[@]}"
@@ -360,32 +417,51 @@ if build >"$logs/build.log" 2>&1; then
     record trace-parses skipped
   fi
 else
-  record build FAIL
+  record build FAIL "$((SECONDS - build_started))"
   record compare skipped
   record probe skipped
   record trace-parses skipped
 fi
 
-if ((mutation)) && [[ -z $candidate_ref ]]; then
+if ((mutation && !failed)) && [[ -z $candidate_ref ]]; then
   status=0
-  bash .github/scripts/mutation.sh "$base_id" >"$logs/mutation.log" 2>&1 || status=$?
+  mutation_options=(--sample 30 --seed 1)
+  (( !full_mutation )) || mutation_options=()
+  { printf '%q ' bash .github/scripts/mutation.sh "${mutation_options[@]}" "$base_id"; echo; } >>"$logs/commands.log"
+  mutation_started=$SECONDS
+  bash .github/scripts/mutation.sh "${mutation_options[@]}" "$base_id" >"$logs/mutation.log" 2>&1 || status=$?
   case $status in
-  0) record mutation pass ;;
+  0) record mutation pass "$((SECONDS - mutation_started))" ;;
+  1)
+    if ((full_mutation)); then
+      record mutation FAIL "$((SECONDS - mutation_started))"
+    else
+      record mutation inconclusive "$((SECONDS - mutation_started))"
+      inconclusive=1
+    fi
+    ;;
   3)
-    record mutation inconclusive
+    record mutation inconclusive "$((SECONDS - mutation_started))"
     inconclusive=1
     ;;
-  *) record mutation FAIL ;;
+  *) record mutation FAIL "$((SECONDS - mutation_started))" ;;
   esac
 else
   record mutation skipped
 fi
 
+if [[ $(fingerprint) != "$source_id" ]]; then
+  echo "source changed during verification; rerun on the final candidate" >"$logs/source.log"
+  record source FAIL
+fi
+
+report() {
+cat "$logs/identity.log"
 echo
-echo "| Check | Result |"
-echo "| --- | --- |"
+echo "| Check | Result | Seconds |"
+echo "| --- | --- | --- |"
 for i in "${!names[@]}"; do
-  echo "| ${names[i]} | ${results[i]} |"
+  echo "| ${names[i]} | ${results[i]} | ${durations[i]} |"
 done
 for i in "${!names[@]}"; do
   name=${names[i]}
@@ -414,6 +490,8 @@ if [[ -s $logs/mutation.log ]]; then
   echo "mutation:"
   grep -E '^ *(KILLED|LIVED|TIMED OUT|INVALID|UNSUPPORTED) |^mutation: ' "$logs/mutation.log"
 fi
+}
+report | tee "$logs/summary.md" || die "cannot write verification summary"
 
 if ((failed)); then
   exit 1

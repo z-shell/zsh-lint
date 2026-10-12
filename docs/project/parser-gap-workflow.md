@@ -6,6 +6,19 @@ How a parser failure found in real Z-Shell code becomes a tracked, minimized reg
 Parser work targets valid Zsh that fails to parse or is misread into a wrong tree in organization code or the external corpus.
 False-accept issues (input Zsh rejects but zsh-lint accepts) are parked, since `zsh -n` covers syntax validity.
 
+## Working order
+
+One agent owns the repair and its evidence through delivery; independent review challenges the candidate before final verification.
+Use the sections below as reference, and carry one concise explanation and verification summary forward instead of creating a document for each phase.
+
+1. Establish the source revision, native Zsh version and relevant corpus baseline; load applicable instructions and related issue examples. Before editing, [retrieve relevant learning](#learning-and-reuse) and check its applicability against the current code.
+2. [Classify](#2-classify) the failure and its impact: rejection, wrong tree, wrong position, crash or excessive parse work. Identify the fork, adapter, metadata restoration or analyzer path responsible; keep unrelated causes separate. Rank both blocked files and silently incorrect analysis.
+3. [Minimize](#3-minimize) the symptom without changing its cause, then [diagnose and repair](#diagnose-and-repair) the owning grammar or state transition. Add a failing regression before the production edit.
+4. Challenge the patch against contrasting syntax and every affected interface. Finish adversarial and native-Zsh review before freezing the diff; earlier verification is superseded when its inputs change.
+5. Run [verification](#verification-tools) once on the final candidate. Each repair uses sampled mutation; uncapped campaigns and explicit supplements belong at batch boundaries. Reopen for a reproduced defect or a failing functional check, rather than mutation survivors alone.
+6. Put the causal explanation, original consumer verdicts, summary and unresolved evidence in the PR. Check every linked issue example on native Zsh, base and candidate: use `Closes` only when all its criteria are met, otherwise `Refs` with remaining examples named. Follow organization publication and review policy.
+7. Apply [learning and reuse](#learning-and-reuse): prevent demonstrated recurrence in the smallest existing owner, and check whether retrieved guidance helped this repair. A straightforward fix needs no additional learning artifact.
+
 ## 1. Capture
 
 Run the survey over the documented corpus (`docs/project/corpus.md`).
@@ -23,6 +36,7 @@ When the manual is silent or disagrees with `zsh -f -n`, the binary decides vali
 One issue per language feature — split broad "file X fails" findings into narrower feature issues.
 Worked examples: [#11](https://github.com/z-shell/zsh-lint/issues/11) parameter-expansion flags and operators, [#13](https://github.com/z-shell/zsh-lint/issues/13) multi-name loops, [#15](https://github.com/z-shell/zsh-lint/issues/15) reverse subscripts, [#16](https://github.com/z-shell/zsh-lint/issues/16) filename-generation patterns, [#53](https://github.com/z-shell/zsh-lint/issues/53) nested parameter expansions.
 Label new issues `parser-gap` + `corpus`.
+Search existing issues and fork changes before proposing a new issue. One repair may cover several examples only when the same observed cause and invariant explain them; shared error wording alone does not establish a family.
 
 ## 3. Minimize
 
@@ -50,9 +64,56 @@ Inside a function body, or in an assignment word, the same text reaches the lexe
 Stages that do check `EXEC` stay silent in both placements: arithmetic evaluation (`print $((1/0))`) and the `:?` error (`print ${x:?msg}`).
 So a top-level row can be rejected for an expansion reason, and a function-body row can pass although it could never run.
 Say in each fixture or probe row which placement it uses: top level to see the expansion verdict, inside a function to see the lexer verdict.
-When the verdict decides whether something is a gap, confirm it by running the source under `timeout 5 zsh -f` as well.
+When runtime behaviour is needed to settle the verdict, use a controlled generated probe under `timeout 5 zsh -f`, never a corpus or consumer file or a known-invalid source.
+
+### Diagnose and repair
+
+Trace the minimized input through the actual lexer, parser and front-end call path. Inspect the owning function, its callers, state lifetime and nearest working construct; find the first token, state or tree decision that diverges from required Zsh behaviour. Consult released Zsh source when the manual and native probes leave a grammar ambiguity.
+
+Before adopting a production edit, explain which decision is wrong, the invariant it violates and a contrasting example the repair must preserve. A few sentences suffice for a clear defect. For ambiguous cases, rank competing explanations and test their distinct predictions with targeted instrumentation or one-variable probes. Temporary experiments are evidence-gathering, not a reason to accumulate special cases.
+
+| Changed mechanism                   | Interfaces and properties to challenge                                                                           |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Lexer or parser context             | `Parse`, `WordsSeq` where affected, quoting and nesting, incremental input, EOF and parser reuse                 |
+| Grammar or typed node               | Node shape, source positions, walking, printing and serialization; evaluator behaviour when it consumes the node |
+| Existing adapter or scanner         | Recognition gate, full-file composition, byte restoration, comments and suppression, retry cost                  |
+| Metadata or analyzer interpretation | Owning AST association and the actual consumer's findings, not parse success alone                               |
+
+Select examples that distinguish the proposed cause: quoted versus unquoted, nested versus unnested, command versus argument position, or a delimiter versus literal text. Start with this small discriminating set, then expand only along the affected contexts. Repair the smallest owning rule through the [front-end strategy](#front-end-strategy), and rerun the original consumer after the focused regression passes.
+
+## Learning and reuse
+
+Follow the organization's [learning-capture procedure](https://github.com/z-shell/.github/blob/main/runbooks/learning-capture.md) for promotion, ownership and authority.
+This section connects that procedure to parser work; the [pilot plan](parser-gap-workflow-pilot-plan.md) owns evaluation and remaining rollout work.
+
+Before the first edit, search by construct, owning function and observed failure in the relevant tests, this contract, `third_party/mvdan-sh/FORK.md`, and related issue or review evidence.
+When the workspace reports relevant recorded findings, inspect those too; treat an old finding as a lead until its revision and applicability are checked against the current call path.
+Keep one retrieval line in the existing causal explanation: the useful source and how it changes the proposed repair, or the searched scope when no applicable lesson was found.
+Do not create a separate search report or load unrelated historical records.
+
+When a hypothesis is disproved, review corrects an assumption, or investigation repeats, retain the reusable correction beside the existing task or PR evidence:
+
+    Trigger: <construct, state or tool condition>
+    Correction: <disproved assumption and observed cause>
+    Evidence: <reproducer or command, source revision and result>
+    Prevention: <smallest proposed owner and affected scope>
+    Status: <candidate, applied locally, published, or deferred with owner>
+
+Record only a correction likely to affect future work; a straightforward fix needs no extra entry.
+Prefer a regression with contrasting cases for a grammar or state invariant, an improvement to the existing tool for repeated manual work, or a nearby comment and `FORK.md` pointer for surprising fork behavior.
+Recurring reasoning mistakes may justify short scoped guidance stating its trigger and required check, after searching the canonical owner for equivalent or contradictory advice.
+Keep uncertain explanations as hypotheses; a passing test establishes only the behavior it exercises.
+An applied local correction remains distinct from published guidance, and cross-repository or external follow-up retains its own authority boundary.
+
+On the next applicable repair, check whether the prior lesson was retrieved before editing and whether its prescribed check was used.
+Add the reuse result to that repair's existing evidence, naming the lesson and any observed repeated mistake, unclear trigger or stale advice; when there was no applicable prior lesson, no reuse claim is needed.
+Executable regression coverage and observed agent reuse are separate evidence.
+The pilot reviews recurrence, rework and capture overhead across tasks before proposing additional automation or instruction changes.
 
 ## 4. Promote to fixture
+
+Fork grammar cases belong in `third_party/mvdan-sh/syntax/zsh_filetests_test.go`, whose `zshFileTests` rows join the existing shared table. An accepted row supplies an explicit Zsh tree and canonical printed form, and receives tree/position checks, print round trips, printer-option checks, native syntax confirmation and fuzz seeding. Rejected rows receive parser-error checks, native syntax confirmation and fuzz seeding. Native Zsh confirmation uses `-f -n` and stderr; a known disagreement remains explicit in `flipConfirmSet`.
+Keep dedicated tests for exact positions, state reuse, buffering and analyzer integration when those properties need stronger assertions. The shared table complements the minimized survey fixture below; it does not replace consumer coverage or the structural oracle.
 
 Add the minimized script as `internal/survey/testdata/corpus/gap-<issue>-<slug>.zsh` with the standard Zsh modeline, a leading comment naming the issue, and a `# Manual: <url>` line linking the manual section from step 2.
 `TestFixturesCiteManual` (`internal/manualcite`) requires that line on every `gap-`, `ok-` and `invalid-` fixture and checks that the URL names a page of the released manual.
@@ -166,6 +227,9 @@ Put the construct's valid and invalid variants in `bodies.txt`, separated by `--
 
 The script runs build, vet, tests, parser-fork tests, lint, base/candidate survey comparisons, supplied consumer and probe comparisons, parse-count traces and mutation checks, and prints a Markdown result table ([#560](https://github.com/z-shell/zsh-lint/issues/560)).
 Inspect each check's log and report failures, skipped checks and inconclusive mutation evidence alongside the table.
+By default mutation uses `--sample 30 --seed 1`. Survivors or incomplete sampled evidence make the verifier exit 3, while functional or mutation setup failures exit 1; the runner's original verdict and every count stay in `mutation.log`. Full campaigns at batch boundaries use `--full-mutation`; their survivors retain the failure verdict. `--skip-mutation` supports functional iteration, not final mutation evidence, and a failed functional check skips mutation.
+Use `--output DIR` to retain logs, command invocations and `summary.md` in a new directory outside the source checkout. Its parent must exist; existing destinations are refused. The summary records the base, candidate, verification-source fingerprint, native/toolchain versions and check durations. The fingerprint includes untracked source bytes, and a change during verification invalidates the run. Reuse evidence only for the same source, base, corpus inputs, command options and tool versions; this tool does not cache checks.
+`--check-base` checks revisions without building. `--candidate REV` replays a committed candidate's verdicts and skips functional checks and mutation, so it is comparison evidence only.
 The tools below explain those checks and support focused diagnostics.
 
 Every masked retry parses the whole file again, so an adapter that resolves one site per pass costs a parse per site ([#366](https://github.com/z-shell/zsh-lint/issues/366)).
@@ -208,6 +272,7 @@ For a bounded check use `bash .github/scripts/mutation.sh --sample 30 --seed 1`;
 Each entry must name a changed repository-relative Go source line, and its `old` text must match once on that line; specs do not execute commands.
 For example, `{"file":"path/to/file.go","line":42,"old":"n < limit","new":"n >= limit"}` replaces that comparison when it is present on the specified changed line.
 Use specs for changes the automatic operators cannot express and report the sample limit and any survivors or inconclusive evidence in the pull request.
+Classify surviving mutants with a bounded investigation: demonstrate missing behaviour coverage with a counterexample, justify equivalence or unreachability, or leave the result unresolved. A timeout supplies no verdict. Preserve useful counterexamples as regressions; do not assert equivalence merely because finding an example was difficult, and do not optimize for a raw mutation score.
 With the default base, the verification script refuses to start unless `origin/main` matches origin's `main` and the checkout contains it, and it prints both commit ids ([#545](https://github.com/z-shell/zsh-lint/issues/545)).
 `--rows` adds a row-file grid, judged like a bodies grid with `-runtime` and `-table`; `--root`, `--list` and `--regression-corpus` add consumer files and the Corpus Gate's own comparison; `--candidate <rev>` judges another commit's build.
 Re-running it for [#539](https://github.com/z-shell/zsh-lint/pull/539) with `--candidate 0186c580 --skip-mutation --rows internal/probe/testdata/rows-538.txt f536c0c0` reproduces the grid counts that pull request reported: of 9060 rows, 786 are `REJECTED` (false accepts the fix removed), none is a `FALSE-ACCEPT`, and the 620 newly rejected valid-by-`zsh -n` rows are all `RUNTIME-REJECTED`.
