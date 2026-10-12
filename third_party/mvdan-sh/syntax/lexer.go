@@ -793,9 +793,16 @@ func (p *Parser) dqToken(r rune) token {
 // so a containing lookahead can adopt it rather than parse the expression
 // again. This avoids exponential work for nested arithmetic expansions.
 func (p *Parser) zshMathSubstAhead() (*Parser, bool) {
+	key := zshMathKey{p.offs + int64(p.bsp) - int64(p.w), p.openBquotes, p.openBquoteDbls}
+	if p.zshCmdParens == nil {
+		p.zshCmdParens = map[zshMathKey]struct{}{}
+	} else if _, ok := p.zshCmdParens[key]; ok {
+		return nil, false
+	}
 	look := NewParser(Variant(p.lang))
 	look.f = &File{}
 	look.zshMathScan = true
+	look.zshCmdParens = p.zshCmdParens
 	look.r, look.w, look.bsp = p.r, p.w, p.bsp
 	look.offs, look.line, look.col = p.offs, p.line, p.col
 	look.readEOF, look.readErr = p.readEOF, p.readErr
@@ -819,7 +826,17 @@ func (p *Parser) zshMathSubstAhead() (*Parser, bool) {
 	}()
 	math := look.zshMathSubstEnd()
 	look.src = p.src // stop recording before the caller adopts the lexer
+	if !math {
+		p.zshCmdParens[key] = struct{}{}
+	}
 	return look, math
+}
+
+// zshMathKey names a `$((` by the offset of its second `(` and the
+// backquote levels around it, which together fix how it is read.
+type zshMathKey struct {
+	offset                      int64
+	openBquotes, openBquoteDbls int
 }
 
 func (look *Parser) zshMathSubstEnd() bool {

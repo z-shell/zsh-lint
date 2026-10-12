@@ -160,6 +160,68 @@ func TestZshDollarParenNestedCommands(t *testing.T) {
 	}
 }
 
+// A command-form `$((` read ahead inside another one is decided once, not
+// again when the containing substitution is parsed for real; deciding it
+// twice per level doubled the work at each level (#654). Zsh rejects these
+// sources from three levels on, and that verdict is parked: this pins the
+// cost, not the verdict.
+func TestZshDollarParenCommandNestingCost(t *testing.T) {
+	const depth = 40
+	src := "x=" + strings.Repeat("$((echo ", depth) + strings.Repeat(") )", depth) + "\n"
+	for _, slow := range []bool{false, true} {
+		var r io.Reader = newStrictReader(src)
+		if slow {
+			r = iotest.OneByteReader(r)
+		}
+		f, err := parseZshWithDeadline(t, r)
+		if err != nil {
+			t.Fatalf("slow=%v: %v", slow, err)
+		}
+		commands := 0
+		Walk(f, func(node Node) bool {
+			if _, ok := node.(*CmdSubst); ok {
+				commands++
+			}
+			return true
+		})
+		if commands != depth {
+			t.Fatalf("slow=%v: %d command substitutions, want %d", slow, commands, depth)
+		}
+	}
+}
+
+// The decisions a parse remembers belong to that source: a reused parser
+// reads a `$((` at the same offset afresh.
+func TestZshDollarParenReusedParser(t *testing.T) {
+	p := NewParser(Variant(LangZsh))
+	for _, tc := range []struct {
+		src     string
+		command bool
+	}{
+		{"x=$((echo hi) | cat)\n", true},
+		{"x=$(((1 + 2) * 3))\n", false},
+		{"x=$((echo hi) | cat)\n", true},
+	} {
+		f, err := p.Parse(strings.NewReader(tc.src), "")
+		if err != nil {
+			t.Fatalf("%q: %v", tc.src, err)
+		}
+		var command, arithmetic bool
+		Walk(f, func(node Node) bool {
+			switch node.(type) {
+			case *CmdSubst:
+				command = true
+			case *ArithmExp:
+				arithmetic = true
+			}
+			return true
+		})
+		if command != tc.command || arithmetic == tc.command {
+			t.Fatalf("%q: command=%v arithmetic=%v, want command=%v", tc.src, command, arithmetic, tc.command)
+		}
+	}
+}
+
 func TestZshDollarParenIncompleteParameter(t *testing.T) {
 	for _, src := range []string{"print $(( ${x:-", "print $(( ${x:-$(print x)"} {
 		if _, err := parseZshWithDeadline(t, newStrictReader(src)); err == nil {
