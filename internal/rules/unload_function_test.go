@@ -11,6 +11,7 @@ import (
 )
 
 func TestUnloadFunction(t *testing.T) {
+	const missingSelf = "my_plugin_unload() {\n  add-zsh-hook -d precmd _my_precmd\n  unfunction _my_precmd\n}\n"
 	tests := []struct {
 		name     string
 		src      string
@@ -18,38 +19,21 @@ func TestUnloadFunction(t *testing.T) {
 		want     int
 		severity diag.Severity
 	}{
-		{name: "hook registered without unload function", src: "autoload -Uz add-zsh-hook\nadd-zsh-hook precmd _my_precmd\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
-		{name: "unload function missing self-unfunction", src: "my_plugin_unload() {\n  add-zsh-hook -d precmd _my_precmd\n  unfunction _my_precmd\n}\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
+		// Without configuration, unload presence is not checked (#668).
+		{name: "hook without unload function is not reported without config", src: "autoload -Uz add-zsh-hook\nadd-zsh-hook precmd _my_precmd\n", path: "my-plugin.plugin.zsh"},
+		{name: "widget without unload function is not reported without config", src: "zle -N example-widget\n", path: "themes/example.zsh-theme"},
+		{name: "hook array append without unload function is not reported without config", src: "precmd_functions+=(_my_precmd)\n", path: "modules/example/init.zsh"},
+		{name: "unload function missing self-unfunction", src: missingSelf, path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
 		{name: "unload function with indiscriminate function wipe", src: "my_plugin_unload() {\n  unfunction ${(k)functions}\n  unfunction my_plugin_unload\n}\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Warning},
 		{name: "compliant hook and unload function", src: "add-zsh-hook precmd _my_precmd\nmy_plugin_unload() {\n  add-zsh-hook -d precmd _my_precmd\n  unfunction _my_precmd my_plugin_unload\n}\n", path: "my-plugin.plugin.zsh"},
-		{name: "file inside functions directory", src: "add-zsh-hook precmd _my_precmd\n", path: "functions/.handler"},
-		{name: "ordinary source is not an entrypoint", src: "add-zsh-hook precmd _my_precmd\n", path: "lib/widgets.zsh"},
-		{name: "multiple registrations report once", src: "add-zsh-hook precmd _my_precmd\nzle -N example-widget\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
-		{name: "hook array append is a registration", src: "precmd_functions+=(_my_precmd)\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
-		{name: "scalar hook append is a registration", src: "precmd_functions+=_my_precmd\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
-		{name: "theme entrypoint", src: "zle -N example-widget\n", path: "themes/example.zsh-theme", want: 1, severity: diag.Hint},
-		{name: "init entrypoint", src: "add-zsh-hook precmd _my_precmd\n", path: "modules/example/init.zsh", want: 1, severity: diag.Hint},
-		{name: "windows init entrypoint", src: "add-zsh-hook precmd _my_precmd\n", path: `modules\example\init.zsh`, want: 1, severity: diag.Hint},
-		{name: "near miss init basename", src: "add-zsh-hook precmd _my_precmd\n", path: "modules/my-init.zsh"},
-		{name: "entrypoint suffix is exact", src: "add-zsh-hook precmd _my_precmd\n", path: "example.plugin.zsh.backup"},
-		{name: "hook array declaration", src: "typeset -ga precmd_functions+=(_my_precmd)\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
-		{name: "mixed registrations report once", src: "precmd_functions+=(_my_precmd)\nadd-zsh-hook preexec _my_preexec\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
-		{name: "hook array with unload", src: "precmd_functions+=(_my_precmd)\nmy_plugin_unload() { unfunction my_plugin_unload }\n", path: "my-plugin.plugin.zsh"},
-		{name: "empty hook array append", src: "precmd_functions+=()\n", path: "my-plugin.plugin.zsh"},
-		{name: "empty scalar hook append", src: "precmd_functions+=\n", path: "my-plugin.plugin.zsh"},
-		{name: "hook array reset", src: "precmd_functions=()\n", path: "my-plugin.plugin.zsh"},
-		{name: "hook array replacement is not an append", src: "precmd_functions=(_my_precmd)\n", path: "my-plugin.plugin.zsh"},
-		{name: "other array append", src: "handlers+=(_my_precmd)\n", path: "my-plugin.plugin.zsh"},
-		{name: "hook name substring", src: "precmd_functions_extra+=(_my_precmd)\n", path: "my-plugin.plugin.zsh"},
-		{name: "hook element append", src: "precmd_functions[1]+=suffix\n", path: "my-plugin.plugin.zsh"},
-		{name: "suppressed hook array finding", src: "# zsh-lint disable=plugin/unload-function -- static plugin\nprecmd_functions+=(_my_precmd)\n", path: "my-plugin.plugin.zsh"},
-		// The count of a repeat loop is a word, not a command (#281): a count
-		// spelled like a hook command is not a registration, and a
-		// registration in the body still is.
-		{name: "repeat count spelled add-zsh-hook", src: "repeat add-zsh-hook print hi\n", path: "my-plugin.plugin.zsh"},
-		{name: "repeat count spelled add-zle-hook-widget", src: "repeat add-zle-hook-widget print hi\n", path: "my-plugin.plugin.zsh"},
-		{name: "hook registered in a repeat body", src: "repeat 2 add-zsh-hook precmd _my_precmd\n", path: "my-plugin.plugin.zsh", want: 1, severity: diag.Hint},
-		{name: "suppressed hook finding", src: "# zsh-lint disable=plugin/unload-function -- static plugin\nadd-zsh-hook precmd _my_precmd\n", path: "my-plugin.plugin.zsh"},
+		{name: "theme entrypoint", src: missingSelf, path: "themes/example.zsh-theme", want: 1, severity: diag.Hint},
+		{name: "init entrypoint", src: missingSelf, path: "modules/example/init.zsh", want: 1, severity: diag.Hint},
+		{name: "windows init entrypoint", src: missingSelf, path: `modules\example\init.zsh`, want: 1, severity: diag.Hint},
+		{name: "file inside functions directory", src: missingSelf, path: "functions/.handler"},
+		{name: "ordinary source is not an entrypoint", src: missingSelf, path: "lib/widgets.zsh"},
+		{name: "near miss init basename", src: missingSelf, path: "modules/my-init.zsh"},
+		{name: "entrypoint suffix is exact", src: missingSelf, path: "example.plugin.zsh.backup"},
+		{name: "suppressed hygiene finding", src: "# zsh-lint disable=plugin/unload-function -- removed by a helper\n" + missingSelf, path: "my-plugin.plugin.zsh"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -63,6 +47,57 @@ func TestUnloadFunction(t *testing.T) {
 			}
 			if test.want > 0 && diagnostics[0].Severity != test.severity {
 				t.Fatalf("severity = %v, want %v", diagnostics[0].Severity, test.severity)
+			}
+		})
+	}
+}
+
+// TestProjectUnloadLifecycleRegistrations covers registration detection, which
+// only configured presence checks use since #668.
+func TestProjectUnloadLifecycleRegistrations(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{name: "hook registered without unload function", src: "autoload -Uz add-zsh-hook\nadd-zsh-hook precmd _my_precmd\n", want: 1},
+		{name: "each registration is reported", src: "add-zsh-hook precmd _my_precmd\nzle -N example-widget\n", want: 2},
+		{name: "hook array append is a registration", src: "precmd_functions+=(_my_precmd)\n", want: 1},
+		{name: "scalar hook append is a registration", src: "precmd_functions+=_my_precmd\n", want: 1},
+		{name: "widget registration", src: "zle -N example-widget\n", want: 1},
+		{name: "hook array declaration", src: "typeset -ga precmd_functions+=(_my_precmd)\n", want: 1},
+		{name: "mixed registrations", src: "precmd_functions+=(_my_precmd)\nadd-zsh-hook preexec _my_preexec\n", want: 2},
+		{name: "hook array with unload", src: "precmd_functions+=(_my_precmd)\nmy_plugin_unload() { unfunction my_plugin_unload }\n"},
+		{name: "empty hook array append", src: "precmd_functions+=()\n"},
+		{name: "empty scalar hook append", src: "precmd_functions+=\n"},
+		{name: "hook array reset", src: "precmd_functions=()\n"},
+		{name: "hook array replacement is not an append", src: "precmd_functions=(_my_precmd)\n"},
+		{name: "other array append", src: "handlers+=(_my_precmd)\n"},
+		{name: "hook name substring", src: "precmd_functions_extra+=(_my_precmd)\n"},
+		{name: "hook element append", src: "precmd_functions[1]+=suffix\n"},
+		// The count of a repeat loop is a word, not a command (#281): a count
+		// spelled like a hook command is not a registration, and a
+		// registration in the body still is.
+		{name: "repeat count spelled add-zsh-hook", src: "repeat add-zsh-hook print hi\n"},
+		{name: "repeat count spelled add-zle-hook-widget", src: "repeat add-zle-hook-widget print hi\n"},
+		{name: "hook registered in a repeat body", src: "repeat 2 add-zsh-hook precmd _my_precmd\n", want: 1},
+		{name: "suppressed hook finding", src: "# zsh-lint disable=plugin/project-unload-lifecycle -- static plugin\nadd-zsh-hook precmd _my_precmd\n"},
+	}
+	source := configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "plugin.zsh")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			diagnostics := analyzer.New(ProjectUnloadLifecycle{}).AnalyzeSource(file, "plugin.zsh", source)
+			if len(diagnostics) != test.want {
+				t.Fatalf("diagnostics = %+v, want %d", diagnostics, test.want)
+			}
+			for _, diagnostic := range diagnostics {
+				if diagnostic.RuleID != "plugin/project-unload-lifecycle" || diagnostic.Severity != diag.Hint {
+					t.Fatalf("diagnostic = %+v, want a project lifecycle Hint", diagnostic)
+				}
 			}
 		})
 	}
@@ -112,7 +147,8 @@ func TestUnloadFunctionExactLifecycleMatching(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			diagnostics := analyzer.New(UnloadFunction{}).Analyze(file, "example.plugin.zsh")
+			source := configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "")
+			diagnostics := analyzer.New(UnloadFunction{}, ProjectUnloadLifecycle{}).AnalyzeSource(file, "example.plugin.zsh", source)
 			if len(diagnostics) != test.want {
 				t.Fatalf("diagnostics = %+v, want %d", diagnostics, test.want)
 			}
@@ -178,8 +214,8 @@ func TestUnloadFunctionCommandForms(t *testing.T) {
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
-				if got := analyzer.New(UnloadFunction{}).Analyze(file, "example.plugin.zsh"); len(got) != 1 {
-					t.Fatalf("unconfigured diagnostics = %v, want one", got)
+				if got := analyzer.New(UnloadFunction{}).Analyze(file, "example.plugin.zsh"); len(got) != 0 {
+					t.Fatalf("unconfigured diagnostics = %v, want none (#668)", got)
 				}
 				got := analyzer.New(ProjectUnloadLifecycle{}).AnalyzeSource(file, "plugin.zsh",
 					configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, ""))
@@ -226,7 +262,9 @@ func TestUnloadFunctionPrefixedDeregistration(t *testing.T) {
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
-				if got := analyzer.New(UnloadFunction{}).Analyze(file, "example.plugin.zsh"); len(got) != 0 {
+				got := analyzer.New(ProjectUnloadLifecycle{}).AnalyzeSource(file, "plugin.zsh",
+					configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, ""))
+				if len(got) != 0 {
 					t.Fatalf("diagnostics = %v, want none", got)
 				}
 			})
