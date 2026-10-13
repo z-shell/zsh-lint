@@ -321,6 +321,8 @@ func TestCasePatternEmptyAlternative(t *testing.T) {
 		{"case x in\n  |a|b) print hit ;;\nesac", []string{"", "a", "b"}},
 		{"case x in\n  (a|b|) print hit ;;\nesac", []string{"a", "b", ""}},
 		{"case x in (|a) print hit ;; esac", []string{"", "a"}},
+		// Zsh reads `( )` as one word and strips the blank (#578).
+		{"case x in ( ) print hit ;; esac", []string{""}},
 	} {
 		file, err := Parse(strings.NewReader(tt.src+"\n"), "t.zsh")
 		if err != nil {
@@ -334,12 +336,11 @@ func TestCasePatternEmptyAlternative(t *testing.T) {
 	}
 }
 
-// Native-invalid case patterns stay parse errors: empty parens, unclosed
-// pattern, and lone right paren.
+// Native-invalid case patterns stay parse errors: empty parens with no blank
+// between them, unclosed pattern, and lone right paren.
 func TestCasePatternEmptyAlternativeInvalid(t *testing.T) {
 	for _, src := range []string{
 		"case x in () print hit ;; esac",
-		"case x in ( ) print hit ;; esac",
 		"case x in ) print hit ;; esac",
 		"case x in (|a print hit ;;\nesac",
 	} {

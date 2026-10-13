@@ -6,50 +6,11 @@ import (
 	"time"
 )
 
-// zshCaseBracketOpen decides whether a blank in a Zsh case item's opened
-// group is inside a bracket expression (zsh-lint #483). Each row is the
-// literal text read before the blank.
-func TestZshCaseBracketOpen(t *testing.T) {
-	t.Parallel()
-	for _, tt := range []struct {
-		carried bool
-		lit     string
-		want    bool
-	}{
-		{false, "", false},
-		{false, "a", false},
-		{false, "a[", true},
-		{false, "a[b", true},
-		{false, "a[b]", false},
-		{false, "a[b]c[", true},
-		{false, "[]", true},
-		{false, "[]]", false},
-		{false, "[!]", true},
-		{false, "[^]", true},
-		{false, "[!]]", false},
-		{false, "[!", true},
-		{false, "[[:alpha:]", true},
-		{false, "[[:alpha:]]", false},
-		{false, "[[:alpha:", true},
-		{false, `a\[`, false},
-		{false, `a[\]`, true},
-		{false, `a[\]]`, false},
-		{true, "", true},
-		{true, "b", true},
-		{true, "b]", false},
-		{true, "b]c[", true},
-		{true, "]", false},
-	} {
-		if got := zshCaseBracketOpen(tt.carried, []byte(tt.lit)); got != tt.want {
-			t.Errorf("zshCaseBracketOpen(%v, %q) = %v, want %v", tt.carried, tt.lit, got, tt.want)
-		}
-	}
-}
-
 // A blank inside a bracket expression of a Zsh case item's opened group is
 // pattern text, also after an expansion or quote inside the brackets, while
-// a blank after the group closes or outside the brackets ends the word
-// (zsh-lint #483). The pattern words are compared through the printer.
+// a blank after the group closes ends the word (zsh-lint #483). A blank
+// outside the brackets is pattern text too since #578. The pattern words are
+// compared through the printer.
 func TestZshCaseBracketBlank(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
@@ -69,7 +30,7 @@ func TestZshCaseBracketBlank(t *testing.T) {
 		{"case x in (a[x b) :;; esac", "a[x b"},
 		{"case x in (a[ (b) ]) :;; esac", "a[ (b) ]"},
 		{"case x in (a[x (b) c]) :;; esac", "a[x (b) c]"},
-		{"case x in (a[$x] b) :;; esac", ""},
+		{"case x in (a[$x] b) :;; esac", "a[$x] b"},
 		{"case x in (a[$x)y b) :;; esac", ""},
 		{"case x in (x)y[ z]) :;; esac", ""},
 		{"case x in a[ b]) :;; esac", ""},
