@@ -526,6 +526,11 @@ type Parser struct {
 	zshAssignValue bool
 	zshCmdPos      bool
 	zshWordsOnly   bool // WordsSeq keeps braces in argument position.
+	// zshWordCont is true while wordParts reads a word in a command list
+	// nested in `( )`, `$( )`, backquotes or a case arm, or in an array
+	// element, so that a `#` glued to an expansion or quote there continues
+	// the word, as unquotedWordCont does at the top level (#660, #587).
+	zshWordCont bool
 
 	// zshDquoteParam reports that the parameter expansion being lexed sits
 	// inside a double-quoted string, where Zsh reads a `'` in its word as an
@@ -692,6 +697,7 @@ func (p *Parser) reset() {
 	p.zshWordBraces, p.zshAssignValue = 0, false
 	p.zshCmdPos = true
 	p.zshWordsOnly = false
+	p.zshWordCont = false
 }
 
 // nextPos returns the position of the next rune, [Parser.r].
@@ -819,6 +825,7 @@ type saveState struct {
 	zshAssignValue bool
 	zshCmdPos      bool
 	zshWordsOnly   bool
+	zshWordCont    bool
 }
 
 func (p *Parser) preNested(quote quoteState) (s saveState) {
@@ -831,6 +838,7 @@ func (p *Parser) preNested(quote quoteState) (s saveState) {
 	s.zshAssignValue, p.zshAssignValue = p.zshAssignValue, false
 	s.zshCmdPos, p.zshCmdPos = p.zshCmdPos, true
 	s.zshWordsOnly, p.zshWordsOnly = p.zshWordsOnly, false
+	s.zshWordCont, p.zshWordCont = p.zshWordCont, false
 	return s
 }
 
@@ -841,6 +849,7 @@ func (p *Parser) postNested(s saveState) {
 	p.zshWordBraces, p.zshAssignValue = s.zshWordBraces, s.zshAssignValue
 	p.zshCmdPos = s.zshCmdPos
 	p.zshWordsOnly = s.zshWordsOnly
+	p.zshWordCont = s.zshWordCont
 }
 
 func (p *Parser) unquotedWordBytes(w *Word) ([]byte, bool) {
@@ -1367,6 +1376,9 @@ func (p *Parser) wordParts(wps []WordPart) []WordPart {
 	if p.quote == noState {
 		p.quote = unquotedWordCont
 		defer func() { p.quote = noState }()
+	} else if p.lang.in(LangZsh) && p.quote&(subCmd|subCmdBckquo|arrayElems|switchCase) != 0 && !p.zshWordCont {
+		p.zshWordCont = true
+		defer func() { p.zshWordCont = false }()
 	}
 	for {
 		p.openNodes++

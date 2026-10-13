@@ -345,7 +345,7 @@ skipSpace:
 			// If we're parsing $foo#bar, ${foo}#bar, 'foo'#bar, or "foo"#bar,
 			// #bar is a continuation of the same word, not a comment.
 			// The same applies inside [[ ]] tests, where '#' has no comment meaning.
-			if !p.spaced && (p.quote == unquotedWordCont || p.quote == testExpr) {
+			if !p.spaced && (p.quote == unquotedWordCont || p.quote == testExpr || p.zshWordCont) {
 				p.advanceLitNone(r)
 				return
 			}

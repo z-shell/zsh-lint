@@ -63,6 +63,22 @@ var zshFileTests = []fileTestCase{
 	// An unmatched subshell closer is syntax-invalid, not a runtime probe.
 	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
 	fileTest([]string{")"}, langErr2("1:1: `)` can only be used to close a subshell", LangZsh)),
+	// A `#` glued to an expansion or quote continues the word inside a
+	// subshell or command substitution too, not only at the top level (#660).
+	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Comments
+	fileTest(
+		[]string{"( print ${x}#y )"},
+		printsAs("(print ${x}#y)"),
+		langFile(subshell(stmt(call(litWord("print"), word(&ParamExp{Param: lit("x")}, lit("#y"))))), LangZsh),
+	),
+	fileTest(
+		[]string{"x=$( print 'a'#y )"},
+		printsAs("x=$(print 'a'#y)"),
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name:  lit("x"),
+			Value: word(cmdSubst(stmt(call(litWord("print"), word(sglQuoted("a"), lit("#y")))))),
+		}}}, LangZsh),
+	),
 }
 
 func TestZshConfirmSyntaxOnly(t *testing.T) {
