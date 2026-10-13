@@ -998,7 +998,9 @@ func (p *Printer) arithmExprRecurse(expr ArithmExpr, compact, spacePlusMinus boo
 			if i > 0 {
 				p.space() // glued items would form one word
 			}
-			p.arithmExprRecurse(item, compact, i == 0 && spacePlusMinus)
+			// Only a slice offset asks for spacePlusMinus, and a slice
+			// offset never holds a sequence.
+			p.arithmExprRecurse(item, compact, false)
 		}
 	}
 }

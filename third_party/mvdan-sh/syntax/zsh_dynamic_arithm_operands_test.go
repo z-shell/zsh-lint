@@ -38,10 +38,15 @@ func TestZshDynamicArithmeticOperands(t *testing.T) {
 		{`$op a$b`, 2, ""},
 		{`$op x[1]`, 2, ""},
 		{`a[1] $op a[2]`, 3, ""},
+		{`1 $op [#16]`, 2, ""},
+		{`$op [#16] 2`, 2, ""},
 		{"1 $op\n2", 3, "1 $op \\\n2"},
 	} {
-		for _, form := range []string{"(( %s ))", "print $(( %s ))"} {
-			src := strings.Replace(form, "%s", tc.expr, 1)
+		for _, form := range []struct{ src, printed string }{
+			{"(( %s ))", "((%s))"},
+			{"print $(( %s ))", "print $((%s))"},
+		} {
+			src := strings.Replace(form.src, "%s", tc.expr, 1)
 			t.Run(src, func(t *testing.T) {
 				f, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(src+"\nprint after\n"), "")
 				if err != nil {
@@ -94,8 +99,9 @@ func TestZshDynamicArithmeticOperands(t *testing.T) {
 				if tc.print != "" {
 					want = tc.print
 				}
-				if !strings.Contains(printed.String(), want) {
-					t.Fatalf("printed %q, want it to hold %q", printed.String(), want)
+				want = strings.Replace(form.printed, "%s", want, 1) + "\nprint after\n"
+				if printed.String() != want {
+					t.Fatalf("printed %q, want %q", printed.String(), want)
 				}
 				if _, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader(printed.String()), ""); err != nil {
 					t.Fatalf("printed source rejected: %v", err)
@@ -116,6 +122,9 @@ func TestZshDynamicArithmeticOperandsRejected(t *testing.T) {
 		{`(( 1 $op 2 3 ))`, "1:12: not a valid arithmetic operator: `3`"},
 		{`(( 1 "+" 2 ))`, "1:6: not a valid arithmetic operator: `\"`"},
 		{`(( 1 "x$op" 2 ))`, "1:6: not a valid arithmetic operator: `\"`"},
+		{`(( 1 "$op x" 2 ))`, "1:14: not a valid arithmetic operator: `2`"},
+		{`(( 1 "" 2 ))`, "1:6: not a valid arithmetic operator: `\"`"},
+		{`(( 1 [#16] 2 ))`, "1:12: not a valid arithmetic operator: `2`"},
 		{`(( 1 $(( 2 )) ))`, "1:6: not a valid arithmetic operator: `$((`"},
 		{`(( 1 $[ 2 ] ))`, "1:6: not a valid arithmetic operator: `$`"},
 		{`(( $op 'x' ))`, "1:8: not a valid arithmetic operator: `'`"},

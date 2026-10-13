@@ -224,13 +224,15 @@ func (p *Parser) arithmExpansionStart() bool {
 }
 
 // arithmExpansionRight reports whether x ends in an expansion whose value may
-// supply text after it.
+// supply text after it. An output format such as [#16] adds no text.
 func arithmExpansionRight(x ArithmExpr) bool {
 	switch x := x.(type) {
 	case *Word:
 		return expansionPart(x.Parts[len(x.Parts)-1], false)
 	case *UnaryArithm:
 		return !x.Post && arithmExpansionRight(x.X)
+	case *OutputBaseArithm:
+		return arithmExpansionRight(x.X)
 	}
 	return false
 }
@@ -243,6 +245,8 @@ func arithmExpansionLeft(x ArithmExpr) bool {
 		return expansionPart(x.Parts[0], true)
 	case *UnaryArithm:
 		return x.Post && arithmExpansionLeft(x.X)
+	case *OutputBaseArithm:
+		return arithmExpansionLeft(x.X)
 	}
 	return false
 }
