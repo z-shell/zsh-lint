@@ -96,6 +96,54 @@ var zshFileTests = []fileTestCase{
 		langFile(&ParamExp{Param: lit("#"), Exp: &Expansion{Op: RemSmallPrefix, Word: litWord(":-q")}}, LangZsh),
 	),
 	fileTest([]string{"${##}"}, langFile(&ParamExp{Length: true, Param: lit("#")}, LangZsh)),
+	// `${name:^arrayname}` and `${name:^^arrayname}` zip two arrays; the
+	// colon starts an operator, not a slice (#671). Like `:|` and `:*`, the
+	// argument is a word: only expansion checks that it names a parameter.
+	// https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
+	fileTest(
+		[]string{"foo=force_expansion\necho ${foo:^bar}"},
+		langErr2("2:11: ${name:^arg} is a zsh feature; tried parsing as LANG"),
+		langFile(stmts(
+			&CallExpr{Assigns: litAssigns("foo=force_expansion")},
+			call(litWord("echo"), word(&ParamExp{
+				Param: lit("foo"),
+				Exp:   &Expansion{Op: ArrayZip, Word: litWord("bar")},
+			})),
+		), LangZsh),
+	),
+	fileTest(
+		[]string{"foo=force_expansion\necho ${foo:^^bar}"},
+		langErr2("2:11: ${name:^^arg} is a zsh feature; tried parsing as LANG"),
+		langFile(stmts(
+			&CallExpr{Assigns: litAssigns("foo=force_expansion")},
+			call(litWord("echo"), word(&ParamExp{
+				Param: lit("foo"),
+				Exp:   &Expansion{Op: ArrayZipLongest, Word: litWord("bar")},
+			})),
+		), LangZsh),
+	),
+	// A third caret belongs to the argument word. An assignment word keeps the
+	// native check to the lexer, which accepts it; expansion would reject `^b`.
+	fileTest(
+		[]string{"x=${a:^^^b}"},
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name:  lit("x"),
+			Value: word(&ParamExp{Param: lit("a"), Exp: &Expansion{Op: ArrayZipLongest, Word: litWord("^b")}}),
+		}}}, LangZsh),
+	),
+	fileTest(
+		[]string{"${#a:^b}"},
+		langFile(&ParamExp{Length: true, Param: lit("a"), Exp: &Expansion{Op: ArrayZip, Word: litWord("b")}}, LangZsh),
+	),
+	fileTest(
+		[]string{"${a:^}"},
+		langFile(&ParamExp{Param: lit("a"), Exp: &Expansion{Op: ArrayZip}}, LangZsh),
+	),
+	// A blank after the colon still starts an arithmetic slice.
+	fileTest(
+		[]string{"${a: ^b}"},
+		langErr2("1:6: `^` must follow an expression", LangZsh),
+	),
 }
 
 func TestZshConfirmSyntaxOnly(t *testing.T) {
