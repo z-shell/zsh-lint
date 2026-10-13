@@ -46,7 +46,11 @@ func TestZshGlobGroupWordEndsReject(t *testing.T) {
 		{"print *(e:x;y:)", "1:15: a command can only contain words and redirects; encountered `)`"},
 		{"case x in a(b;c)) ;; esac", "1:14: case patterns must be separated with `|`"},
 		{"for i in a(b;c); do :; done", "1:15: a command can only contain words and redirects; encountered `)`"},
+		// An array `;` separates elements (#684), but not after a word that
+		// ended inside a glob group. Zsh accepts `a=(a(b;c)`; `a(b` is a bad
+		// pattern when it runs, and no printed form could keep it.
 		{"f=( a(b;c) )", "1:8: array element values must be words"},
+		{"a=(a(b;c)", "1:7: array element values must be words"},
 		{"print a(b|c)d(e;f)", "1:18: a command can only contain words and redirects; encountered `)`"},
 		{"(print a(b;c))", "1:14: statements must be separated by &, ; or a newline"},
 		{"print a(b\\\nc;d)", "2:4: a command can only contain words and redirects; encountered `)`"},

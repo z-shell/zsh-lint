@@ -389,8 +389,10 @@ skipSpace:
 			p.next()
 		case '[':
 			// `[` only starts an `[idx]=val` element when it begins a new word;
-			// otherwise it continues a glob like `foo[0-9]`.
-			if p.quote == arrayElems && (p.spaced || p.tok == leftParen || p.tok == _Newl) {
+			// otherwise it continues a glob like `foo[0-9]`. In Zsh a `;`
+			// separates elements too (#684).
+			if p.quote == arrayElems && (p.spaced || p.tok == leftParen || p.tok == _Newl ||
+				p.tok == semicolon && p.lang.in(LangZsh)) {
 				p.rune()
 				p.tok = leftBrack
 			} else {
@@ -401,7 +403,9 @@ skipSpace:
 				p.rune()
 				p.rune()
 				p.tok = assgnParen
-			} else if p.quote == arrayElems {
+			} else if p.quote == arrayElems && (!p.lang.in(LangZsh) || p.tok == rightBrack) {
+				// In Zsh only a `=` after an `[idx]` assigns; any other `=`
+				// is a literal element, as in `a=(-S =)` (#684).
 				p.rune()
 				p.tok = assgn
 			} else {
