@@ -79,6 +79,23 @@ var zshFileTests = []fileTestCase{
 			Value: word(cmdSubst(stmt(call(litWord("print"), word(sglQuoted("a"), lit("#y")))))),
 		}}}, LangZsh),
 	),
+	// After `${#`, a second `#` names the parameter `#` and the rest is a
+	// prefix removal, unless `}` follows at once: `${##x}` is `$#` without a
+	// leading `x`, while `${##}` is the length of `$#` (#659).
+	// https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion
+	fileTest(
+		[]string{"${##x}"},
+		langFile(&ParamExp{Param: lit("#"), Exp: &Expansion{Op: RemSmallPrefix, Word: litWord("x")}}, LangZsh),
+	),
+	fileTest(
+		[]string{"${###x}"},
+		langFile(&ParamExp{Param: lit("#"), Exp: &Expansion{Op: RemLargePrefix, Word: litWord("x")}}, LangZsh),
+	),
+	fileTest(
+		[]string{"${##:-q}"},
+		langFile(&ParamExp{Param: lit("#"), Exp: &Expansion{Op: RemSmallPrefix, Word: litWord(":-q")}}, LangZsh),
+	),
+	fileTest([]string{"${##}"}, langFile(&ParamExp{Length: true, Param: lit("#")}, LangZsh)),
 }
 
 func TestZshConfirmSyntaxOnly(t *testing.T) {
