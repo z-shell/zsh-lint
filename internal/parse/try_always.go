@@ -161,7 +161,9 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 			continue
 		}
 
-		if b != '}' {
+		// A `}` inside or closing an unquoted `${...}` belongs to the
+		// expansion's word, not to a brace group (#667).
+		if b != '}' || params.inWord(i) {
 			continue
 		}
 		separator := i + 1
