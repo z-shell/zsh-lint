@@ -61,6 +61,12 @@ func TestParseTryAlwaysRejectsInvalidSeparators(t *testing.T) {
 			name: "semicolon before always after length expansion",
 			src:  "{ print -r -- ${#x}; }; always { : }\n",
 		},
+		{
+			// The `}` of `${x}` closes the expansion, not a block, so the
+			// line has an unmatched `}` (#667).
+			name: "parameter expansion closer before always",
+			src:  "{ :; } always { : }\nprint ${x} always { a }\n",
+		},
 	}
 
 	for _, test := range tests {
@@ -207,6 +213,45 @@ func TestParseTryAlwaysKeepsCommentAfterGroupBrace(t *testing.T) {
 			})
 			if len(comments) != 1 || comments[0] != " } always {" {
 				t.Fatalf("comments = %q, want the inactive lookalike kept as one comment", comments)
+			}
+		})
+	}
+}
+
+// The `}` that ends an unquoted `${...}` belongs to the expansion, so a
+// following ` always {` is ordinary text even when the file holds a real
+// try/always block that makes the adapter scan it (#667). Each source passes
+// `zsh -f -n`, and the last line prints its words.
+func TestParseTryAlwaysIgnoresParameterExpansionCloser(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		args []string
+	}{
+		{name: "plain", line: "print ${x} always {a}", args: []string{"print", "${x}", "always", "{a}"}},
+		{name: "modifier", line: "print ${x:-y} always {b}", args: []string{"print", "${x:-y}", "always", "{b}"}},
+		{name: "nested", line: "print ${x:-${y}} always {c}", args: []string{"print", "${x:-${y}}", "always", "{c}"}},
+		{name: "glued word", line: "print a${x} always {d}", args: []string{"print", "a${x}", "always", "{d}"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			src := "{ :; } always { : }\n" + test.line + "\n"
+			file, err := Parse(strings.NewReader(src), test.name+".zsh")
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+			stmts := file.AST().Stmts
+			call, ok := stmts[len(stmts)-1].Cmd.(*syntax.CallExpr)
+			if !ok {
+				t.Fatalf("last statement = %T, want *syntax.CallExpr", stmts[len(stmts)-1].Cmd)
+			}
+			var args []string
+			for _, word := range call.Args {
+				args = append(args, src[word.Pos().Offset():word.End().Offset()])
+			}
+			if strings.Join(args, " | ") != strings.Join(test.args, " | ") {
+				t.Fatalf("last command words = %q, want %q", args, test.args)
 			}
 		})
 	}
