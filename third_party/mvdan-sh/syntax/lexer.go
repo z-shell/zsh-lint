@@ -286,15 +286,18 @@ skipSpace:
 		case escNewl:
 			r = p.rune()
 		case ' ', '\t', '\r':
-			if r != '\r' && p.zshCaseBracketBlank() {
-				// A blank inside a bracket expression of a Zsh case
-				// item's opened group, after an expansion or quote
-				// in it, as in `(a[$x b])`, is pattern text (#483).
+			if r != '\r' && p.zshCaseBlank() {
+				// Pattern text in a Zsh case item's opened group,
+				// as in `(a b)` and `(a[$x b])` (#483, #578).
 				break skipSpace
 			}
 			p.spaced = true
 			r = p.rune()
 		case '\n':
+			if p.zshCaseBlank() {
+				// Zsh keeps a newline there too (#578).
+				break skipSpace
+			}
 			if p.tok == _Newl {
 				// merge consecutive newline tokens
 				r = p.rune()
@@ -351,10 +354,9 @@ skipSpace:
 			}
 			// In Zsh, a `#` glued to the `(` that opens a case item, to a
 			// `|` inside that group, or to the `)` of a leading group is
-			// pattern text, as in `(#i)x)` and `(x)#)` (#482).
-			// Zsh also keeps a blank and a following `#` in that group as
-			// pattern text, `( #i)x)`, but the fork ends the word at the
-			// blank (#578), so a spaced `#` keeps its comment reading here.
+			// pattern text, as in `(#i)x)` and `(x)#)` (#482). A blank
+			// before a `#` in that group is pattern text too, so the `#`
+			// is read inside the blank's literal, as in `( #i)x)` (#578).
 			if p.zshCaseHash && !p.spaced && (p.tok == leftParen || p.tok == or || p.tok == rightParen) {
 				p.advanceLitNone(r)
 				return
@@ -1372,11 +1374,6 @@ func (p *Parser) advanceLitNone(r rune) {
 	p.eqlOffs = -1
 	tok := _LitWord
 	wordStart := p.spaced || p.zshCmdPos || p.stopToken() && p.tok != rightParen
-	// In the opened group of a Zsh case item, a blank inside a bracket
-	// expression is pattern text (#483); see zshCaseBracketOpen. A bracket
-	// left open by an earlier literal of the same word, as in `(a[$x b])`,
-	// stays open across the expansion or quote between the two.
-	brack := p.zshCaseBracketBlank()
 loop:
 	for p.newLit(r); r != runeEOF; r = p.rune() {
 		switch r {
@@ -1390,12 +1387,23 @@ loop:
 				}
 				p.zshWordBraces++
 			}
-		case ' ', '\t':
-			if p.zshCaseOpen && zshCaseBracketOpen(brack, p.litBs[:len(p.litBs)-1]) {
+		case ' ', '\t', '\n':
+			if p.zshCaseOpen {
+				// Pattern text in a Zsh case item's opened group
+				// (#483, #578); see zshCaseBlank.
 				continue
 			}
 			break loop
-		case '\n', '\r', '&', '|', ';', ')':
+		case escNewl:
+			// A line continuation next to a blank of an opened case
+			// group ends the literal, which the next token continues,
+			// so the blanks caseItems strips never span the dropped
+			// bytes and its column arithmetic stays exact (#578).
+			if p.zshCaseOpen && len(p.litBs) > 0 && (zshCaseBlankByte(p.litBs[len(p.litBs)-1]) || zshCaseBlankByte(p.peek())) {
+				tok = _Lit
+				break loop
+			}
+		case '\r', '&', '|', ';', ')':
 			break loop
 		case '(':
 			break loop
@@ -1468,9 +1476,6 @@ loop:
 		}
 	}
 	p.tok, p.val = tok, p.endLit()
-	if p.zshCaseOpen {
-		p.zshCaseBrack = zshCaseBracketOpen(brack, []byte(p.val))
-	}
 	if p.lang.in(LangZsh) && p.zshCommandWord() && wordStart && p.val == "}" && p.r == '}' {
 		// Splitting `}}` leaves the reserved word `}`, whereas `a}}`
 		// leaves the literal word `a}` followed by its closer.
@@ -1494,48 +1499,20 @@ func (p *Parser) zshBraceWordEnd() bool {
 	return false
 }
 
-// zshCaseBracketBlank reports whether a blank at the start of the next token
-// continues the word because a bracket expression left open by the word's
-// last literal, in a Zsh case item's opened group, is still open (#483).
-// After a `|` the blank is the one par_case strips, so it is not text.
-// zshCaseBrack is set only while the opened group is read; the zshCaseOpen
-// test keeps a stale value from making the caller stop at a blank that
-// advanceLitNone would then not consume, which would stall the lexer.
-func (p *Parser) zshCaseBracketBlank() bool {
-	return p.zshCaseOpen && p.zshCaseBrack && p.quote&allRegTokens != 0 && p.tok != or
+// zshCaseBlank reports whether a blank at the start of the next token is
+// pattern text: in a Zsh case item's opened group, which Zsh lexes as one
+// word (Src/lex.c gettokstr breaks at a blank only outside parentheses), a
+// space, tab or newline continues the word, as in `(a b)`, `(a $x)` and
+// `(a[$x b])` (#483, #578). caseItems later strips the blanks par_case
+// strips. advanceLitNone keeps every blank while zshCaseOpen is set, so a
+// blank this reports is always consumed and the lexer cannot stall on it.
+func (p *Parser) zshCaseBlank() bool {
+	return p.zshCaseOpen && p.quote&allRegTokens != 0
 }
 
-// zshCaseBracketOpen reports whether lit, the literal text read so far, ends
-// inside a bracket expression: a `[` whose closing `]` has not been read,
-// starting inside one when open is set. A `]` right after the `[`, or after
-// a leading `!` or `^`, is a member, and a `[:class:]` inside the brackets is
-// skipped whole, as Zsh's pattern code reads them. Zsh lexes the opened group
-// of a case item as one word (Src/lex.c gettokstr breaks at a blank only
-// outside parentheses), so a blank there is pattern text; the fork reads it
-// as such only inside a bracket expression, which keeps every other blank a
-// word break as before (#483).
-func zshCaseBracketOpen(open bool, lit []byte) bool {
-	for i := 0; i < len(lit); i++ {
-		switch c := lit[i]; {
-		case c == '\\':
-			i++
-		case !open && c == '[':
-			open = true
-			if i+1 < len(lit) && (lit[i+1] == '!' || lit[i+1] == '^') {
-				i++
-			}
-			if i+1 < len(lit) && lit[i+1] == ']' {
-				i++
-			}
-		case open && c == '[' && i+1 < len(lit) && lit[i+1] == ':':
-			if end := bytes.Index(lit[i+2:], []byte(":]")); end >= 0 {
-				i += 2 + end + 1
-			}
-		case open && c == ']':
-			open = false
-		}
-	}
-	return open
+// zshCaseBlankByte reports whether b is a blank par_case may strip.
+func zshCaseBlankByte(b byte) bool {
+	return b == ' ' || b == '\t'
 }
 
 func (p *Parser) advanceLitDquote(r rune) {
