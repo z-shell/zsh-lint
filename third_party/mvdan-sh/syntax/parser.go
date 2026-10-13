@@ -2166,6 +2166,16 @@ zshPrefixLoop:
 		// but not $%name nor $!name.
 		switch p.r {
 		case '#':
+			if p.lang.in(LangZsh) && !pe.Short && p.peek() == '#' {
+				// In Zsh a second `#` names the parameter `#` and the rest
+				// is a prefix removal, so `${##x}` is `$#` without a
+				// leading `x`; only `${##}` is the length of `$#` (#659).
+				// peek has buffered the second `#`, so one more byte is all
+				// peekTwo needs, even from a slow reader.
+				if _, next := p.peekTwo(); next != '}' {
+					break
+				}
+			}
 			if p.paramNameStart(pe) {
 				pe.Length = true
 			}
