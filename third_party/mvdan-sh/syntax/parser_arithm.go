@@ -1,5 +1,7 @@
 package syntax
 
+import "strings"
+
 // compact specifies whether we allow spaces between expressions.
 // This is true for let
 func (p *Parser) arithmExpr(compact bool) ArithmExpr {
@@ -173,7 +175,7 @@ func (p *Parser) arithmExprUnary(compact bool) ArithmExpr {
 // error, with the message and position upstream gives it.
 func (p *Parser) arithmExprDynamic(compact bool) ArithmExpr {
 	x := p.arithmExprUnary(compact)
-	if x == nil || !p.zshExpandedArithm() {
+	if x == nil || !p.zshExpandedArithm() || arithmQuotedOperands(x) {
 		return x
 	}
 	var seq *DynamicArithm
@@ -182,13 +184,17 @@ func (p *Parser) arithmExprDynamic(compact bool) ArithmExpr {
 		if !(open && p.arithmOperandStart()) && !p.arithmExpansionStart() {
 			break
 		}
-		pos, tok := p.pos, p.tok
+		pos, tok, val := p.pos, p.tok, p.val
 		y := p.arithmExprUnary(compact)
 		if y == nil { // an error inside the operand is already recorded
 			break
 		}
-		if !open && !arithmExpansionLeft(y) {
-			p.posErr(pos, "not a valid arithmetic operator: %#q", tok)
+		if !open && !arithmExpansionLeft(y) || arithmQuotedOperands(y) {
+			if tok == _Lit {
+				p.posErr(pos, "not a valid arithmetic operator: %#q", val)
+			} else {
+				p.posErr(pos, "not a valid arithmetic operator: %#q", tok)
+			}
 		}
 		if seq == nil {
 			seq = &DynamicArithm{Items: []ArithmExpr{x}}
@@ -253,11 +259,13 @@ func arithmExpansionLeft(x ArithmExpr) bool {
 
 // expansionPart reports whether a word part is an expansion whose value is
 // unknown text, looking into the first or last part of a double-quoted string.
-// An arithmetic expansion yields a number, never an operator.
+// A length, a ${+name} test, the special parameters $#, $?, $$ and $!, and an
+// arithmetic expansion yield a number and so cannot supply an operator.
+// (A negative number would supply a leading minus; that is left out.)
 func expansionPart(part WordPart, first bool) bool {
 	switch part := part.(type) {
 	case *ParamExp:
-		return part.Dollar.IsValid() // not a naked a[i] name
+		return part.Dollar.IsValid() && !numericParamExp(part) // not a naked a[i] name
 	case *CmdSubst:
 		return true
 	case *DblQuoted:
@@ -268,6 +276,50 @@ func expansionPart(part WordPart, first bool) bool {
 			return expansionPart(part.Parts[0], first)
 		}
 		return expansionPart(part.Parts[len(part.Parts)-1], first)
+	}
+	return false
+}
+
+// numericParamExp reports whether a parameter expansion always yields a
+// number: a length or ${+name} test without flags, which could pad it with
+// any text, or a plain $#, $?, $$ or $!.
+func numericParamExp(pe *ParamExp) bool {
+	if pe.Length || pe.IsSet {
+		return pe.Flags == nil
+	}
+	if !pe.simple() {
+		return false
+	}
+	switch pe.Param.Value {
+	case "#", "?", "$", "!":
+		return true
+	}
+	return false
+}
+
+// arithmQuotedOperands reports whether x holds quoted text that no expansion
+// can turn into one operand: single quotes, which Zsh never accepts in
+// arithmetic, or double-quoted literal text with a blank inside it, as in
+// "2 3". Blanks at the ends of the text may meet an expansion beside them.
+func arithmQuotedOperands(x ArithmExpr) bool {
+	switch x := x.(type) {
+	case *Word:
+		for _, part := range x.Parts {
+			switch part := part.(type) {
+			case *SglQuoted:
+				return true
+			case *DblQuoted:
+				for _, qp := range part.Parts {
+					if lit, ok := qp.(*Lit); ok && len(strings.Fields(lit.Value)) > 1 {
+						return true
+					}
+				}
+			}
+		}
+	case *UnaryArithm:
+		return arithmQuotedOperands(x.X)
+	case *OutputBaseArithm:
+		return arithmQuotedOperands(x.X)
 	}
 	return false
 }

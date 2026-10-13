@@ -40,6 +40,9 @@ func TestZshDynamicArithmeticOperands(t *testing.T) {
 		{`a[1] $op a[2]`, 3, ""},
 		{`1 $op [#16]`, 2, ""},
 		{`$op [#16] 2`, 2, ""},
+		{`$# $op 2`, 3, ""},
+		{`1 ${(l:2::+:)#op}`, 2, ""},
+		{`1 "$op x"`, 2, ""},
 		{"1 $op\n2", 3, "1 $op \\\n2"},
 	} {
 		for _, form := range []struct{ src, printed string }{
@@ -125,6 +128,19 @@ func TestZshDynamicArithmeticOperandsRejected(t *testing.T) {
 		{`(( 1 "$op x" 2 ))`, "1:14: not a valid arithmetic operator: `2`"},
 		{`(( 1 "" 2 ))`, "1:6: not a valid arithmetic operator: `\"`"},
 		{`(( 1 [#16] 2 ))`, "1:12: not a valid arithmetic operator: `2`"},
+		// A length, a ${+name} test and the numeric special parameters
+		// expand to a number, which supplies no operator.
+		{`(( 1 ${#op} 2 ))`, "1:6: not a valid arithmetic operator: `${`"},
+		{`(( 1 ${+op} 2 ))`, "1:6: not a valid arithmetic operator: `${`"},
+		{`(( 1 $# 2 ))`, "1:6: not a valid arithmetic operator: `$`"},
+		{`(( 1 ${?} 2 ))`, "1:6: not a valid arithmetic operator: `${`"},
+		// Quoted text is part of the arithmetic text: blanks inside it need
+		// an expansion beside them too, and single quotes are never valid.
+		{`(( 1 $op "2 3" ))`, "1:10: not a valid arithmetic operator: `\"`"},
+		{`(( "2 3" $op 1 ))`, "1:10: not a valid arithmetic operator: `$`"},
+		{`(( 1 $op a'x' ))`, "1:10: not a valid arithmetic operator: `a`"},
+		{`(( $op !"2 3" ))`, "1:8: not a valid arithmetic operator: `!`"},
+		{`(( $op "2 3" [#16] ))`, "1:8: not a valid arithmetic operator: `\"`"},
 		{`(( 1 $(( 2 )) ))`, "1:6: not a valid arithmetic operator: `$((`"},
 		{`(( 1 $[ 2 ] ))`, "1:6: not a valid arithmetic operator: `$`"},
 		{`(( $op 'x' ))`, "1:8: not a valid arithmetic operator: `'`"},
