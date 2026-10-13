@@ -125,7 +125,7 @@ func (p *Parser) arithmExprMultiplication(compact bool) ArithmExpr {
 
 func (p *Parser) arithmExprPower(compact bool) ArithmExpr {
 	// Power is different from the other binary operators because it's right-associative
-	value := p.arithmExprUnary(compact)
+	value := p.arithmExprDynamic(compact)
 	if BinAritOperator(p.tok) != Pow || (compact && p.spaced) {
 		return value
 	}
@@ -164,6 +164,158 @@ func (p *Parser) arithmExprUnary(compact bool) ArithmExpr {
 		return ue
 	}
 	return p.arithmExprValue(compact)
+}
+
+// arithmExprDynamic reads Zsh operands joined only by blanks, as in
+// $(( 1 $op 2 )): Zsh substitutes expansions before it evaluates the text, so
+// an expansion at a blank may supply the operator or operand between two
+// others. Each blank needs an expansion on one side of it; `1 2` stays an
+// error, with the message and position upstream gives it.
+func (p *Parser) arithmExprDynamic(compact bool) ArithmExpr {
+	x := p.arithmExprUnary(compact)
+	if x == nil || !p.zshExpandedArithm() || arithmQuotedOperands(x) {
+		return x
+	}
+	var seq *DynamicArithm
+	for last := x; ; {
+		open := arithmExpansionRight(last)
+		if !(open && p.arithmOperandStart()) && !p.arithmExpansionStart() {
+			break
+		}
+		pos, tok, val := p.pos, p.tok, p.val
+		y := p.arithmExprUnary(compact)
+		if y == nil { // an error inside the operand is already recorded
+			break
+		}
+		if !open && !arithmExpansionLeft(y) || arithmQuotedOperands(y) {
+			if tok == _Lit {
+				p.posErr(pos, "not a valid arithmetic operator: %#q", val)
+			} else {
+				p.posErr(pos, "not a valid arithmetic operator: %#q", tok)
+			}
+		}
+		if seq == nil {
+			seq = &DynamicArithm{Items: []ArithmExpr{x}}
+		}
+		seq.Items = append(seq.Items, y)
+		last = y
+	}
+	if seq == nil {
+		return x
+	}
+	return seq
+}
+
+// arithmOperandStart reports whether the current token can begin an operand
+// after an expansion that may supply an operator.
+func (p *Parser) arithmOperandStart() bool {
+	switch p.tok {
+	case _Lit, _LitWord, leftParen, exclMark, tilde, hash, dollDblParen:
+		return true
+	}
+	return p.arithmExpansionStart()
+}
+
+// arithmExpansionStart reports whether the current token can begin a word
+// whose first part is an expansion. Zsh keeps single quotes and $'...' in
+// arithmetic text, where they are errors, so those do not count.
+func (p *Parser) arithmExpansionStart() bool {
+	switch p.tok {
+	case dollar, dollBrace, dollParen, bckQuote, dblQuote:
+		return true
+	}
+	return false
+}
+
+// arithmExpansionRight reports whether x ends in an expansion whose value may
+// supply text after it. An output format such as [#16] adds no text.
+func arithmExpansionRight(x ArithmExpr) bool {
+	switch x := x.(type) {
+	case *Word:
+		return expansionPart(x.Parts[len(x.Parts)-1])
+	case *UnaryArithm:
+		return !x.Post && arithmExpansionRight(x.X)
+	case *OutputBaseArithm:
+		return arithmExpansionRight(x.X)
+	}
+	return false
+}
+
+// arithmExpansionLeft reports whether x begins with an expansion whose value
+// may supply text before it.
+func arithmExpansionLeft(x ArithmExpr) bool {
+	switch x := x.(type) {
+	case *Word:
+		return expansionPart(x.Parts[0])
+	case *UnaryArithm:
+		return x.Post && arithmExpansionLeft(x.X)
+	case *OutputBaseArithm:
+		return arithmExpansionLeft(x.X)
+	}
+	return false
+}
+
+// expansionPart reports whether a word part is an expansion whose value is
+// unknown text: a parameter expansion or a command substitution, alone or as
+// the only part of a double-quoted string. A length, a ${+name} test, the
+// special parameters $#, $?, $$ and $!, and an arithmetic expansion are
+// treated as numbers (see numericParamExp), which cannot supply an operator.
+// (A negative number would supply a leading minus; that is left out.)
+func expansionPart(part WordPart) bool {
+	switch part := part.(type) {
+	case *ParamExp:
+		return part.Dollar.IsValid() && !numericParamExp(part) // not a naked a[i] name
+	case *CmdSubst:
+		return true
+	case *DblQuoted:
+		return len(part.Parts) == 1 && expansionPart(part.Parts[0])
+	}
+	return false
+}
+
+// numericParamExp reports whether a parameter expansion is treated as a
+// number: a length or ${+name} test whatever its flags, or a plain $#, $?, $$
+// or $!. The flag rule is a conservative choice, not a Zsh guarantee: padding
+// flags apply after the length and can add text, as ${(l:2::+:)#x} does.
+// Nested substitutions and flags on the special parameters are not looked
+// into (zsh-lint #683).
+func numericParamExp(pe *ParamExp) bool {
+	if pe.Length || pe.IsSet {
+		return true
+	}
+	if !pe.simple() {
+		return false
+	}
+	switch pe.Param.Value {
+	case "#", "?", "$", "!":
+		return true
+	}
+	return false
+}
+
+// arithmQuotedOperands reports whether x holds quoted text that cannot join
+// operands: single quotes, which Zsh never accepts in arithmetic, or a
+// double-quoted string that is anything but exactly one expansion, as "2 3"
+// or "$op x" are.
+func arithmQuotedOperands(x ArithmExpr) bool {
+	switch x := x.(type) {
+	case *Word:
+		for _, part := range x.Parts {
+			switch part := part.(type) {
+			case *SglQuoted:
+				return true
+			case *DblQuoted:
+				if !expansionPart(part) {
+					return true
+				}
+			}
+		}
+	case *UnaryArithm:
+		return arithmQuotedOperands(x.X)
+	case *OutputBaseArithm:
+		return arithmQuotedOperands(x.X)
+	}
+	return false
 }
 
 func (p *Parser) arithmExprValue(compact bool) ArithmExpr {

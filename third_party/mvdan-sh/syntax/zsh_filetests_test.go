@@ -148,6 +148,20 @@ var zshFileTests = []fileTestCase{
 	// https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion-Flags
 	fileTest([]string{"${(j(|))w}"}, langFile(&ParamExp{Flags: lit("j(|)"), Param: lit("w")}, LangZsh)),
 	fileTest([]string{"${(l.(5)..x.)w}"}, langFile(&ParamExp{Flags: lit("l.(5)..x."), Param: lit("w")}, LangZsh)),
+	// An expansion at a blank may supply an arithmetic operator or operand (#672).
+	// https://zsh.sourceforge.io/Doc/Release/Arithmetic-Evaluation.html#Arithmetic-Evaluation
+	fileTest(
+		[]string{"$((1 $op 2))", "$(( 1 $op 2 ))"},
+		langFile(arithmExp(&DynamicArithm{Items: []ArithmExpr{
+			litWord("1"), word(litParamExp("op")), litWord("2"),
+		}}), LangZsh),
+	),
+	fileTest(
+		[]string{"(((1) $op (2)))", "(( (1) $op (2) ))"},
+		langFile(arithmCmd(&DynamicArithm{Items: []ArithmExpr{
+			&ParenArithm{X: litWord("1")}, word(litParamExp("op")), &ParenArithm{X: litWord("2")},
+		}}), LangZsh),
+	),
 	// A blank or newline inside the group that opens a case item is pattern
 	// text. When the group is the whole pattern, the blanks next to its `(`,
 	// `)` and each `|` are stripped; a group glued to more text keeps them

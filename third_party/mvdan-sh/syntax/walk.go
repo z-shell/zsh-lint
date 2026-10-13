@@ -158,6 +158,10 @@ func Walk(node Node, f func(Node) bool) {
 		if node.Value != nil {
 			Walk(node.Value, f)
 		}
+	case *DynamicArithm:
+		for _, item := range node.Items {
+			Walk(item, f)
+		}
 	case *ParenTest:
 		Walk(node.X, f)
 	case *CaseClause:

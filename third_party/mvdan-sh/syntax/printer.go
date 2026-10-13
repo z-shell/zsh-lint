@@ -993,6 +993,15 @@ func (p *Printer) arithmExprRecurse(expr ArithmExpr, compact, spacePlusMinus boo
 		if expr.Value != nil {
 			p.word(expr.Value)
 		}
+	case *DynamicArithm:
+		for i, item := range expr.Items {
+			if i > 0 {
+				p.space() // glued items would form one word
+			}
+			// Only a slice offset asks for spacePlusMinus, and a slice
+			// offset never holds a sequence.
+			p.arithmExprRecurse(item, compact, false)
+		}
 	}
 }
 
