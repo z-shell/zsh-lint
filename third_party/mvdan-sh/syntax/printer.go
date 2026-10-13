@@ -1115,7 +1115,9 @@ func (p *Printer) wordJoin(ws []*Word) {
 	}
 }
 
-func (p *Printer) casePatternJoin(pats []*Word) {
+// casePatternJoin prints a case item's patterns and reports whether it wrote
+// the optional opening parenthesis.
+func (p *Printer) casePatternJoin(pats []*Word) (opened bool) {
 	anyNewline := false
 	for i, w := range pats {
 		// Only valid situation for a literal 'esac' here is with a preceding left paran.
@@ -1124,6 +1126,12 @@ func (p *Printer) casePatternJoin(pats []*Word) {
 		// the parenthesis is valid in every language the printer serves.
 		if i == 0 && (w.Lit() == "esac" || caseNeedsParen(pats)) {
 			p.w.WriteString("(")
+			opened = true
+			if len(pats) == 1 && caseEmptyPattern(w) {
+				// `()` is a token of its own; Zsh reads `( )` as
+				// one empty pattern (zsh-lint #578).
+				p.w.WriteByte(' ')
+			}
 		}
 		if i > 0 {
 			p.spacedToken("|", Pos{})
@@ -1142,6 +1150,16 @@ func (p *Printer) casePatternJoin(pats []*Word) {
 	if anyNewline {
 		p.decLevel()
 	}
+	return opened
+}
+
+// caseEmptyPattern reports whether w is an empty case pattern alternative.
+func caseEmptyPattern(w *Word) bool {
+	if len(w.Parts) != 1 {
+		return false
+	}
+	lit, ok := w.Parts[0].(*Lit)
+	return ok && lit.Value == ""
 }
 
 // zshBlanks are the blanks that end a word outside a group: space and tab.
@@ -1151,15 +1169,24 @@ const zshBlanks = " \t"
 // optional opening parenthesis because an alternative ends in an unquoted
 // literal `}` (zsh-lint #541). A `}` that closes an expansion or is quoted
 // is part of another word part, so only a trailing *Lit counts. A literal
-// holding a blank needs it too: a Zsh pattern such as `(a[ b]*)` keeps the
-// blank only in the group the parenthesis opens (zsh-lint #483).
+// holding a blank or a newline needs it too: a Zsh pattern such as `(a b)`
+// or `(a[ b]*)` keeps it only in the group the parenthesis opens (zsh-lint
+// #483, #578). So does an alternative that begins with a literal `#`, which
+// would otherwise start a comment, as in Zsh's `( #i)`, and a lone empty
+// pattern, which `)` alone cannot write (#578).
 func caseNeedsParen(pats []*Word) bool {
+	if len(pats) == 1 && caseEmptyPattern(pats[0]) {
+		return true
+	}
 	for _, w := range pats {
 		if len(w.Parts) == 0 {
 			continue
 		}
+		if lit, ok := w.Parts[0].(*Lit); ok && strings.HasPrefix(lit.Value, "#") {
+			return true
+		}
 		for _, part := range w.Parts {
-			if lit, ok := part.(*Lit); ok && strings.ContainsAny(lit.Value, zshBlanks) {
+			if lit, ok := part.(*Lit); ok && strings.ContainsAny(lit.Value, zshBlanks+"\n") {
 				return true
 			}
 		}
@@ -1470,12 +1497,20 @@ func (p *Printer) command(cmd Command, redirs []*Redirect) (startRedirs int) {
 			}
 			p.newlines(ci.Pos())
 			p.spacePad(ci.Pos())
-			p.casePatternJoin(ci.Patterns)
+			opened := p.casePatternJoin(ci.Patterns)
 			p.w.WriteByte(')')
-			if !p.minify {
+			// After an opening parenthesis, Zsh reads text glued to the
+			// `)` as more of the pattern word, so `(x):` is an error
+			// (zsh-lint #578); minify keeps the space then.
+			if !p.minify || opened {
 				p.wantSpace = spaceRequired
 			} else {
 				p.wantSpace = spaceNotRequired
+			}
+			if opened {
+				// The `;;` of an earlier item does not separate a
+				// closing `esac` from this `)` when the body is empty.
+				p.wroteSemi = false
 			}
 
 			p.nestedStmts(ci.Stmts, ci.Last, ci.OpPos)

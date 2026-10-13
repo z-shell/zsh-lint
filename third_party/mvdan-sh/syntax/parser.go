@@ -591,15 +591,11 @@ type Parser struct {
 
 	// zshCaseOpen is set like zshCaseHash, while the first word of a Zsh
 	// case item that begins with `(` is read up to the `)` closing that
-	// group. Zsh lexes that word whole, so a blank inside a bracket
-	// expression of it is part of the bracket expression, as in `(a[ b]*)`
-	// (zsh-lint #483).
+	// group. Zsh lexes that word whole (Src/lex.c gettokstr breaks at a
+	// blank only outside parentheses), so a space, tab or newline inside
+	// it is pattern text, as in `(a b)` and `(a[ b]*)` (zsh-lint #483,
+	// #578); caseItems strips the blanks par_case strips.
 	zshCaseOpen bool
-
-	// zshCaseBrack records, while zshCaseOpen is set, whether the last
-	// literal read ended inside a bracket expression, so the next literal
-	// of the same word starts inside it (#483).
-	zshCaseBrack bool
 
 	recoveredErrors  int
 	recoverErrorsMax int
@@ -820,7 +816,6 @@ type saveState struct {
 	zshBrokenGroup Pos
 	zshCaseHash    bool
 	zshCaseOpen    bool
-	zshCaseBrack   bool
 	zshWordBraces  int
 	zshAssignValue bool
 	zshCmdPos      bool
@@ -833,7 +828,6 @@ func (p *Parser) preNested(quote quoteState) (s saveState) {
 	p.buriedHdocs, p.quote, p.zshCondOperand, p.zshBrokenGroup = len(p.heredocs), quote, false, Pos{}
 	s.zshCaseHash, p.zshCaseHash = p.zshCaseHash, false
 	s.zshCaseOpen, p.zshCaseOpen = p.zshCaseOpen, false
-	s.zshCaseBrack, p.zshCaseBrack = p.zshCaseBrack, false
 	s.zshWordBraces, p.zshWordBraces = p.zshWordBraces, 0
 	s.zshAssignValue, p.zshAssignValue = p.zshAssignValue, false
 	s.zshCmdPos, p.zshCmdPos = p.zshCmdPos, true
@@ -845,7 +839,7 @@ func (p *Parser) preNested(quote quoteState) (s saveState) {
 func (p *Parser) postNested(s saveState) {
 	p.quote, p.buriedHdocs, p.zshCondOperand, p.zshBrokenGroup = s.quote, s.buriedHdocs, s.zshCondOperand, s.zshBrokenGroup
 	p.zshCaseHash = s.zshCaseHash
-	p.zshCaseOpen, p.zshCaseBrack = s.zshCaseOpen, s.zshCaseBrack
+	p.zshCaseOpen = s.zshCaseOpen
 	p.zshWordBraces, p.zshAssignValue = s.zshWordBraces, s.zshAssignValue
 	p.zshCmdPos = s.zshCmdPos
 	p.zshWordsOnly = s.zshWordsOnly
@@ -4804,6 +4798,46 @@ func zshCaseGroupWord(lparen Pos, pats []*Word, bars []Pos, rparen Pos) *Word {
 	return &Word{Parts: append(parts, punct(rparen, ")"))}
 }
 
+// zshCaseTrim strips the spaces and tabs at both ends of w, one alternative
+// of a case item whose opened group is the whole pattern, as par_case does
+// (#578). A newline stays, since par_case strips only iblank bytes, and so
+// does a blank escaped by a backslash. A literal left empty is dropped and
+// the next one trimmed, unless it is all of w, which then keeps the
+// empty-word shape. The lexer ends a literal at a line continuation next to
+// such a blank, so the stripped bytes are all on the literal's line.
+func zshCaseTrim(w *Word) {
+	const blanks = " \t"
+	for {
+		lit, ok := w.Parts[0].(*Lit)
+		if !ok {
+			break
+		}
+		n := len(lit.Value) - len(strings.TrimLeft(lit.Value, blanks))
+		lit.Value = lit.Value[n:]
+		lit.ValuePos = posAddCol(lit.ValuePos, n)
+		if lit.Value != "" || len(w.Parts) == 1 {
+			break
+		}
+		w.Parts = w.Parts[1:]
+	}
+	for {
+		lit, ok := w.Parts[len(w.Parts)-1].(*Lit)
+		if !ok {
+			break
+		}
+		v := strings.TrimRight(lit.Value, blanks)
+		if len(v) < len(lit.Value) && (len(v)-len(strings.TrimRight(v, `\`)))%2 == 1 {
+			v = lit.Value[:len(v)+1]
+		}
+		lit.ValueEnd = posAddCol(lit.ValueEnd, len(v)-len(lit.Value))
+		lit.Value = v
+		if lit.Value != "" || len(w.Parts) == 1 {
+			break
+		}
+		w.Parts = w.Parts[:len(w.Parts)-1]
+	}
+}
+
 func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 	p.got(_Newl)
 	for p.tok != _EOF && (p.tok != _LitWord || p.val != stop) {
@@ -4841,7 +4875,16 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 				p.curErr("case patterns must consist of words")
 			}
 			if p.tok == rightParen {
-				if !opened || !p.lang.in(LangZsh) || zshCasePatternEnd(p.r) {
+				if !opened || !p.lang.in(LangZsh) {
+					break
+				}
+				if zshCasePatternEnd(p.r) {
+					// The opened group is the whole pattern: par_case
+					// strips the blanks next to its `(`, `)` and each
+					// `|` (#578).
+					for _, w := range ci.Patterns {
+						zshCaseTrim(w)
+					}
 					break
 				}
 				// Zsh reads a leading group glued to more pattern text,
@@ -4850,7 +4893,8 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 				w := zshCaseGroupWord(lparen, ci.Patterns, bars, p.pos)
 				opened, bars = false, nil
 				// The opener's group has closed, so a blank in the
-				// text glued to it ends the word again (#483).
+				// text glued to it ends the word again (#483). The
+				// group keeps its blanks, as Zsh's does (#578).
 				p.zshCaseOpen = false
 				p.next()
 				p.zshCaseHash = false
@@ -4871,7 +4915,7 @@ func (p *Parser) caseItems(stop string) (items []*CaseItem) {
 			bars = append(bars, bar)
 		}
 		p.zshCaseHash = false
-		p.zshCaseOpen, p.zshCaseBrack = false, false
+		p.zshCaseOpen = false
 		old := p.preNested(switchCase)
 		p.next()
 		ci.Stmts, ci.Last = p.stmtList(stop)

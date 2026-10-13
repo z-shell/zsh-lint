@@ -162,6 +162,41 @@ var zshFileTests = []fileTestCase{
 			&ParenArithm{X: litWord("1")}, word(litParamExp("op")), &ParenArithm{X: litWord("2")},
 		}}), LangZsh),
 	),
+	// A blank or newline inside the group that opens a case item is pattern
+	// text. When the group is the whole pattern, the blanks next to its `(`,
+	// `)` and each `|` are stripped; a group glued to more text keeps them
+	// (#578).
+	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Complex-Commands
+	fileTest(
+		[]string{"case x in (a b) :;; esac", "case x in ( a b ) :;; esac"},
+		printsAs("case x in (a b) : ;; esac"),
+		langFile(&CaseClause{
+			Word:  litWord("x"),
+			Items: []*CaseItem{{Op: Break, Patterns: litWords("a b"), Stmts: litStmts(":")}},
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"case x in (*# SKIP*|b) :;; esac", "case x in ( *# SKIP* | b ) :;; esac"},
+		printsAs("case x in (*# SKIP* | b) : ;; esac"),
+		langFile(&CaseClause{
+			Word:  litWord("x"),
+			Items: []*CaseItem{{Op: Break, Patterns: litWords("*# SKIP*", "b"), Stmts: litStmts(":")}},
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"case x in (a | b)) :;; esac"},
+		printsAs("case x in ((a | b)) : ;; esac"),
+		langFile(&CaseClause{
+			Word: litWord("x"),
+			Items: []*CaseItem{{
+				Op:       Break,
+				Patterns: []*Word{word(lit("("), lit("a "), lit("|"), lit(" b"), lit(")"))},
+				Stmts:    litStmts(":"),
+			}},
+		}, LangZsh),
+	),
+	// A newline in the group is pattern text too, which no single-line print
+	// can drop; TestZshCaseGroupBlank covers it.
 }
 
 func TestZshConfirmSyntaxOnly(t *testing.T) {
