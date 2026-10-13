@@ -144,6 +144,10 @@ var zshFileTests = []fileTestCase{
 		[]string{"${a: ^b}"},
 		langErr2("1:6: `^` must follow an expression", LangZsh),
 	),
+	// A `)` inside a delimited flag argument does not end the flags group (#644).
+	// https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion-Flags
+	fileTest([]string{"${(j(|))w}"}, langFile(&ParamExp{Flags: lit("j(|)"), Param: lit("w")}, LangZsh)),
+	fileTest([]string{"${(l.(5)..x.)w}"}, langFile(&ParamExp{Flags: lit("l.(5)..x."), Param: lit("w")}, LangZsh)),
 }
 
 func TestZshConfirmSyntaxOnly(t *testing.T) {

@@ -371,20 +371,13 @@ func TestParseMultiNameForCommentInsideList(t *testing.T) {
 }
 
 // TestParseMultiNameForUnreadableList: an invalid list stays a parse error
-// at the list, and so does a flag group the lexer cannot read yet, which
-// native Zsh accepts. A `;` inside the list separates words (#270).
+// at the list. A `;` inside the list separates words (#270), and a `)` inside
+// a delimited flag argument in the list is text of the argument (#644).
 func TestParseMultiNameForUnreadableList(t *testing.T) {
 	tests := []struct {
 		name, src, text string
 		line, col       uint
 	}{
-		{
-			// mvdan reads a zsh flag group as a literal ending at its first
-			// `)`, so the `.` delimiter that follows is not a valid operator.
-			"flag group delimiter",
-			"for item ( ${(s.).)v} two ) {\n  print -r -- \"$item\"\n}\n",
-			"not a valid parameter expansion operator: `.`", 1, 18,
-		},
 		{"list never closes", "for item ( one two\n", "reached EOF without matching `(` with `)`", 1, 10},
 		{"operator inside the list", "for item ( one < two ) {\n  print -r -- \"$item\"\n}\n", "word list can only contain words", 1, 16},
 	}
@@ -395,6 +388,9 @@ func TestParseMultiNameForUnreadableList(t *testing.T) {
 	}
 	if _, err := Parse(strings.NewReader("for item ( one; two ) {\n  print -r -- \"$item\"\n}\n"), "semicolon.zsh"); err != nil {
 		t.Errorf("a `;` inside the list: %v", err)
+	}
+	if _, err := Parse(strings.NewReader("for item ( ${(s.).)v} two ) {\n  print -r -- \"$item\"\n}\n"), "flag-delimiter.zsh"); err != nil {
+		t.Errorf("a `)` inside a flag argument in the list: %v", err)
 	}
 }
 
