@@ -36,7 +36,7 @@ This project follows the organization-wide [Z-Shell Organization Guidelines](htt
 ## What this is
 
 `zsh-lint` is a **Go-based semantic analyzer for Zsh** (see [#5](https://github.com/z-shell/zsh-lint/issues/5)).
-The active product is the Go code under `cmd/` and `internal/`; the parser front end uses [`mvdan/sh`](https://github.com/mvdan/sh).
+The active product is the Go code under `cmd/` and `internal/`; the parser front end uses the Zsh dialect (`LangZsh`) of [`mvdan/sh`](https://github.com/mvdan/sh) through the fork in `third_party/mvdan-sh`.
 The CLI runs a default set of static-analysis rules and reports greppable diagnostics.
 
 The original interactive Zi/`.zshrc` plugin was removed from the tree; the Go analyzer is the whole product surface.

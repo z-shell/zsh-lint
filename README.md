@@ -43,7 +43,9 @@
 </p> </div>
 
 `zsh-lint` is a standalone, Go-based semantic analyzer for Zsh.
-It parses shell source code into an abstract syntax tree using `mvdan/sh`, evaluates static analysis rules, enforces [Zsh Plugin Standard v2](https://wiki.zshell.dev/community/zsh_plugin_standard), and reports compiler-style diagnostics or structured JSON.
+It parses Zsh source into an abstract syntax tree with the Zsh dialect (`LangZsh`) of [`mvdan/sh`](https://github.com/mvdan/sh), evaluates static analysis rules, enforces [Zsh Plugin Standard v2](https://wiki.zshell.dev/community/zsh_plugin_standard), and reports compiler-style diagnostics or structured JSON.
+The parser is a maintained fork in [`third_party/mvdan-sh`](third_party/mvdan-sh/FORK.md) that adds Zsh grammar upstream does not yet cover; it does not parse Zsh as POSIX `sh` or Bash.
+General shell linters such as ShellCheck reject Zsh scripts, so `zsh-lint` covers Zsh code and Zsh plugins directly.
 
 > [!IMPORTANT]
 > Canonical documentation lives on the Z-Shell Wiki:
@@ -242,6 +244,9 @@ To regenerate API and code-derived reference documentation:
 ```bash
 go tool gomarkdoc --output ref.md ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
 ```
+
+Beyond the unit tests, CI runs the parser fork's upstream and Zsh grammar tests with native-shell confirmation, checks the repository's Zsh files with `zsh -n`, and parses and lints a pinned [reference corpus](docs/project/corpus.md) of real Z-Shell projects.
+Parser changes are also verified with sampled mutation testing, as the [parser-gap workflow](docs/project/parser-gap-workflow.md) describes.
 
 Contributor workflows and local testing practices are documented in [`docs/README.md`](docs/README.md).
 Report parser gaps and propose rules through the [issue forms](https://github.com/z-shell/zsh-lint/issues/new/choose); anything else can be a blank issue.
