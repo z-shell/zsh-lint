@@ -41,9 +41,7 @@ func TestZshDynamicArithmeticOperands(t *testing.T) {
 		{`1 $op [#16]`, 2, ""},
 		{`$op [#16] 2`, 2, ""},
 		{`$# $op 2`, 3, ""},
-		{`1 ${(l:2::+:)#op}`, 2, ""},
 		{`1 ${op:-+} 2`, 3, ""},
-		{`1 "$op x"`, 2, ""},
 		{"1 $op\n2", 3, "1 $op \\\n2"},
 	} {
 		for _, form := range []struct{ src, printed string }{
@@ -126,7 +124,7 @@ func TestZshDynamicArithmeticOperandsRejected(t *testing.T) {
 		{`(( 1 $op 2 3 ))`, "1:12: not a valid arithmetic operator: `3`"},
 		{`(( 1 "+" 2 ))`, "1:6: not a valid arithmetic operator: `\"`"},
 		{`(( 1 "x$op" 2 ))`, "1:6: not a valid arithmetic operator: `\"`"},
-		{`(( 1 "$op x" 2 ))`, "1:14: not a valid arithmetic operator: `2`"},
+		{`(( 1 "$op x" 2 ))`, "1:6: not a valid arithmetic operator: `\"`"},
 		{`(( 1 "" 2 ))`, "1:6: not a valid arithmetic operator: `\"`"},
 		{`(( 1 [#16] 2 ))`, "1:12: not a valid arithmetic operator: `2`"},
 		// A length, a ${+name} test and the numeric special parameters
@@ -135,8 +133,17 @@ func TestZshDynamicArithmeticOperandsRejected(t *testing.T) {
 		{`(( 1 ${+op} 2 ))`, "1:6: not a valid arithmetic operator: `${`"},
 		{`(( 1 $# 2 ))`, "1:6: not a valid arithmetic operator: `$`"},
 		{`(( 1 ${?} 2 ))`, "1:6: not a valid arithmetic operator: `${`"},
-		// Quoted text is part of the arithmetic text: blanks inside it need
-		// an expansion beside them too, and single quotes are never valid.
+		// Flags change how the number reads, never that it is a number.
+		{`(( 1 ${(U)#op} 2 ))`, "1:6: not a valid arithmetic operator: `${`"},
+		{`(( 1 ${(U)+op} 2 ))`, "1:6: not a valid arithmetic operator: `${`"},
+		{`(( 1 ${(l:2::+:)#op} 2 ))`, "1:6: not a valid arithmetic operator: `${`"},
+		// A double-quoted operand joins only when it is exactly one expansion.
+		{`(( 1 "$op x" ))`, "1:6: not a valid arithmetic operator: `\"`"},
+		{`(( 1 $op "2 ${#x} 3" ))`, "1:10: not a valid arithmetic operator: `\"`"},
+		{`(( 1 $op "2 ""3" ))`, "1:10: not a valid arithmetic operator: `\"`"},
+		{`(( 1 $op "${#x}" ))`, "1:10: not a valid arithmetic operator: `\"`"},
+		// Single quotes are never valid in arithmetic, and quoted literal
+		// text does not join.
 		{`(( 1 $op "2 3" ))`, "1:10: not a valid arithmetic operator: `\"`"},
 		{`(( "2 3" $op 1 ))`, "1:10: not a valid arithmetic operator: `$`"},
 		{`(( 1 $op a'x' ))`, "1:10: not a valid arithmetic operator: `a`"},
