@@ -847,7 +847,7 @@ func (a *ArithmCmd) End() Pos { return posAddCol(a.Right, 2) }
 // ArithmExpr represents all nodes that form arithmetic expressions.
 //
 // These are [*BinaryArithm], [*UnaryArithm], [*ParenArithm], [*FlagsArithm],
-// [*OutputBaseArithm], [*CharArithm], and [*Word].
+// [*OutputBaseArithm], [*CharArithm], [*DynamicArithm], and [*Word].
 type ArithmExpr interface {
 	Node
 	arithmExprNode()
@@ -860,6 +860,19 @@ func (*FlagsArithm) arithmExprNode()      {}
 func (*Word) arithmExprNode()             {}
 func (*OutputBaseArithm) arithmExprNode() {}
 func (*CharArithm) arithmExprNode()       {}
+func (*DynamicArithm) arithmExprNode()    {}
+
+// DynamicArithm is a Zsh arithmetic sequence of operands joined only by
+// blanks, where a shell expansion at each blank supplies the missing operator
+// or operand, as in $(( 1 $op 2 )). Zsh substitutes the expansions before it
+// evaluates the text, so the items keep their source order and no operator.
+// Items holds at least two expressions.
+type DynamicArithm struct {
+	Items []ArithmExpr
+}
+
+func (d *DynamicArithm) Pos() Pos { return d.Items[0].Pos() }
+func (d *DynamicArithm) End() Pos { return d.Items[len(d.Items)-1].End() }
 
 // OutputBaseArithm retains a Zsh output format directive such as [##16].
 // It changes the output format without adding an arithmetic operation.

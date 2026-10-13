@@ -125,7 +125,7 @@ func (p *Parser) arithmExprMultiplication(compact bool) ArithmExpr {
 
 func (p *Parser) arithmExprPower(compact bool) ArithmExpr {
 	// Power is different from the other binary operators because it's right-associative
-	value := p.arithmExprUnary(compact)
+	value := p.arithmExprDynamic(compact)
 	if BinAritOperator(p.tok) != Pow || (compact && p.spaced) {
 		return value
 	}
@@ -164,6 +164,108 @@ func (p *Parser) arithmExprUnary(compact bool) ArithmExpr {
 		return ue
 	}
 	return p.arithmExprValue(compact)
+}
+
+// arithmExprDynamic reads Zsh operands joined only by blanks, as in
+// $(( 1 $op 2 )): Zsh substitutes expansions before it evaluates the text, so
+// an expansion at a blank may supply the operator or operand between two
+// others. Each blank needs an expansion on one side of it; `1 2` stays an
+// error, with the message and position upstream gives it.
+func (p *Parser) arithmExprDynamic(compact bool) ArithmExpr {
+	x := p.arithmExprUnary(compact)
+	if x == nil || !p.zshExpandedArithm() {
+		return x
+	}
+	var seq *DynamicArithm
+	for last := x; ; {
+		open := arithmExpansionRight(last)
+		if !(open && p.arithmOperandStart()) && !p.arithmExpansionStart() {
+			break
+		}
+		pos, tok := p.pos, p.tok
+		y := p.arithmExprUnary(compact)
+		if y == nil { // an error inside the operand is already recorded
+			break
+		}
+		if !open && !arithmExpansionLeft(y) {
+			p.posErr(pos, "not a valid arithmetic operator: %#q", tok)
+		}
+		if seq == nil {
+			seq = &DynamicArithm{Items: []ArithmExpr{x}}
+		}
+		seq.Items = append(seq.Items, y)
+		last = y
+	}
+	if seq == nil {
+		return x
+	}
+	return seq
+}
+
+// arithmOperandStart reports whether the current token can begin an operand
+// after an expansion that may supply an operator.
+func (p *Parser) arithmOperandStart() bool {
+	switch p.tok {
+	case _Lit, _LitWord, leftParen, exclMark, tilde, hash, dollDblParen:
+		return true
+	}
+	return p.arithmExpansionStart()
+}
+
+// arithmExpansionStart reports whether the current token can begin a word
+// whose first part is an expansion. Zsh keeps single quotes and $'...' in
+// arithmetic text, where they are errors, so those do not count.
+func (p *Parser) arithmExpansionStart() bool {
+	switch p.tok {
+	case dollar, dollBrace, dollParen, bckQuote, dblQuote:
+		return true
+	}
+	return false
+}
+
+// arithmExpansionRight reports whether x ends in an expansion whose value may
+// supply text after it.
+func arithmExpansionRight(x ArithmExpr) bool {
+	switch x := x.(type) {
+	case *Word:
+		return expansionPart(x.Parts[len(x.Parts)-1], false)
+	case *UnaryArithm:
+		return !x.Post && arithmExpansionRight(x.X)
+	}
+	return false
+}
+
+// arithmExpansionLeft reports whether x begins with an expansion whose value
+// may supply text before it.
+func arithmExpansionLeft(x ArithmExpr) bool {
+	switch x := x.(type) {
+	case *Word:
+		return expansionPart(x.Parts[0], true)
+	case *UnaryArithm:
+		return x.Post && arithmExpansionLeft(x.X)
+	}
+	return false
+}
+
+// expansionPart reports whether a word part is an expansion whose value is
+// unknown text, looking into the first or last part of a double-quoted string.
+// An arithmetic expansion yields a number, never an operator.
+func expansionPart(part WordPart, first bool) bool {
+	switch part := part.(type) {
+	case *ParamExp:
+		return part.Dollar.IsValid() // not a naked a[i] name
+	case *CmdSubst:
+		return true
+	case *DblQuoted:
+		if len(part.Parts) == 0 {
+			return false
+		}
+		if first {
+			return expansionPart(part.Parts[0], first)
+		}
+		return expansionPart(part.Parts[len(part.Parts)-1], first)
+	}
+	return false
 }
 
 func (p *Parser) arithmExprValue(compact bool) ArithmExpr {

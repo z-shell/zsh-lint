@@ -334,6 +334,7 @@ var nodeByName = map[string]reflect.Type{
 	"FlagsArithm":      reflect.TypeFor[syntax.FlagsArithm](),
 	"OutputBaseArithm": reflect.TypeFor[syntax.OutputBaseArithm](),
 	"CharArithm":       reflect.TypeFor[syntax.CharArithm](),
+	"DynamicArithm":    reflect.TypeFor[syntax.DynamicArithm](),
 
 	"ModuleTest": reflect.TypeFor[syntax.ModuleTest](),
 	"UnaryTest":  reflect.TypeFor[syntax.UnaryTest](),

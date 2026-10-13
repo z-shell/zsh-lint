@@ -120,7 +120,7 @@ func Arithm(cfg *Config, expr syntax.ArithmExpr) (int, error) {
 			return 0, err
 		}
 		return binArit(expr.Op, left, right)
-	case *syntax.FlagsArithm, *syntax.OutputBaseArithm, *syntax.CharArithm:
+	case *syntax.FlagsArithm, *syntax.OutputBaseArithm, *syntax.CharArithm, *syntax.DynamicArithm:
 		return 0, fmt.Errorf("unsupported")
 	default:
 		panic(fmt.Sprintf("unexpected arithm expr: %T", expr))
