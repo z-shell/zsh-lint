@@ -197,6 +197,66 @@ var zshFileTests = []fileTestCase{
 	),
 	// A newline in the group is pattern text too, which no single-line print
 	// can drop; TestZshCaseGroupBlank covers it.
+	// In an array assignment a bare `=` is a literal element; only a `=`
+	// after an `[index]` assigns that index (#684).
+	// https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Parameters
+	fileTest(
+		[]string{"a=(x =)", "a=( x = )"},
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name:  lit("a"),
+			Array: &ArrayExpr{Elems: []*ArrayElem{{Value: litWord("x")}, {Value: litWord("=")}}},
+		}}}, LangZsh),
+	),
+	fileTest(
+		[]string{"a=(=)"},
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name:  lit("a"),
+			Array: &ArrayExpr{Elems: []*ArrayElem{{Value: litWord("=")}}},
+		}}}, LangZsh),
+	),
+	fileTest(
+		[]string{"a=([1]=x =)"},
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name: lit("a"),
+			Array: &ArrayExpr{Elems: []*ArrayElem{
+				{Index: litWord("1"), Value: litWord("x")},
+				{Value: litWord("=")},
+			}},
+		}}}, LangZsh),
+	),
+	// A `;` separates array elements as a blank or newline does: Zsh reads
+	// the list as words and separators (par_nl_wordlist in Src/parse.c).
+	fileTest(
+		[]string{"a=(a;b)", "a=(a ;b)", "a=(a; b)", "a=(;a;\n;b;)"},
+		printsAs("a=(a b)"),
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name:  lit("a"),
+			Array: &ArrayExpr{Elems: []*ArrayElem{{Value: litWord("a")}, {Value: litWord("b")}}},
+		}}}, LangZsh),
+	),
+	fileTest(
+		[]string{"a=(;)"},
+		printsAs("a=()"),
+		langFile(&CallExpr{Assigns: []*Assign{{Name: lit("a"), Array: &ArrayExpr{}}}}, LangZsh),
+	),
+	fileTest(
+		[]string{"a=([1]=x;[2]=y)"},
+		printsAs("a=([1]=x [2]=y)"),
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name: lit("a"),
+			Array: &ArrayExpr{Elems: []*ArrayElem{
+				{Index: litWord("1"), Value: litWord("x")},
+				{Index: litWord("2"), Value: litWord("y")},
+			}},
+		}}}, LangZsh),
+	),
+	// Bash keeps rejecting the `;`, and other list terminators still end the
+	// element list. So does a `;` that ends a word inside an open glob group:
+	// Zsh accepts that syntax, but the word is a bad pattern when it runs.
+	fileTest([]string{"a=(a;b)"}, langErr2("1:5: array element values must be words", LangBash)),
+	fileTest([]string{"a=(a;;b)"}, langErr2("1:5: array element values must be words", LangZsh)),
+	fileTest([]string{"a=(a;&b)"}, langErr2("1:5: array element values must be words", LangZsh)),
+	fileTest([]string{"a=(a&b)"}, langErr2("1:5: array element values must be words", LangZsh)),
 }
 
 func TestZshConfirmSyntaxOnly(t *testing.T) {

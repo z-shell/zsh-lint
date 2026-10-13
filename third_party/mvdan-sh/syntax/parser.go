@@ -3690,7 +3690,7 @@ func (p *Parser) getAssign(needEqual bool) *Assign {
 		}
 		old := p.preNested(newQuote)
 		p.next()
-		p.got(_Newl)
+		p.arrayElemSeps()
 		for p.tok != _EOF && p.tok != rightParen {
 			ae := &ArrayElem{}
 			ae.Comments, p.accComs = p.accComs, nil
@@ -3720,7 +3720,7 @@ func (p *Parser) getAssign(needEqual bool) *Assign {
 				}
 			}
 			as.Array.Elems = append(as.Array.Elems, ae)
-			p.got(_Newl)
+			p.arrayElemSeps()
 		}
 		as.Array.Last, p.accComs = p.accComs, nil
 		p.postNested(old)
@@ -3737,6 +3737,18 @@ func (p *Parser) getAssign(needEqual bool) *Assign {
 		}
 	}
 	return as
+}
+
+// arrayElemSeps skips the separators between array elements: newlines, and
+// in Zsh also each `;`, since Zsh reads the list as words and separators
+// (par_nl_wordlist in Src/parse.c, #684). `;;`, `;&` and `;|` are other
+// tokens and still end the list. A `;` that ends a word inside an open glob
+// group, as in `a=(a(b;c)`, stays an error: Zsh accepts the syntax, but the
+// word is a bad pattern when it runs, and no printed form keeps the group
+// apart from the next element.
+func (p *Parser) arrayElemSeps() {
+	for p.got(_Newl) || p.lang.in(LangZsh) && !p.zshBrokenGroup.IsValid() && p.got(semicolon) {
+	}
 }
 
 func (p *Parser) peekRedir() bool {
