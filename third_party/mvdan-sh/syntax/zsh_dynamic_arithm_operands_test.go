@@ -150,6 +150,7 @@ func TestZshDynamicArithmeticOperandsRejected(t *testing.T) {
 		{`(( $op !"2 3" ))`, "1:8: not a valid arithmetic operator: `!`"},
 		{`(( $op "2 3" [#16] ))`, "1:8: not a valid arithmetic operator: `\"`"},
 		{`(( 2 "x"++ ))`, "1:6: not a valid arithmetic operator: `\"`"},
+		{`(( 2 ${#a}++ ))`, "1:6: not a valid arithmetic operator: `${`"},
 		{`(( 1 $(( 2 )) ))`, "1:6: not a valid arithmetic operator: `$((`"},
 		{`(( 1 $[ 2 ] ))`, "1:6: not a valid arithmetic operator: `$`"},
 		{`(( $op 'x' ))`, "1:8: not a valid arithmetic operator: `'`"},
