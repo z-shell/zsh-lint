@@ -32,9 +32,9 @@ Paths cannot override configured metadata.
 Path-based applicability remains available for inputs that use `--no-config`, have no discovered configuration, or match no source root in a discovered configuration.
 It is not a Standard 2 compatibility profile.
 
-Without configured source metadata, `plugin/unload-function` checks only `*.plugin.zsh`, `*.zsh-theme` and `init.zsh` entrypoints.
-It reports missing unload presence once per file at the first hook or widget registration, including appends to `*_functions` arrays.
-It cannot resolve an unload function sourced from another file; configure the complete input set for project-wide presence checks.
+Without configured source metadata, `plugin/unload-function` checks only `*.plugin.zsh`, `*.zsh-theme` and `init.zsh` entrypoints, and only the hygiene of the `*_plugin_unload` functions they define.
+It does not report missing unload presence ([#668](https://github.com/z-shell/zsh-lint/issues/668)): one file cannot show whether a plugin supports unloading or defines its unload function in another source.
+Presence is checked by `plugin/project-unload-lifecycle` across the configured sources of one invocation, including hook or widget registrations and appends to `*_functions` arrays; configure the complete input set for that check.
 
 In project profile version 2:
 

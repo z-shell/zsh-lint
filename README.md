@@ -127,7 +127,7 @@ Standard terminal output format:
 
 ```text
 script.zsh:2:8: [quoting/unquoted-var] Variable expansion should be double-quoted
-plugin.plugin.zsh:1:1: [plugin/unload-function] Plugin registers persistent hooks or widgets but defines no '<name>_plugin_unload' function
+plugin.plugin.zsh:3:1: [plugin/unload-function] Unload function 'example_plugin_unload' should unfunction itself upon completion
 ```
 
 Findings at `error` or `warning` severity fail the run; `info` and `hint` findings are reported but do not change the exit code.

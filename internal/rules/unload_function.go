@@ -10,20 +10,21 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// UnloadFunction checks plugin entrypoints for lifecycle unload conventions.
+// UnloadFunction checks the hygiene of plugin unload functions.
 //
 // ID: `plugin/unload-function`
 //
 // Name: Unload function convention and hygiene
 //
-// Summary: Checks configured plugin and Zi annex sourced-library entrypoints
-// that register persistent shell hooks or widgets for a namespaced unload
-// function (`*_plugin_unload`), and checks that defined unload functions
-// cleanly unfunction themselves upon completion. Configured multi-file
-// invocations aggregate registration and unload presence across the project;
-// unconfigured analysis checks only *.plugin.zsh, *.zsh-theme and init.zsh
-// entrypoints and reports missing unload presence once per file, at the first
-// registration. Hook registrations include appends to *_functions arrays.
+// Summary: Checks that each namespaced unload function (`*_plugin_unload`) in
+// plugin and Zi annex sourced-library entrypoints unfunctions itself upon
+// completion and does not wipe global functions indiscriminately. Unconfigured
+// analysis checks only *.plugin.zsh, *.zsh-theme and init.zsh entrypoints.
+// Whether a plugin that registers persistent hooks or widgets defines an
+// unload function at all is checked only for configured projects, by
+// `plugin/project-unload-lifecycle`: one unconfigured file cannot show whether
+// the plugin supports unloading or defines its unload function in another
+// source.
 //
 // Why: The Zsh Plugin Standard specifies that plugins with persistent side
 // effects (hooks via `add-zsh-hook`, line-editor widgets via
@@ -35,12 +36,13 @@ import (
 //
 // Bad:
 //
-//	# Plugin installs hook but provides no unload function
-//	add-zsh-hook precmd _my_precmd
+//	# Unload function removes its hook but never unfunctions itself
+//	my_plugin_unload() {
+//	  add-zsh-hook -d precmd _my_precmd
+//	  unfunction _my_precmd
+//	}
 //
 // Good:
-//
-//	add-zsh-hook precmd _my_precmd
 //
 //	my_plugin_unload() {
 //	  emulate -L zsh
@@ -49,21 +51,27 @@ import (
 //	  unfunction _my_precmd my_plugin_unload
 //	}
 //
-// Severity: Hint. Missing unload functions or self-unfunction in unload definitions
-// are lifecycle recommendations. Indiscriminate function wiping is a Warning.
+// Severity: Hint. A missing self-unfunction in an unload definition is a
+// lifecycle recommendation. Indiscriminate function wiping is a Warning.
 //
-// False positives: Plugins intended only for static, once-per-session loading
-// without unload support. The unconfigured entrypoint names and *_functions
-// assignment names are heuristics; explicit configuration selects source
-// profiles but cannot prove whether a custom array is a shell hook.
-// Suppress with a reason.
+// False positives: An unload function that removes itself indirectly, for
+// example through a helper, is reported as missing its self-unfunction.
+// The unconfigured entrypoint names are a heuristic; explicit configuration
+// selects source profiles. Suppress with a reason.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/unload-function -- <reason>` on the finding line or
 // immediately before the next non-comment, non-blank source line.
 //
-// Static boundary: This rule proves only unload entrypoint presence and narrow
-// syntax hygiene. Exact ownership-aware restoration requires a clean-process
+// Corpus evidence: Before #668 this rule also reported missing unload presence
+// without configuration. After #623 limited it to entrypoints, 64 external
+// findings remained; all 20 sampled (Oh My Zsh, Prezto and F-Sy-H entrypoints)
+// were judged static-loading false positives, as was the 1 remaining
+// organization finding, an F-Sy-H entrypoint whose unload function lives in
+// another file. Presence therefore moved entirely to configured analysis.
+//
+// Static boundary: This rule proves only narrow syntax hygiene of unload
+// definitions. Exact ownership-aware restoration requires a clean-process
 // runtime test and is outside static analysis.
 type UnloadFunction struct{}
 
@@ -87,39 +95,13 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 		}
 	}
 
-	var hookRegistrations []syntax.Node
 	var unloadFuncs []*syntax.FuncDecl
-
-	// Traverse AST to collect hook registrations and unload function declarations
 	syntax.Walk(file, func(n syntax.Node) bool {
-		switch x := n.(type) {
-		case *syntax.FuncDecl:
-			if x.Name != nil && strings.HasSuffix(x.Name.Value, "_plugin_unload") {
-				unloadFuncs = append(unloadFuncs, x)
-			}
-		case *syntax.CallExpr:
-			if isHookRegistrationCall(x) {
-				hookRegistrations = append(hookRegistrations, x)
-			}
-		case *syntax.Assign:
-			if isHookRegistrationAssignment(x) {
-				hookRegistrations = append(hookRegistrations, x)
-			}
+		if x, ok := n.(*syntax.FuncDecl); ok && x.Name != nil && strings.HasSuffix(x.Name.Value, "_plugin_unload") {
+			unloadFuncs = append(unloadFuncs, x)
 		}
 		return true
 	})
-
-	// Check if hooks are registered without any unload function in the file
-	if !ctx.Source.Configured() && len(hookRegistrations) > 0 && len(unloadFuncs) == 0 {
-		call := hookRegistrations[0]
-		ctx.Report(
-			call.Pos(),
-			call.End(),
-			rule.ID(),
-			diag.Hint,
-			"Plugin registers persistent hooks or widgets but defines no '<name>_plugin_unload' function",
-		)
-	}
 
 	// Inspect hygiene of defined unload functions
 	for _, fn := range unloadFuncs {
