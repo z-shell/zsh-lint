@@ -42,6 +42,7 @@ func TestZshDynamicArithmeticOperands(t *testing.T) {
 		{`$op [#16] 2`, 2, ""},
 		{`$# $op 2`, 3, ""},
 		{`1 ${(l:2::+:)#op}`, 2, ""},
+		{`1 ${op:-+} 2`, 3, ""},
 		{`1 "$op x"`, 2, ""},
 		{"1 $op\n2", 3, "1 $op \\\n2"},
 	} {
@@ -141,6 +142,7 @@ func TestZshDynamicArithmeticOperandsRejected(t *testing.T) {
 		{`(( 1 $op a'x' ))`, "1:10: not a valid arithmetic operator: `a`"},
 		{`(( $op !"2 3" ))`, "1:8: not a valid arithmetic operator: `!`"},
 		{`(( $op "2 3" [#16] ))`, "1:8: not a valid arithmetic operator: `\"`"},
+		{`(( 2 "x"++ ))`, "1:6: not a valid arithmetic operator: `\"`"},
 		{`(( 1 $(( 2 )) ))`, "1:6: not a valid arithmetic operator: `$((`"},
 		{`(( 1 $[ 2 ] ))`, "1:6: not a valid arithmetic operator: `$`"},
 		{`(( $op 'x' ))`, "1:8: not a valid arithmetic operator: `'`"},
