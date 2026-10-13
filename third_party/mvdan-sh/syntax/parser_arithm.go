@@ -258,9 +258,9 @@ func arithmExpansionLeft(x ArithmExpr) bool {
 // expansionPart reports whether a word part is an expansion whose value is
 // unknown text: a parameter expansion or a command substitution, alone or as
 // the only part of a double-quoted string. A length, a ${+name} test, the
-// special parameters $#, $?, $$ and $!, and an arithmetic expansion yield a
-// number and so cannot supply an operator. (A negative number would supply a
-// leading minus; that is left out.)
+// special parameters $#, $?, $$ and $!, and an arithmetic expansion are
+// treated as numbers (see numericParamExp), which cannot supply an operator.
+// (A negative number would supply a leading minus; that is left out.)
 func expansionPart(part WordPart) bool {
 	switch part := part.(type) {
 	case *ParamExp:
@@ -273,9 +273,12 @@ func expansionPart(part WordPart) bool {
 	return false
 }
 
-// numericParamExp reports whether a parameter expansion always yields a
-// number: a length or ${+name} test, whatever its flags, or a plain $#, $?,
-// $$ or $!.
+// numericParamExp reports whether a parameter expansion is treated as a
+// number: a length or ${+name} test whatever its flags, or a plain $#, $?, $$
+// or $!. The flag rule is a conservative choice, not a Zsh guarantee: padding
+// flags apply after the length and can add text, as ${(l:2::+:)#x} does.
+// Nested substitutions and flags on the special parameters are not looked
+// into (zsh-lint #683).
 func numericParamExp(pe *ParamExp) bool {
 	if pe.Length || pe.IsSet {
 		return true
