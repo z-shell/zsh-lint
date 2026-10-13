@@ -2112,7 +2112,12 @@ func (p *Parser) paramExp() *ParamExp {
 		lparen := p.nextPos()
 		p.rune()
 		p.pos = p.nextPos()
-		for p.newLit(p.r); p.r != runeEOF && p.r != ')'; p.rune() {
+		p.newLit(p.r)
+		if p.lang.in(LangZsh) && p.zshParamFlagsAhead() {
+			p.zshParamFlagsScan()
+		} else {
+			for ; p.r != runeEOF && p.r != ')'; p.rune() {
+			}
 		}
 		p.val = p.endLit()
 		if p.r != ')' {
@@ -2758,6 +2763,115 @@ func (p *Parser) index() ArithmExpr {
 	}
 	p.matchedArithm(lpos, leftBrack, rightBrack)
 	return expr
+}
+
+// zshParamFlagArgs reports how many delimited arguments a `${(flags)...}`
+// flag takes in Zsh's paramsubst: one for `I`, `g`, `j`, `s`, `Z` and `_`,
+// and up to three for `l` and `r`. Other flags take none.
+func zshParamFlagArgs(flag rune) int {
+	switch flag {
+	case 'I', 'g', 'j', 's', 'Z', '_':
+		return 1
+	case 'l', 'r':
+		return 3
+	}
+	return 0
+}
+
+// zshParamFlagsScan reads a `${(flags)...}` group from p.r, the rune after
+// its `(`, as Zsh's paramsubst does, and reports whether it reached the
+// group's `)` with every flag argument closed (#644). It stops at that `)`.
+func (p *Parser) zshParamFlagsScan() bool {
+	for p.r != runeEOF && p.r != ')' {
+		flag := p.r
+		p.rune()
+		if args := zshParamFlagArgs(flag); args > 0 && !p.zshParamFlagArg(args) {
+			return false
+		}
+	}
+	return p.r == ')'
+}
+
+// zshParamFlagArg reads the delimited arguments of one parameter expansion
+// flag, starting at p.r, as get_strarg in Zsh's subst.c does. An argument
+// runs to the first closing delimiter, which is the partner of `(`, `[`, `{`
+// or `<` and otherwise the opening rune itself, without nesting, so a `)`
+// inside it does not end the flags group: `${(j(|))w}`, `${(l.(5)..x.)w}`.
+// A later argument follows only when the next rune repeats the opening
+// delimiter, as for `l` and `r`. It reports false for an argument still open
+// at EOF or at a `}` that closes no `{` in it, where Zsh's lexer has already
+// ended the expansion.
+func (p *Parser) zshParamFlagArg(args int) bool {
+	open := p.r
+	if open == runeEOF {
+		return false
+	}
+	closer := open
+	switch open {
+	case '(':
+		closer = ')'
+	case '[':
+		closer = ']'
+	case '{':
+		closer = '}'
+	case '<':
+		closer = '>'
+	}
+	for i := range args {
+		if i > 0 && p.r != open {
+			break
+		}
+		p.rune()
+		braces := 0
+		for p.r != closer {
+			switch p.r {
+			case runeEOF:
+				return false
+			case '{':
+				braces++
+			case '}':
+				if braces == 0 {
+					return false
+				}
+				braces--
+			}
+			p.rune()
+		}
+		p.rune()
+	}
+	return true
+}
+
+// zshParamFlagsAhead reports, without consuming p.r, whether the flags group
+// starting at p.r reads with delimited arguments that all close before its
+// `)` (#644). Otherwise the caller keeps the earlier reading, which ends the
+// group at its first `)`: Zsh's lexer accepts such a group, as in `${(j)x}`
+// or `${(s.x)w}`, and only paramsubst rejects it when the line runs.
+func (p *Parser) zshParamFlagsAhead() bool {
+	look := NewParser(Variant(p.lang))
+	look.f = &File{}
+	look.r, look.w, look.bsp = p.r, p.w, p.bsp
+	look.offs, look.line, look.col = p.offs, p.line, p.col
+	look.readEOF, look.readErr = p.readEOF, p.readErr
+	look.openBquotes, look.openBquoteDbls = p.openBquotes, p.openBquoteDbls
+	look.quote = runeByRune
+	look.bs = look.readBuf[:len(p.bs)]
+	copy(look.bs, p.bs)
+	var read bytes.Buffer
+	look.src = io.TeeReader(p.src, &read)
+	defer func() {
+		if p.readErr == nil && look.readErr != nil {
+			// Preserve a terminal read error too: some readers refuse a
+			// second read after EOF, and non-EOF errors must not be lost.
+			p.src = zshLookaheadError{look.readErr}
+		}
+		// A lookahead may cross any number of input buffers. Replay only
+		// newly read bytes; p still owns its original buffered bytes.
+		if read.Len() > 0 {
+			p.src = io.MultiReader(bytes.NewReader(read.Bytes()), p.src)
+		}
+	}()
+	return look.zshParamFlagsScan()
 }
 
 func (p *Parser) zshSubFlags() *FlagsArithm {
