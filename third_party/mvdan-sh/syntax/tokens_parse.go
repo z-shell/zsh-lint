@@ -150,6 +150,10 @@ func (o *ParExpOperator) UnmarshalText(text []byte) error {
 		*o = ArrayExclude
 	case ":*":
 		*o = ArrayIntersect
+	case ":^":
+		*o = ArrayZip
+	case ":^^":
+		*o = ArrayZipLongest
 	case "^":
 		*o = UpperFirst
 	case "^^":

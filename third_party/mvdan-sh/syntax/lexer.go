@@ -961,6 +961,13 @@ func (p *Parser) paramToken(r rune) token {
 		case '*':
 			p.rune()
 			return colStar
+		case '^':
+			// Zsh array zipping, ${a:^b} and ${a:^^b} (#671).
+			if p.rune() == '^' {
+				p.rune()
+				return colDblCaret
+			}
+			return colCaret
 		}
 		return colon
 	case '+':

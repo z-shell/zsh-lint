@@ -119,6 +119,10 @@ const (
 	colHash  // :#
 	colPipe  // :|
 	colStar  // :*
+
+	colCaret    // :^
+	colDblCaret // :^^
+
 	caret    // ^
 	dblCaret // ^^
 	comma    // ,
@@ -262,6 +266,8 @@ const (
 	MatchEmpty                                         // :# with [LangZsh]
 	ArrayExclude                                       // :| with [LangZsh]
 	ArrayIntersect                                     // :* with [LangZsh]
+	ArrayZip                                           // :^ with [LangZsh]
+	ArrayZipLongest                                    // :^^ with [LangZsh]
 	UpperFirst                                         // ^
 	UpperAll                                           // ^^
 	LowerFirst                                         // ,
