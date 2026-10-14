@@ -434,10 +434,6 @@ func flipConfirm(langSet LangVariant) func(*errorCase) {
 
 var flipConfirmAll = flipConfirm(langResolvedVariants)
 
-// The real shells which allow unclosed heredocs.
-// TODO: allow ending a heredoc at EOF in these language variant modes.
-var flipConfirmUnclosedHeredoc = flipConfirm(LangBash | LangPOSIX | LangBats | LangZsh)
-
 func init() {
 	seenInputs := make(map[string]bool)
 	for i, c := range errorCases {
@@ -870,67 +866,56 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"<<EOF",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<EOF\n\\",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<EOF\n\\\n",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<EOF\n\\\nEOF",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmAll, // why does mksh allow this?
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
+		flipConfirm(LangMirBSDKorn), // why does mksh allow this?
 	),
 	errCase(
 		"<<EOF\nfoo\\\nEOF",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<'EOF'\n\\\n",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<EOF <`\n#\n`\n``",
-		langErr("1:1: unclosed here-document `EOF`"),
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<'EOF'",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<\\EOF",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<\\\\EOF",
-		langErr("1:1: unclosed here-document `\\EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `\\EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<-EOF",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<-EOF\n\t",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<-'EOF'\n\t",
-		langErr("1:1: unclosed here-document `EOF`"),
-		flipConfirmUnclosedHeredoc,
+		langErr("1:1: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"<<\nEOF\nbar\nEOF",
@@ -938,14 +923,13 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"$(<<EOF\nNOTEOF)",
-		langErr("1:3: unclosed here-document `EOF`", LangBash|LangMirBSDKorn),
+		langErr("1:1: reached EOF without matching `$(` with `)`", LangBash),
+		langErr("1:3: unclosed here-document `EOF`", LangMirBSDKorn),
 		// Note that this fails on external shells as they treat ")" as part of the heredoc.
 	),
 	errCase(
 		"`<<EOF\nNOTEOF`",
-		langErr("1:2: unclosed here-document `EOF`", LangBash|LangMirBSDKorn),
-		flipConfirmAll,
-		// Note that this works on external shells as they treat "`" as outside the heredoc.
+		langErr("1:2: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	errCase(
 		"if",
@@ -2289,7 +2273,8 @@ func TestParseStmtsSeqError(t *testing.T) {
 		"bar; <<EOF",
 	} {
 		t.Run("", func(t *testing.T) {
-			p := NewParser()
+			// Other variants allow unclosed heredocs.
+			p := NewParser(Variant(LangMirBSDKorn))
 			recv := make(chan bool, 10)
 			errc := make(chan error, 1)
 			go func() {

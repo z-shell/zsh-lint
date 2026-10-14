@@ -257,6 +257,48 @@ var zshFileTests = []fileTestCase{
 	fileTest([]string{"a=(a;;b)"}, langErr2("1:5: array element values must be words", LangZsh)),
 	fileTest([]string{"a=(a;&b)"}, langErr2("1:5: array element values must be words", LangZsh)),
 	fileTest([]string{"a=(a&b)"}, langErr2("1:5: array element values must be words", LangZsh)),
+	// A here-document ends at the end of the file (#686), as upstream's
+	// rows show for every shell but mksh. In Zsh, one whose body has not
+	// started also ends at the parenthesis closing its command or process
+	// substitution, as it does at a closing backquote: the lines after are
+	// commands. The printer closes it inside the substitution.
+	// https://zsh.sourceforge.io/Doc/Release/Redirection.html#Redirection
+	fileTest(
+		[]string{"echo $(cat <<EOF)\nhi\nEOF"},
+		printsAs("echo $(\n\tcat <<EOF\nEOF\n)\nhi\nEOF"),
+		langFile([]*Stmt{
+			stmt(call(litWord("echo"), word(cmdSubst(&Stmt{
+				Cmd:    litCall("cat"),
+				Redirs: []*Redirect{{Op: Hdoc, Word: litWord("EOF")}},
+			})))),
+			litStmt("hi"),
+			litStmt("EOF"),
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"cat <(cat <<EOF)\nhi"},
+		printsAs("cat <(\n\tcat <<EOF\nEOF\n)\nhi"),
+		langFile([]*Stmt{
+			stmt(call(litWord("cat"), word(&ProcSubst{Op: CmdIn, Stmts: []*Stmt{{
+				Cmd:    litCall("cat"),
+				Redirs: []*Redirect{{Op: Hdoc, Word: litWord("EOF")}},
+			}}}))),
+			litStmt("hi"),
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"x=`cat <<EOF`"},
+		printsAs("x=$(\n\tcat <<EOF\nEOF\n)"),
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name: lit("x"),
+			Value: word(cmdSubst(&Stmt{
+				Cmd:    litCall("cat"),
+				Redirs: []*Redirect{{Op: Hdoc, Word: litWord("EOF")}},
+			})),
+		}}}, LangZsh),
+	),
+	// A body that started inside the substitution reads its `)` as text.
+	fileTest([]string{"echo $(cat <<EOF\nhi\n)"}, langErr2("1:6: reached EOF without matching `$(` with `)`", LangZsh)),
 }
 
 func TestZshConfirmSyntaxOnly(t *testing.T) {

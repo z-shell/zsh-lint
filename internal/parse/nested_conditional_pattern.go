@@ -1566,7 +1566,9 @@ func consumeHeredocBodies(src []byte, start int, heredocs []pendingHeredoc) (int
 				break
 			}
 			if newline < 0 {
-				return 0, false
+				// Zsh ends a here-document no line closes at the end
+				// of the file (#686), and any later one is empty.
+				return len(src), true
 			}
 			offset = lineEnd + 1
 		}

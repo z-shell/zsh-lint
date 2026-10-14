@@ -37,7 +37,6 @@ var adapterSnippets = map[string]adapterSnippet{
 	"flagBracket":       {attempt: parseSubscriptFlagBracketPattern, source: "print ${line[(i)[a]]}"},
 	"patternAfterComma": {attempt: parseSubscriptPatternAfterComma, source: "print ${line[(r)a,--[^:]##]}"},
 	"tryAlways":         {attempt: parseTryAlways, source: "{ true } always { true }"},
-	"ansiCHeredoc":      {attempt: parseANSICHeredocDelimiter, source: "cat <<$'E\\x4fF'\nbody\nEOF"},
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
 	"multiNameFunction": {attempt: parseMultiNameFunction, source: "a b () { print hi }"},
 	"assignAlways":      {attempt: parseAssignAlways, source: "print ${x::=value}"},

@@ -43,6 +43,11 @@ func TestZshGroupSubstBodyReject(t *testing.T) {
 		{"print a(`echo \\$x; done`)", "1:20: `done` can only be used to end a loop"},
 		// An escape on an earlier line shifts the offset but not the column.
 		{"print a(`echo \\$x\ndone`)", "2:1: `done` can only be used to end a loop"},
+		// Read alone, a body ends a here-document at its end (#686), but in
+		// the source the here-document reads the group's `)` as text, so the
+		// substitution never closes.
+		{"print a($(cat <<E\nx\n))", "1:15: unclosed here-document `E`"},
+		{"print a(<(cat <<E\nx\n))", "1:15: unclosed here-document `E`"},
 	} {
 		t.Run(tc.src, func(t *testing.T) {
 			_, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(tc.src+"\n"), "")
@@ -61,6 +66,10 @@ func TestZshGroupSubstBodyAccept(t *testing.T) {
 		"print a(`true`)",
 		"print a(<(true))",
 		"print a($(cat <<E\nx\nE\n))",
+		// A here-document whose body has not started ends at the `)`, and
+		// one in backquotes at the closing backquote (#686).
+		"print a($(cat <<E))",
+		"print a(`cat <<E\nx`)",
 		"print a($(echo ')'))",
 		"print a($(echo \\)))",
 		"print a($(# c\n))",

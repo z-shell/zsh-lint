@@ -41,7 +41,6 @@ func adapterChain() []adapterAttempt {
 		parseSubscriptFlagBracketPattern,
 		parseSubscriptPatternAfterComma,
 		parseTryAlways,
-		parseANSICHeredocDelimiter,
 		parseFunctionSemicolonBody,
 		parseMultiNameFunction,
 		parseAssignAlways,

@@ -456,8 +456,8 @@ func (p *Parser) Document(r io.Reader) (*Word, error) {
 	p.src = r
 	p.rune()
 	p.quote = hdocBody
-	p.hdocStops = [][]byte{[]byte("MVDAN_CC_SH_SYNTAX_EOF")}
-	p.parsingDoc = true
+	// No line can match this stop word, as lines never contain newlines.
+	p.hdocStops = [][]byte{[]byte("\n")}
 	p.next()
 	w := p.getWord()
 	return w, p.err
@@ -608,7 +608,7 @@ type Parser struct {
 
 	hdocStops [][]byte // stack of end words for open heredocs
 
-	parsingDoc bool // true if using [Parser.Document]
+	hdocClosePos Pos // position of the last closing heredoc word
 
 	// openNodes tracks how many entire statements or words we're currently parsing.
 	// A non-zero number means that we require certain tokens or words before
@@ -680,7 +680,6 @@ func (p *Parser) reset() {
 	p.recoveredErrors = 0
 	p.heredocs, p.buriedHdocs = p.heredocs[:0], 0
 	p.hdocStops = nil
-	p.parsingDoc = false
 	p.openBquotes = 0
 	p.openBquoteDbls = 0
 	p.accComs = nil
@@ -846,16 +845,16 @@ func (p *Parser) postNested(s saveState) {
 	p.zshWordCont = s.zshWordCont
 }
 
-func (p *Parser) unquotedWordBytes(w *Word) ([]byte, bool) {
+func unquotedWordBytes(w *Word) ([]byte, bool) {
 	buf := make([]byte, 0, 4)
 	didUnquote := false
 	for _, wp := range w.Parts {
-		buf, didUnquote = p.unquotedWordPart(buf, wp, false)
+		buf, didUnquote = unquotedWordPart(buf, wp, false)
 	}
 	return buf, didUnquote
 }
 
-func (p *Parser) unquotedWordPart(buf []byte, wp WordPart, quotes bool) (_ []byte, quoted bool) {
+func unquotedWordPart(buf []byte, wp WordPart, quotes bool) (_ []byte, quoted bool) {
 	switch wp := wp.(type) {
 	case *Lit:
 		for i := 0; i < len(wp.Value); i++ {
@@ -873,11 +872,147 @@ func (p *Parser) unquotedWordPart(buf []byte, wp WordPart, quotes bool) (_ []byt
 		quoted = true
 	case *DblQuoted:
 		for _, wp2 := range wp.Parts {
-			buf, _ = p.unquotedWordPart(buf, wp2, true)
+			buf, _ = unquotedWordPart(buf, wp2, true)
 		}
 		quoted = true
 	}
 	return buf, quoted
+}
+
+// hdocStopWord returns the word that closes the here-document of r, and
+// whether the body is quoted. Zsh removes the quoting of a $'...' delimiter
+// as it does anywhere else, decoding its escapes, so `cat <<$'E\x4fF'` ends
+// at a line holding EOF (#686, formerly an internal/parse adapter, #122).
+// An escape whose decoded bytes are uncertain is a parse error rather than a
+// stop word that never matches and silently swallows the rest of the file.
+func (p *Parser) hdocStopWord(r *Redirect) ([]byte, bool) {
+	if p.lang != LangZsh {
+		return unquotedWordBytes(r.Word)
+	}
+	buf := make([]byte, 0, 4)
+	quoted := false
+	for _, wp := range r.Word.Parts {
+		sq, ok := wp.(*SglQuoted)
+		if !ok || !sq.Dollar {
+			var q bool
+			buf, q = unquotedWordPart(buf, wp, false)
+			quoted = quoted || q
+			continue
+		}
+		decoded, ok := zshDecodeDollarSgl(sq.Value)
+		if !ok {
+			p.posErr(sq.Pos(), "unsupported escape in here-document delimiter %#q", "$'"+sq.Value+"'")
+			return nil, true
+		}
+		buf = append(buf, decoded...)
+		quoted = true
+	}
+	return buf, quoted
+}
+
+// zshDecodeDollarSgl decodes the text between the quotes of $'...' as Zsh
+// does for a here-document delimiter. It reports false for the escapes it
+// does not decode: control and meta forms (\c, \C-, \M-), a NUL byte, an
+// octal value above \377, a missing or invalid code, and an unfinished
+// trailing backslash.
+func zshDecodeDollarSgl(s string) ([]byte, bool) {
+	decoded := make([]byte, 0, len(s))
+	for i := 0; i < len(s); {
+		b := s[i]
+		if b != '\\' {
+			decoded = append(decoded, b)
+			i++
+			continue
+		}
+		if i+1 >= len(s) {
+			return nil, false
+		}
+		escaped := s[i+1]
+		if escaped >= '0' && escaped <= '7' {
+			value, end := zshEscapeDigits(s, i+1, 3, 8)
+			if value == 0 || value > 0xff {
+				return nil, false
+			}
+			decoded = append(decoded, byte(value))
+			i = end
+			continue
+		}
+		switch escaped {
+		case 'a':
+			decoded = append(decoded, '\a')
+		case 'b':
+			decoded = append(decoded, '\b')
+		case 'e', 'E':
+			decoded = append(decoded, 0x1b)
+		case 'f':
+			decoded = append(decoded, '\f')
+		case 'n':
+			// A stop word holding a newline never matches a line,
+			// so the body runs to the end of input, as in Zsh.
+			decoded = append(decoded, '\n')
+		case 'r':
+			decoded = append(decoded, '\r')
+		case 't':
+			decoded = append(decoded, '\t')
+		case 'v':
+			decoded = append(decoded, '\v')
+		case 'x', 'u', 'U':
+			maxDigits := 2
+			switch escaped {
+			case 'u':
+				maxDigits = 4
+			case 'U':
+				maxDigits = 8
+			}
+			value, end := zshEscapeDigits(s, i+2, maxDigits, 16)
+			if end == i+2 || value == 0 {
+				return nil, false
+			}
+			if escaped == 'x' {
+				decoded = append(decoded, byte(value))
+			} else {
+				r := rune(value)
+				if !utf8.ValidRune(r) {
+					return nil, false
+				}
+				decoded = utf8.AppendRune(decoded, r)
+			}
+			i = end
+			continue
+		case 'c', 'C', 'M':
+			return nil, false
+		default:
+			// Any other escaped byte stands for itself: \\, \', \", \q.
+			decoded = append(decoded, escaped)
+		}
+		i += 2
+	}
+	return decoded, true
+}
+
+// zshEscapeDigits reads up to maxDigits digits of base from s[start:] and
+// returns their value and the offset after them.
+func zshEscapeDigits(s string, start, maxDigits, base int) (int, int) {
+	value, end := 0, start
+	for end < len(s) && end-start < maxDigits {
+		var digit int
+		switch c := s[end]; {
+		case c >= '0' && c <= '9':
+			digit = int(c - '0')
+		case c >= 'a' && c <= 'f':
+			digit = int(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			digit = int(c-'A') + 10
+		default:
+			digit = base
+		}
+		if digit >= base {
+			break
+		}
+		value = value*base + digit
+		end++
+	}
+	return value, end
 }
 
 func (p *Parser) doHeredocs() {
@@ -897,7 +1032,10 @@ func (p *Parser) doHeredocs() {
 		if r.Op == DashHdoc {
 			p.quote = hdocBodyTabs
 		}
-		stop, quoted := p.unquotedWordBytes(r.Word)
+		stop, quoted := p.hdocStopWord(r)
+		if p.err != nil {
+			break
+		}
 		p.hdocStops = append(p.hdocStops, stop)
 		if i > 0 && p.r == '\n' {
 			p.rune()
@@ -908,12 +1046,24 @@ func (p *Parser) doHeredocs() {
 			p.next()
 			r.Hdoc = p.getWord()
 		}
-		if stop := p.hdocStops[len(p.hdocStops)-1]; stop != nil {
-			p.posErr(r.Pos(), "unclosed here-document %#q", stop)
+		if p.hdocStops[len(p.hdocStops)-1] == nil {
+			r.ClosePos = p.hdocClosePos
+		} else {
+			p.unclosedHdoc(r)
 		}
 		p.hdocStops = p.hdocStops[:len(p.hdocStops)-1]
 	}
 	p.quote = old
+}
+
+// unclosedHdoc handles a heredoc which ended without its closing word.
+func (p *Parser) unclosedHdoc(r *Redirect) {
+	// Like mksh, reject an unclosed heredoc;
+	// other shells end it at EOF or a closing backquote.
+	if p.lang.in(LangMirBSDKorn) {
+		stop, _ := unquotedWordBytes(r.Word)
+		p.posErr(r.Pos(), "unclosed here-document %#q", stop)
+	}
 }
 
 func (p *Parser) got(tok token) bool {
@@ -1551,10 +1701,23 @@ func (p *Parser) zshGroupSubstCheck(sub *zshGroupSubst, lit []byte) {
 	bp := NewParser(Variant(p.lang))
 	// A body inside a short subscript is lexed inside it too (#529).
 	bp.zshShortIndex = p.zshShortIndex
-	_, err := bp.Parse(bytes.NewReader(body), "")
+	f, err := bp.Parse(bytes.NewReader(body), "")
 	perr, ok := err.(ParseError)
 	if !ok {
-		return
+		if err != nil || sub.bquote {
+			return
+		}
+		// Read alone, the body ends a here-document at its end (#686).
+		// In the source, Zsh reads that body on past the `)` this reader
+		// stopped at, so the substitution never closes: keep the error
+		// here-documents had before they could end at EOF. A backquote
+		// ends a here-document in Zsh too.
+		r := zshHdocPastBody(f, body)
+		if r == nil {
+			return
+		}
+		stop, _ := unquotedWordBytes(r.Word)
+		perr = ParseError{Pos: r.Pos(), Text: fmt.Sprintf("unclosed here-document %#q", stop)}
 	}
 	e := perr.Pos
 	// Put back the backslashes dropped above: each one before the error
@@ -1578,6 +1741,27 @@ func (p *Parser) zshGroupSubstCheck(sub *zshGroupSubst, lit []byte) {
 		col += sub.pos.Col() - 1
 	}
 	p.posErr(NewPos(sub.pos.Offset()+offs, line, col), "%s", perr.Text)
+}
+
+// zshHdocPastBody returns the first here-document in f, parsed from body,
+// whose body started inside body and ran to its end without a closing word.
+// A here-document whose line ends after body never started its body there.
+func zshHdocPastBody(f *File, body []byte) *Redirect {
+	var found *Redirect
+	Walk(f, func(node Node) bool {
+		if found != nil {
+			return false
+		}
+		r, ok := node.(*Redirect)
+		if !ok || (r.Op != Hdoc && r.Op != DashHdoc) || r.ClosePos.IsValid() {
+			return true
+		}
+		if end := int(r.Word.End().Offset()); end <= len(body) && bytes.IndexByte(body[end:], '\n') >= 0 {
+			found = r
+		}
+		return found == nil
+	})
+	return found
 }
 
 // zshCondNest reports whether a zshGroupRune stack top belongs to
@@ -1856,6 +2040,7 @@ func (p *Parser) wordPart(cont bool) WordPart {
 		old := p.preNested(subCmd)
 		p.next()
 		ps.Stmts, ps.Last = p.stmtList()
+		p.zshEndPendingHdocs()
 		p.postNested(old)
 		ps.Rparen = p.matched(ps.OpPos, token(ps.Op), rightParen)
 		return ps
@@ -1916,6 +2101,12 @@ func (p *Parser) wordPart(cont bool) WordPart {
 			p.tok = _EOF
 			p.quoteErr(cs.Pos(), bckQuote)
 		}
+		// Like other shells, end heredocs whose bodies did not start
+		// before the closing backquote, unlike with "$(".
+		for _, r := range p.heredocs[p.buriedHdocs:] {
+			p.unclosedHdoc(r)
+		}
+		p.heredocs = p.heredocs[:p.buriedHdocs]
 		p.postNested(old)
 		p.openBquotes--
 		if old.quote == dblQuotes {
@@ -2033,9 +2224,22 @@ func (p *Parser) cmdSubst() *CmdSubst {
 	old := p.preNested(subCmd)
 	p.next()
 	cs.Stmts, cs.Last = p.stmtList()
+	p.zshEndPendingHdocs()
 	p.postNested(old)
 	cs.Right = p.matched(cs.Left, dollParen, rightParen)
 	return cs
+}
+
+// zshEndPendingHdocs ends, at the `)` closing a command or process
+// substitution, the here-documents opened inside it whose bodies have not
+// started, as Zsh does: `echo $(cat <<EOF)` passes an empty body, and the
+// lines after it are commands. Other shells read those bodies after the
+// line holding the `)`; a backquote ends them in every shell (#686).
+func (p *Parser) zshEndPendingHdocs() {
+	if p.lang != LangZsh {
+		return
+	}
+	p.heredocs = p.heredocs[:p.buriedHdocs]
 }
 
 func (p *Parser) dblQuoted() *DblQuoted {
