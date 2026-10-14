@@ -32,7 +32,7 @@ if [[ "$foo" == "bar" ]]; then echo 1; fi
 
 func TestPreferDoubleBracketsCommandForms(t *testing.T) {
 	for _, name := range []string{"test", "["} {
-		for _, command := range commandForms(name) {
+		for _, command := range externalCommandForms(name) {
 			t.Run(command, func(t *testing.T) {
 				src := "f() { " + command + " -f x"
 				if name == "[" {
