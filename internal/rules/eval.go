@@ -13,7 +13,10 @@ import (
 //
 // Name: Use of eval
 //
-// Summary: Reports commands whose literal command name is `eval`.
+// Summary: Reports commands that run the `eval` builtin, including after the
+// precommand modifiers `-`, `builtin`, `exec`, `noglob` and `nocorrect`. A name
+// after `command` is not reported, because Zsh then runs only an external
+// command.
 //
 // Why: The Zsh manual documents that `eval` reads its arguments as shell input
 // and executes the resulting commands in the current shell process. Dynamic or

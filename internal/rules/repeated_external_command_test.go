@@ -64,7 +64,7 @@ func TestRepeatedExternalCommand(t *testing.T) {
 
 func TestRepeatedExternalCommandForms(t *testing.T) {
 	for _, name := range []string{"awk", "cut", "find", "git", "grep", "sed", "sort", "tr"} {
-		for _, command := range commandForms(name) {
+		for _, command := range externalCommandForms(name) {
 			t.Run(command, func(t *testing.T) {
 				file, err := parse.Parse(strings.NewReader("for item in one two; do "+command+" arg; done\n"), "completion")
 				if err != nil {

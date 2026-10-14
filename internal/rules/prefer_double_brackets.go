@@ -60,7 +60,8 @@ func (r PreferDoubleBrackets) Analyze(ctx *analyzer.Context, node syntax.Node) {
 		return
 	}
 
-	if name, _ := effectiveCommand(call); name == "[" || name == "test" {
+	// test and [ also exist as external commands, so the command modifier keeps them.
+	if name := resolveCommand(call).name; name == "[" || name == "test" {
 		ctx.Report(call.Pos(), call.End(), r.ID(), diag.Hint, "Prefer Zsh's [[ ... ]] over [ ... ] or test for conditions")
 	}
 }

@@ -62,4 +62,17 @@ func TestEvalUsageCommandForms(t *testing.T) {
 			}
 		})
 	}
+	// #685: these forms run no eval builtin in Zsh, so reporting them would be
+	// a false positive.
+	for _, command := range append(builtinOnlyCommandForms("eval"), `"\eval"`, `'\eval'`, `"e\val"`) {
+		t.Run(command, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader("f() { "+command+` "$1"; }`), "test.zsh")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if got := analyzer.New(EvalUsage{}).Analyze(file, "test.zsh"); len(got) != 0 {
+				t.Fatalf("diagnostics = %v, want none", got)
+			}
+		})
+	}
 }

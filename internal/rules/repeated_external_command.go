@@ -66,7 +66,8 @@ func (rule RepeatedExternalCommand) reportLoopCalls(ctx *analyzer.Context, state
 			if !ok || len(call.Args) == 0 {
 				return true
 			}
-			name, _ := effectiveCommand(call)
+			// The command modifier still runs these external commands.
+			name := resolveCommand(call).name
 			if !knownExternalCommand(name) || seen[call.Pos().Offset()] {
 				return true
 			}

@@ -174,10 +174,12 @@ func isLiteralReturnStatement(stmt *syntax.Stmt) bool {
 		return false
 	}
 
-	command, args := effectiveCommand(call)
-	if command != "return" {
+	// exec return replaces the shell instead of returning from the function.
+	resolved := resolveCommand(call)
+	if resolved.exec || resolved.external || resolved.name != "return" {
 		return false
 	}
+	args := resolved.args
 	// Zsh return accepts at most one status, optionally after "--". Treating
 	// extra literal words as a guard is unsafe because return reports an error
 	// and execution continues in the function.

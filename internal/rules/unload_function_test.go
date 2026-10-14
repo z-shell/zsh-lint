@@ -224,6 +224,21 @@ func TestUnloadFunctionCommandForms(t *testing.T) {
 				}
 			})
 		}
+		// The command modifier finds no zle builtin or add-zsh-hook function,
+		// so these lines register nothing (#685).
+		for _, command := range builtinOnlyCommandForms(registration.name) {
+			t.Run(command, func(t *testing.T) {
+				file, err := parse.Parse(strings.NewReader(command+" "+registration.args+"\n"), "example.plugin.zsh")
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				got := analyzer.New(ProjectUnloadLifecycle{}).AnalyzeSource(file, "plugin.zsh",
+					configuredSource(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, ""))
+				if len(got) != 0 {
+					t.Fatalf("project diagnostics = %v, want none", got)
+				}
+			})
+		}
 	}
 	for _, command := range commandForms("unfunction") {
 		t.Run(command, func(t *testing.T) {

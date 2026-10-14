@@ -51,8 +51,25 @@ func TestFunctionScopedOptionsCommandForms(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			if got := analyzer.New(FunctionScopedOptions{}).Analyze(file, "functions/example"); len(got) != 0 {
-				t.Fatalf("diagnostics = %v, want none", got)
+			// exec return replaces the shell rather than returning, and the
+			// command modifier runs no return builtin, so neither is a guard.
+			want := 0
+			if strings.HasPrefix(command, "exec ") {
+				want = 1
+			}
+			if got := analyzer.New(FunctionScopedOptions{}).Analyze(file, "functions/example"); len(got) != want {
+				t.Fatalf("diagnostics = %v, want %d", got, want)
+			}
+		})
+	}
+	for _, command := range builtinOnlyCommandForms("return") {
+		t.Run(command, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader("[[ -n $ready ]] || "+command+" 1\nbuiltin emulate -L zsh\n"), "functions/example")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if got := analyzer.New(FunctionScopedOptions{}).Analyze(file, "functions/example"); len(got) != 1 {
+				t.Fatalf("diagnostics = %v, want one", got)
 			}
 		})
 	}

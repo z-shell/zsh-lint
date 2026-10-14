@@ -68,7 +68,10 @@ func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	if !ok {
 		return
 	}
-	name, args := effectiveCommand(call)
+	// The : exemption also covers a name after the command modifier: its
+	// arguments are expanded only for their side effects either way.
+	resolved := resolveCommand(call)
+	name, args := resolved.name, resolved.args
 	if name == ":" {
 		return
 	}
