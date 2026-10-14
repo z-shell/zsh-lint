@@ -1,0 +1,9 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Redirection.html#Redirection
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Command-Substitution
+# Issue #686: a here-document opened in a command substitution inside a
+# glob group reads its body on past the `)` the group reader stops at, so
+# the substitution never closes. Top level; zsh -f -n reports: parse error
+# near `x(a|$(cat <<EOF'.
+echo x(a|$(cat <<EOF
+hi
+))

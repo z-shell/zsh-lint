@@ -1,0 +1,9 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Redirection.html#Redirection
+# Manual: https://zsh.sourceforge.io/Doc/Release/Expansion.html#Command-Substitution
+# Issue #686: a here-document whose body starts inside a command substitution
+# reads the `)` as body text and ends at the end of the file, so the
+# substitution never closes. Top level; zsh -f -n reports: parse error near
+# `$(cat <<EOF'.
+print $(cat <<EOF
+hi
+)

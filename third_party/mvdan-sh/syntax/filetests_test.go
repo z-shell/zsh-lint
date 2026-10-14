@@ -1104,6 +1104,38 @@ var commonFileTests = []fileTestCase{
 		}),
 	),
 	fileTest(
+		[]string{"foo <<ÉOF\nbar\nÉOF"},
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("ÉOF"),
+				Hdoc: litWord("bar\n"),
+			}},
+		}),
+	),
+	fileTest(
+		[]string{"foo <<ÉOF\nÉOF"},
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("ÉOF"),
+			}},
+		}),
+	),
+	fileTest(
+		[]string{"foo <<'ÉOF'\nbar\nÉOF"},
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: word(sglQuoted("ÉOF")),
+				Hdoc: litWord("bar\n"),
+			}},
+		}),
+	),
+	fileTest(
 		[]string{"a <<EOF\nfoo$bar\nEOF"},
 		langFile(&Stmt{
 			Cmd: litCall("a"),
@@ -1584,6 +1616,201 @@ var commonFileTests = []fileTestCase{
 				Hdoc: litWord("\tbar\n"),
 			}},
 		}),
+	),
+	// Only mksh rejects heredocs ending at EOF or at a closing backquote;
+	// the printer adds their missing closing lines.
+	fileTest(
+		[]string{"foo <<EOF", "foo <<EOF\n", "foo <<EOF\n\\\n"},
+		printsAs("foo <<EOF\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("EOF"),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<EOF\nbar", "foo <<EOF\nbar\\\n"},
+		printsAs("foo <<EOF\nbar\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("EOF"),
+				Hdoc: litWord("bar"),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<EOF\nbar\n"},
+		printsAs("foo <<EOF\nbar\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("EOF"),
+				Hdoc: litWord("bar\n"),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<EOF\n$bar"},
+		printsAs("foo <<EOF\n$bar\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("EOF"),
+				Hdoc: word(litParamExp("bar")),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<EOF\nbar\\"},
+		printsAs("foo <<EOF\nbar\\\\\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("EOF"),
+				Hdoc: litWord(`bar\`),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<'EOF'\nbar\\"},
+		printsAs("foo <<'EOF'\nbar\\\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: word(sglQuoted("EOF")),
+				Hdoc: litWord(`bar\`),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<-EOF\n\tbar"},
+		printsAs("foo <<-EOF\n\tbar\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   DashHdoc,
+				Word: litWord("EOF"),
+				Hdoc: litWord("\tbar"),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<-EOF\n\tbar\n\t"},
+		printsAs("foo <<-EOF\n\tbar\n\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   DashHdoc,
+				Word: litWord("EOF"),
+				Hdoc: litWord("\tbar\n\t"),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<-EOF\n$bar\t"},
+		printsAs("foo <<-EOF\n\t$bar\t\nEOF"),
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   DashHdoc,
+				Word: litWord("EOF"),
+				Hdoc: word(litParamExp("bar"), lit("\t")),
+			}},
+		}),
+		langErr2("1:5: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"foo <<EOF || bar <<EOF\nbaz\nEOF"},
+		printsAs("foo <<EOF || bar <<EOF\nbaz\nEOF\nEOF"),
+		langFile(&BinaryCmd{
+			Op: OrStmt,
+			X: &Stmt{
+				Cmd: litCall("foo"),
+				Redirs: []*Redirect{{
+					Op:   Hdoc,
+					Word: litWord("EOF"),
+					Hdoc: litWord("baz\n"),
+				}},
+			},
+			Y: &Stmt{
+				Cmd: litCall("bar"),
+				Redirs: []*Redirect{{
+					Op:   Hdoc,
+					Word: litWord("EOF"),
+				}},
+			},
+		}),
+		langErr2("1:18: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"`foo <<EOF\nbar`"},
+		printsAs("$(\n\tfoo <<EOF\nbar\nEOF\n)"),
+		langFile(cmdSubst(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("EOF"),
+				Hdoc: litWord("bar"),
+			}},
+		})),
+		langErr2("1:6: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"`foo <<'EOF'\nbar`"},
+		printsAs("$(\n\tfoo <<'EOF'\nbar\nEOF\n)"),
+		langFile(cmdSubst(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: word(sglQuoted("EOF")),
+				Hdoc: litWord("bar"),
+			}},
+		})),
+		langErr2("1:6: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"`foo <<EOF`"},
+		printsAs("$(\n\tfoo <<EOF\nEOF\n)"),
+		langFile(cmdSubst(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{{
+				Op:   Hdoc,
+				Word: litWord("EOF"),
+			}},
+		})),
+		langErr2("1:6: unclosed here-document `EOF`", LangMirBSDKorn),
+	),
+	fileTest(
+		[]string{"`foo <<EOF`\nbar\nEOF"},
+		printsAs("$(\n\tfoo <<EOF\nEOF\n)\nbar\nEOF"),
+		langFile([]*Stmt{
+			stmt(call(word(cmdSubst(&Stmt{
+				Cmd: litCall("foo"),
+				Redirs: []*Redirect{{
+					Op:   Hdoc,
+					Word: litWord("EOF"),
+				}},
+			})))),
+			litStmt("bar"),
+			litStmt("EOF"),
+		}),
+		langErr2("1:6: unclosed here-document `EOF`", LangMirBSDKorn),
 	),
 	fileTest(
 		[]string{
@@ -5694,6 +5921,10 @@ func (c sanityChecker) visit(node Node) bool {
 				strs = append(strs, "&>>!", ">>&|", ">>&!")
 			}
 			c.checkPos(node, r.OpPos, strs...)
+			if r.ClosePos.IsValid() {
+				stop, _ := unquotedWordBytes(r.Word)
+				c.checkPos(node, r.ClosePos, string(stop))
+			}
 		}
 	case *Lit:
 		pos, end := int(node.Pos().Offset()), int(node.End().Offset())

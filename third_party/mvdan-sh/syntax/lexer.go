@@ -1552,9 +1552,15 @@ func (p *Parser) advanceLitHdoc(r rune) {
 	for p.quote == hdocBodyTabs && r == '\t' {
 		r = p.rune()
 	}
-	lStart := len(p.litBs) - 1
+	lStart := len(p.litBs) - p.w
+	atLineStart := true
+	var lPos Pos
 	stop := p.hdocStops[len(p.hdocStops)-1]
 	for ; ; r = p.rune() {
+		if atLineStart {
+			lPos = p.nextPos() // the first rune in the line
+			atLineStart = false
+		}
 		switch r {
 		case escNewl, '$':
 			p.val = p.endLit()
@@ -1568,13 +1574,7 @@ func (p *Parser) advanceLitHdoc(r rune) {
 			}
 			fallthrough
 		case '\n', runeEOF:
-			if p.parsingDoc {
-				if r == runeEOF {
-					p.tok = _LitWord
-					p.val = p.endLit()
-					return
-				}
-			} else if lStart == 0 && lastTok == _Lit {
+			if lStart == 0 && lastTok == _Lit {
 				// This line starts right after an escaped
 				// newline, so it should never end the heredoc.
 			} else if lStart >= 0 {
@@ -1589,17 +1589,28 @@ func (p *Parser) advanceLitHdoc(r rune) {
 					if p.val == "" {
 						p.tok = _Newl
 					}
+					if stop != nil {
+						// Not the newline lexed right after the closing word,
+						// which matches as an empty line with a nil stop word.
+						p.hdocClosePos = lPos
+					}
 					p.hdocStops[len(p.hdocStops)-1] = nil
 					return
 				}
 			}
 			if r != '\n' {
-				return // hit an unexpected EOF or closing backquote
+				// Like other shells, end an unclosed heredoc
+				// at EOF or at a closing backquote.
+				if p.val = p.endLit(); p.val == "" {
+					p.next()
+				}
+				return
 			}
 			for p.quote == hdocBodyTabs && p.peek() == '\t' {
 				p.rune()
 			}
 			lStart = len(p.litBs)
+			atLineStart = true
 		}
 	}
 }
@@ -1609,14 +1620,12 @@ func (p *Parser) quotedHdocWord() *Word {
 	p.newLit(r)
 	pos := p.nextPos()
 	stop := p.hdocStops[len(p.hdocStops)-1]
-	for ; ; r = p.rune() {
-		if r == runeEOF {
-			return nil
-		}
+	for ; r != runeEOF; r = p.rune() {
 		for p.quote == hdocBodyTabs && r == '\t' {
 			r = p.rune()
 		}
-		lStart := len(p.litBs) - 1
+		lStart := len(p.litBs) - p.w
+		lPos := p.nextPos()
 	runeLoop:
 		for {
 			switch r {
@@ -1641,6 +1650,7 @@ func (p *Parser) quotedHdocWord() *Word {
 			line = line[:len(line)-1] // minus \n
 		}
 		if bytes.Equal(line, stop) {
+			p.hdocClosePos = lPos
 			p.hdocStops[len(p.hdocStops)-1] = nil
 			val := p.endLit()[:lStart]
 			if val == "" {
@@ -1648,7 +1658,16 @@ func (p *Parser) quotedHdocWord() *Word {
 			}
 			return p.wordOne(p.lit(pos, val))
 		}
+		if r == '`' {
+			break // closing backquote
+		}
 	}
+	// Like other shells, end an unclosed heredoc
+	// at EOF or at a closing backquote.
+	if val := p.endLit(); val != "" {
+		return p.wordOne(p.lit(pos, val))
+	}
+	return nil
 }
 
 func (p *Parser) advanceLitRe(r rune) {

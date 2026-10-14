@@ -1,0 +1,8 @@
+# Manual: https://zsh.sourceforge.io/Doc/Release/Redirection.html#Redirection
+# Manual: https://zsh.sourceforge.io/Doc/Release/Functions.html#Functions
+# Issue #686: a here-document ends at the end of the file, but the function
+# body it stands in is still open there. zsh -f -n reports: parse error
+# near `\n'.
+f() {
+  cat <<EOF
+hello
