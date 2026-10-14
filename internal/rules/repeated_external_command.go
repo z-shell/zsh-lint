@@ -66,11 +66,9 @@ func (rule RepeatedExternalCommand) reportLoopCalls(ctx *analyzer.Context, state
 			if !ok || len(call.Args) == 0 {
 				return true
 			}
-			// The command modifier still runs these external commands. exec replaces
-			// the shell, so the loop does not run its command again.
-			resolved := resolveCommand(call)
-			name := resolved.name
-			if resolved.exec || !knownExternalCommand(name) || seen[call.Pos().Offset()] {
+			// The command modifier still runs these external commands.
+			name := resolveCommand(call).name
+			if !knownExternalCommand(name) || seen[call.Pos().Offset()] {
 				return true
 			}
 			seen[call.Pos().Offset()] = true

@@ -72,17 +72,34 @@ func TestRepeatedExternalCommandForms(t *testing.T) {
 				}
 				got := analyzer.New(RepeatedExternalCommand{}).AnalyzeSource(file, "completion",
 					configuredSource(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, projectconfig.RoleCompletion))
-				// exec replaces the shell, so its command runs once, not per iteration.
-				if strings.HasPrefix(command, "exec ") {
-					if len(got) != 0 {
-						t.Fatalf("diagnostics = %v, want none after exec", got)
-					}
-					return
-				}
 				if len(got) != 1 || !strings.Contains(got[0].Message, "'"+name+"'") {
 					t.Fatalf("diagnostics = %v, want one for %s", got, name)
 				}
 			})
 		}
+	}
+}
+
+// TestRepeatedExternalCommandForkedExec pins that exec in a command
+// substitution, subshell, pipeline or background job replaces only a forked
+// process, so the external command still runs on every iteration (#685).
+func TestRepeatedExternalCommandForkedExec(t *testing.T) {
+	for _, body := range []string{
+		`x=$(exec grep foo $i)`,
+		`( exec grep foo $i )`,
+		`exec grep foo $i | cat`,
+		`exec grep foo $i &`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader("for i in a b; do "+body+"; done\n"), "completion")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			got := analyzer.New(RepeatedExternalCommand{}).AnalyzeSource(file, "completion",
+				configuredSource(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, projectconfig.RoleCompletion))
+			if len(got) != 1 || !strings.Contains(got[0].Message, "'grep'") {
+				t.Fatalf("diagnostics = %v, want one for grep", got)
+			}
+		})
 	}
 }
