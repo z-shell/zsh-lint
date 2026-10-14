@@ -1772,13 +1772,16 @@ func zshCondNest(top byte) bool {
 }
 
 // zshCondGroupRune is zshGroupRune for a glob group in a `-NAME` condition
-// operand (#484), where Zsh lexes the group as part of one word (gettokstr in
+// operand (#484), or in the right operand of a numeric or file comparison
+// (#693), where Zsh lexes the group as part of one word (gettokstr in
 // Src/lex.c). A bare `(` nests, so only its matching `)` closes the group.
 // `;`, `&`, and a `<` or `>` that starts neither a process substitution nor a
 // numeric glob `<m-n>` end the word inside the group, which Zsh reports as a
 // parse error; reporting it here moves p.r to EOF, which ends the caller's
-// loop.
-func (p *Parser) zshCondGroupRune(nest []byte) []byte {
+// loop. A `&&` is the exception: it ends the word and is then the condition's
+// own operator, so `[[ 5 -eq (o && x ]]` is valid Zsh with the operand `(o`.
+// For `&&` it reports false and leaves p.r unread, as zshWordGroupRune does.
+func (p *Parser) zshCondGroupRune(nest []byte) ([]byte, bool) {
 	var top byte
 	if len(nest) > 0 {
 		top = nest[len(nest)-1]
@@ -1790,37 +1793,42 @@ func (p *Parser) zshCondGroupRune(nest []byte) []byte {
 		case top == 'N' && p.r == '-':
 			nest[len(nest)-1] = 'M'
 		case top == 'M' && p.r == '>':
-			return nest[:len(nest)-1]
+			return nest[:len(nest)-1], true
 		default:
 			p.zshCondGroupErr()
 		}
-		return nest
+		return nest, true
 	}
 	switch p.r {
 	case '(':
 		if p.peek() == ')' {
 			// `()` ends the word in Zsh, which is an error here (#522).
 			p.posErr(p.nextPos(), "a condition glob group cannot contain %#q", "()")
-			return nest
+			return nest, true
 		}
-		return append(nest, 'g')
+		return append(nest, 'g'), true
 	case ')':
-		return nest[:len(nest)-1]
+		return nest[:len(nest)-1], true
 	case '<', '>':
 		if p.peek() == '(' {
 			p.rune()
-			return append(nest, '$')
+			return append(nest, '$'), true
 		}
 		if p.r == '<' {
-			return append(nest, 'N')
+			return append(nest, 'N'), true
 		}
 		p.zshCondGroupErr()
-	case ';', '&':
+	case '&':
+		if p.peek() == '&' {
+			return nest, false
+		}
+		p.zshCondGroupErr()
+	case ';':
 		p.zshCondGroupErr()
 	default:
-		return p.zshGroupRune(nest)
+		return p.zshGroupRune(nest), true
 	}
-	return nest
+	return nest, true
 }
 
 func (p *Parser) zshCondGroupErr() {
@@ -2186,7 +2194,11 @@ func (p *Parser) zshGlobGroup(pos Pos, open string, nest []byte) WordPart {
 		before := len(nest)
 		if p.zshCondOperand && (len(nest) == 0 || zshCondNest(nest[len(nest)-1])) {
 			// An error ends the loop: posErr moves p.r to EOF.
-			nest = p.zshCondGroupRune(nest)
+			var ok bool
+			if nest, ok = p.zshCondGroupRune(nest); !ok {
+				broke = true
+				break
+			}
 		} else if len(nest) == 0 || nest[len(nest)-1] == 'g' {
 			var ok bool
 			if nest, ok = p.zshWordGroupRune(nest); !ok {
@@ -5297,7 +5309,11 @@ func (p *Parser) testExprBinary(pastAndOr bool) TestExpr {
 				return p.zshDashUnary(name, p.wordOne(&Lit{ValuePos: b.OpPos, ValueEnd: posAddCol(b.OpPos, len(op)), Value: op}))
 			}
 		}
-		b.Y = p.followWordTok(token(b.Op), b.OpPos)
+		if p.lang.in(LangZsh) && zshCondGroupOperand(b.Op) {
+			b.Y = p.zshCondFollowWord(token(b.Op), b.OpPos)
+		} else {
+			b.Y = p.followWordTok(token(b.Op), b.OpPos)
+		}
 		if word, ok := b.Y.(*Word); ok && word != nil && p.lang.in(LangZsh) && (b.Op == TsBefore || b.Op == TsAfter) {
 			if startsWithParen(word) {
 				p.posErr(word.Pos(), "a condition operand cannot start with `(`")
@@ -5378,6 +5394,29 @@ func (p *Parser) zshCondWord() *Word {
 	defer func(old bool) { p.zshCondOperand = old }(p.zshCondOperand)
 	p.zshCondOperand = true
 	return p.getWord()
+}
+
+// zshCondGroupOperand reports whether the right operand of op is read with
+// zshCondFollowWord (#693). Zsh's par_cond_2 (Src/parse.c) lexes the right
+// operand of every binary condition with parentheses as part of the word, so
+// `[[ 5 -eq ((o+4)) ]]` is one operand `((o+4))`. The numeric and file
+// comparisons take that reading here. The pattern operators keep theirs, which
+// the conditional-pattern adapter completes for nested groups; `=~` has its own
+// lexing, and `<` and `>` reject a leading `(`.
+func zshCondGroupOperand(op BinTestOperator) bool {
+	switch op {
+	case TsNewer, TsOlder, TsDevIno, TsEql, TsNeq, TsLeq, TsGeq, TsLss, TsGtr:
+		return true
+	}
+	return false
+}
+
+// zshCondFollowWord is followWordTok for the right operand of a binary
+// condition, with the condition's glob-group lexing (#693), as zshCondWord.
+func (p *Parser) zshCondFollowWord(tok token, pos Pos) *Word {
+	defer func(old bool) { p.zshCondOperand = old }(p.zshCondOperand)
+	p.zshCondOperand = true
+	return p.followWordTok(tok, pos)
 }
 
 // zshDashUnary builds the one-operand form of a `-NAME` condition: a

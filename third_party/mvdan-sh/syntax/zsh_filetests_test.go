@@ -47,6 +47,17 @@ var zshFileTests = []fileTestCase{
 			Else: &IfClause{Then: stmts(litCall("print", "b"))},
 		}, LangZsh),
 	),
+	// The right operand of a numeric or file comparison is one word with
+	// its nested glob groups (#693).
+	// https://zsh.sourceforge.io/Doc/Release/Conditional-Expressions.html
+	fileTest(
+		[]string{"[[ 5 -eq ((o+4)) ]]"},
+		langFile(&TestClause{X: &BinaryTest{Op: TsEql, X: litWord("5"), Y: litWord("((o+4))")}}, LangZsh),
+	),
+	fileTest(
+		[]string{"[[ x -nt a((b)c) ]]"},
+		langFile(&TestClause{X: &BinaryTest{Op: TsNewer, X: litWord("x"), Y: word(lit("a"), lit("((b)c)"))}}, LangZsh),
+	),
 	// Empty sublists formerly needed separator adapters (#572).
 	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Simple-Commands-_0026-Pipelines
 	fileTest([]string{"; foo"}, printsAs("foo"), langFile(litCall("foo"), LangZsh)),
