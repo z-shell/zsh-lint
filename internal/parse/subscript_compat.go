@@ -26,6 +26,13 @@ const (
 	// reported bytes are that operator inside the key.
 	invalidSubscriptPostfixOperand = " must follow a name"
 	invalidSubscriptPrefixOperand  = " must be followed by a literal"
+	// A `?` in a key with no `:` after it is read as an unfinished ternary,
+	// as in `e[a?b]`, and reported at the `?` (#691).
+	invalidSubscriptTernaryColon = "ternary operator missing `:` after `?`"
+	// A `~` after an operand, as in `e[a~b]`, ends the arithmetic, since
+	// only a binary operator may follow there; mvdan/sh then reports the
+	// subscript unclosed at its `[` (#691).
+	invalidSubscriptTilde = "reached `~` without matching `[` with `]`"
 )
 
 // associativeKeyMask replaces every masked key byte. mvdan/sh keeps `#`
@@ -81,6 +88,7 @@ func parseAssociativeSubscriptWithParser(
 
 func isSubscriptParseError(text string) bool {
 	if text == invalidSubscriptExpression || text == invalidSubscriptTernary ||
+		text == invalidSubscriptTernaryColon || text == invalidSubscriptTilde ||
 		strings.HasPrefix(text, invalidSubscriptArithmetic) {
 		return true
 	}
@@ -115,14 +123,17 @@ func isDoubledSignAt(src []byte, key associativeKey, offset int) bool {
 }
 
 // subscriptOperatorError returns the single punctuation byte that mvdan/sh
-// reported as an arithmetic operator missing an operand.
+// reported as an arithmetic operator missing an operand. An assignment `=`
+// without a name before it, as in `e[=]`, is reported as "`=` must follow a
+// name" (#691).
 func subscriptOperatorError(text string) (byte, bool) {
 	rest, ok := strings.CutPrefix(text, "`")
 	if !ok || len(rest) < 2 || rest[1] != '`' {
 		return 0, false
 	}
 	op, suffix := rest[0], rest[2:]
-	if suffix != invalidSubscriptLeftOperand && suffix != invalidSubscriptRightOperand {
+	if suffix != invalidSubscriptLeftOperand && suffix != invalidSubscriptRightOperand &&
+		(op != '=' || suffix != invalidSubscriptPostfixOperand) {
 		return 0, false
 	}
 	if !isBareKeyPunctuation(op) {
@@ -135,9 +146,15 @@ func subscriptOperatorError(text string) (byte, bool) {
 // associative key. The set stays narrow so arithmetic subscripts on ordinary
 // arrays keep their operators; masking only ever happens after an error the
 // gate ties to this key, so a subscript that parses keeps every operator.
+// The operator bytes `%`, `*`, `?`, `~`, `,` and `=` joined the set for keys
+// such as `z[%]` and `z[,]` in Zsh's define-composed-chars and
+// `emoji[keycap_*]` in Oh My Zsh (#691). `^` and `!` stay out: they open a
+// negated bracket expression, and in `${m[(r)a,b[^:]]}` this retry, which
+// runs first, would claim the pattern-after-comma adapter's `b[^:]` (#277).
+// `&`, `|` and `;` stay out too.
 func isBareKeyPunctuation(b byte) bool {
 	switch b {
-	case '.', '-', '+', ':', '@', '<', '>', '/':
+	case '.', '-', '+', ':', '@', '<', '>', '/', '%', '*', '?', '~', ',', '=':
 		return true
 	}
 	return false
@@ -207,6 +224,9 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (associative
 	if !ok {
 		return associativeKey{}, false
 	}
+	if isUnbracedAngleKeyWithOperatorByte(src, key) {
+		return associativeKey{}, false
+	}
 	first := src[open+1]
 	switch {
 	case errorText == invalidSubscriptExpression:
@@ -217,10 +237,23 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (associative
 		if src[seed] != ':' || !slices.Contains(key.punctuation, seed) || len(key.spaces) > 0 {
 			return associativeKey{}, false
 		}
+	case errorText == invalidSubscriptTernaryColon:
+		if src[seed] != '?' || !slices.Contains(key.punctuation, seed) || len(key.spaces) > 0 {
+			return associativeKey{}, false
+		}
+	case errorText == invalidSubscriptTilde:
+		// Reported at the key's `[`, so the `~` that stopped the
+		// arithmetic must be the key's own.
+		if seed != open || len(key.spaces) > 0 ||
+			!slices.ContainsFunc(key.punctuation, func(offset int) bool { return src[offset] == '~' }) {
+			return associativeKey{}, false
+		}
 	case strings.HasPrefix(errorText, invalidSubscriptArithmetic):
-		// `g[@x]`, or an operand straight after a postfix doubled sign,
-		// `g[a--b]`: the decrement took `a`, and `b` has no operator.
-		atKey := first == '@' && key.close-key.open > 2
+		// `g[@x]` or `g[*x]`, whose leading byte the subscript reader takes
+		// as the whole-array subscript, or an operand straight after a
+		// postfix doubled sign, `g[a--b]`: the decrement took `a`, and `b`
+		// has no operator.
+		atKey := (first == '@' || first == '*') && key.close-key.open > 2
 		switch {
 		case len(key.spaces) > 0:
 			// `g[a b]`: a key word straight after another across blanks, where
@@ -256,6 +289,32 @@ func findBareAssociativeKey(src []byte, seed int, errorText string) (associative
 
 func isSpaceByte(b byte) bool {
 	return b == ' ' || b == '\t'
+}
+
+// isUnbracedAngleKeyWithOperatorByte reports a key outside a braced `${...}`
+// that holds both `<` or `>` and one of the operator bytes #691 added. Zsh's
+// lexer can end such a word at an unquoted `<` or `>`: `print $e[a<%>]` is
+// `print $e[a` with two redirections, which fails at the top level with
+// `invalid subscript` and in `[[ -n $e[a<%>] ]]` is a parse error, and
+// `e[%>=]=1` is the word `e[%` with a redirection to `=]=1`. The retry has
+// masked `<` and `>` in these forms since #236, a known false accept for
+// `print $e[a<b>]` and `e[-><]=1`; it keeps doing so for the earlier bytes
+// only, rather than extending it to keys it newly reads, so a valid
+// `e[a<%>]=1` stays rejected as before.
+func isUnbracedAngleKeyWithOperatorByte(src []byte, key associativeKey) bool {
+	if isInsideBracedParamExp(src, key.open) {
+		return false
+	}
+	angle, operator := false, false
+	for _, offset := range key.punctuation {
+		switch src[offset] {
+		case '<', '>':
+			angle = true
+		case '%', '*', '?', '~', ',', '=':
+			operator = true
+		}
+	}
+	return angle && operator
 }
 
 // isBareKeyWordAfterSpaceAt reports whether seed is the start of a bare-key
