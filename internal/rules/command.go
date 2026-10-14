@@ -22,6 +22,9 @@ type resolvedCommand struct {
 	// exec reports the exec modifier: the shell is replaced, so the command
 	// never returns to the caller.
 	exec bool
+	// optionArgs are separate option-argument words a modifier consumed, such
+	// as NAME in exec -a NAME. They are expanded like arguments.
+	optionArgs []*syntax.Word
 }
 
 // effectiveCommand resolves the builtin, function or external command name
@@ -63,7 +66,10 @@ func resolveCommand(call *syntax.CallExpr) resolvedCommand {
 		case "exec":
 			resolved.exec = true
 			var valid bool
-			if args, valid = skipExecOptions(args[1:]); !valid {
+			var names []*syntax.Word
+			args, names, valid = skipExecOptions(args[1:])
+			resolved.optionArgs = append(resolved.optionArgs, names...)
+			if !valid {
 				resolved.args = args
 				return resolved
 			}
@@ -104,18 +110,19 @@ func isBareNocorrect(word *syntax.Word) bool {
 // word are the name; otherwise the next word is. A lone "-" and a dynamic word are
 // left for the caller, which strips the dash modifier and treats a dynamic word
 // as the command. valid is false for an unknown option letter, which Zsh
-// rejects. An -a without a name leaves nothing to run.
-func skipExecOptions(args []*syntax.Word) (rest []*syntax.Word, valid bool) {
+// rejects. An -a without a name leaves nothing to run. names holds each
+// separate NAME word consumed by -a.
+func skipExecOptions(args []*syntax.Word) (rest, names []*syntax.Word, valid bool) {
 	for len(args) > 0 {
 		word, ok := staticDeclarationWord(args[0])
 		if !ok {
-			return args, true
+			return args, names, true
 		}
 		if word == "--" {
-			return args[1:], true
+			return args[1:], names, true
 		}
 		if len(word) < 2 || word[0] != '-' {
-			return args, true
+			return args, names, true
 		}
 		args = args[1:]
 		for i := 1; i < len(word); i++ {
@@ -123,15 +130,16 @@ func skipExecOptions(args []*syntax.Word) (rest []*syntax.Word, valid bool) {
 			case 'c', 'l':
 			case 'a':
 				if i+1 == len(word) && len(args) > 0 {
+					names = append(names, args[0])
 					args = args[1:]
 				}
 				i = len(word)
 			default:
-				return args, false
+				return args, names, false
 			}
 		}
 	}
-	return args, true
+	return args, names, true
 }
 
 // skipCommandOptions consumes command's -p option, in clusters, up to "--" or

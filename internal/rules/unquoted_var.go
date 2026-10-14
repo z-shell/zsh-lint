@@ -69,13 +69,15 @@ func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 		return
 	}
 	// The : exemption also covers a name after the command modifier: its
-	// arguments are expanded only for their side effects either way.
+	// arguments are expanded only for their side effects either way. An option
+	// argument such as NAME in exec -a NAME is checked for every command: an
+	// empty unquoted NAME makes exec fail: "exec requires a command to execute".
 	resolved := resolveCommand(call)
-	name, args := resolved.name, resolved.args
-	if name == ":" {
-		return
+	words := append([]*syntax.Word(nil), resolved.optionArgs...)
+	if resolved.name != ":" {
+		words = append(words, resolved.args...)
 	}
-	for _, word := range args {
+	for _, word := range words {
 		// Only a standalone expansion can elide the whole argument. A quoted
 		// expansion is nested in DblQuoted rather than directly in Word.Parts.
 		if word == nil || len(word.Parts) != 1 {

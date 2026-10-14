@@ -72,6 +72,13 @@ func TestRepeatedExternalCommandForms(t *testing.T) {
 				}
 				got := analyzer.New(RepeatedExternalCommand{}).AnalyzeSource(file, "completion",
 					configuredSource(projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, projectconfig.RoleCompletion))
+				// exec replaces the shell, so its command runs once, not per iteration.
+				if strings.HasPrefix(command, "exec ") {
+					if len(got) != 0 {
+						t.Fatalf("diagnostics = %v, want none after exec", got)
+					}
+					return
+				}
 				if len(got) != 1 || !strings.Contains(got[0].Message, "'"+name+"'") {
 					t.Fatalf("diagnostics = %v, want one for %s", got, name)
 				}

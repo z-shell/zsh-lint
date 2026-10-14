@@ -152,6 +152,29 @@ func TestResolveCommand(t *testing.T) {
 	if got := resolveCommand(nil); got.name != "" || got.args != nil {
 		t.Fatalf("nil call = %+v", got)
 	}
+	// Separate exec -a NAME words are kept: they are expanded like arguments.
+	for _, test := range []struct {
+		source string
+		names  []string
+	}{
+		{`exec -a first eval`, []string{"first"}},
+		{`exec -afirst eval`, nil},
+		{`exec -la first -a second eval`, []string{"first", "second"}},
+		{`noglob exec -a first - exec -a second eval`, []string{"first", "second"}},
+		{`exec -a`, nil},
+	} {
+		t.Run("option args/"+test.source, func(t *testing.T) {
+			got := resolveCommand(parseCall(t, test.source)).optionArgs
+			if len(got) != len(test.names) {
+				t.Fatalf("optionArgs = %d words, want %q", len(got), test.names)
+			}
+			for i, word := range got {
+				if word.Lit() != test.names[i] {
+					t.Fatalf("optionArgs[%d] = %q, want %q", i, word.Lit(), test.names[i])
+				}
+			}
+		})
+	}
 	// A lone nocorrect is a native parse error, so build the call directly: the
 	// reserved word leaves no command name behind.
 	lone := &syntax.CallExpr{Args: []*syntax.Word{{Parts: []syntax.WordPart{&syntax.Lit{Value: "nocorrect"}}}}}
