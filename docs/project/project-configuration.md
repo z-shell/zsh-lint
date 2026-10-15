@@ -36,6 +36,10 @@ Without configured source metadata, `plugin/unload-function` checks only `*.plug
 It does not report missing unload presence ([#668](https://github.com/z-shell/zsh-lint/issues/668)): one file cannot show whether a plugin supports unloading or defines its unload function in another source.
 Presence is checked by `plugin/project-unload-lifecycle` across the configured sources of one invocation, including hook or widget registrations and appends to `*_functions` arrays; configure the complete input set for that check.
 
+`plugin/zero-handling` stays silent without configured source metadata.
+Native Zsh normally sets `$0` to the sourced filename or function name; an unconfigured file cannot establish the caller's option state or a portable plugin-entrypoint contract.
+Configured plugin and Zi annex `sourced-library` sources retain the Warning for caller-dependent `$0` use and assignment to caller-visible special parameter `0`.
+
 In project profile version 2:
 
 - `plugin/function-scoped-options` applies to plugin and Zi annex `autoload-function` sources, including the `completion` role;
