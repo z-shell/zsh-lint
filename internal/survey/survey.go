@@ -13,7 +13,7 @@ import (
 	"os"
 
 	"github.com/z-shell/zsh-lint/internal/parse"
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Run parses each file in names, writing per-file status and a summary to w.

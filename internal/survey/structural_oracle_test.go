@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 
 	"github.com/z-shell/zsh-lint/internal/parse"
 )

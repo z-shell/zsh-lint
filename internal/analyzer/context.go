@@ -5,7 +5,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/parse"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"github.com/z-shell/zsh-lint/internal/scope"
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Context provides state and utilities for rules during AST traversal.

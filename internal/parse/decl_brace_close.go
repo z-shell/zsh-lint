@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // unmatchedBraceClose is the tail of every error the parser reports for a

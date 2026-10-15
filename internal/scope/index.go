@@ -3,7 +3,7 @@ package scope
 import (
 	"strings"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Index AST walks the tree and populates the Map with all declarations.

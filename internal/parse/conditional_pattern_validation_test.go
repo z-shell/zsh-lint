@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Native Zsh 5.9.2 rejects this unmatched nested pattern group. This test

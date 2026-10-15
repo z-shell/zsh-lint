@@ -4,7 +4,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Rule defines the interface for a zsh-lint static analysis rule.

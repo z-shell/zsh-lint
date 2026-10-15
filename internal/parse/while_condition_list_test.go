@@ -3,7 +3,7 @@ package parse
 import (
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // A `while` or `until` header's condition is a *list*, so it absorbs every

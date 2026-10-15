@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/expand"
-	"mvdan.cc/sh/v3/syntax"
-	"mvdan.cc/sh/v3/syntax/typedjson"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/expand"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax/typedjson"
 )
 
 func TestArithmeticFormatAndCharacterTree(t *testing.T) {

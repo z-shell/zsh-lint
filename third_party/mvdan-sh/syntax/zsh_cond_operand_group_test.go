@@ -9,8 +9,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"mvdan.cc/sh/v3/syntax"
-	"mvdan.cc/sh/v3/syntax/typedjson"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax/typedjson"
 )
 
 // Issue #693. Zsh's par_cond_2 (Src/parse.c) lexes the right operand of a

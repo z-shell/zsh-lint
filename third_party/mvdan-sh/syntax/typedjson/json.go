@@ -22,7 +22,7 @@ import (
 	"math"
 	"reflect"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Encode is a shortcut for [EncodeOptions.Encode] with the default options.

@@ -1,7 +1,7 @@
 package parse
 
 import (
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // unsupportedLoopWords are Zsh reserved words that the front end does not

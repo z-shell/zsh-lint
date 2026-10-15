@@ -5,6 +5,11 @@ version: "2"
 # waiting for a pull request to touch its line (#380).
 linters:
   default: standard
+  exclusions:
+    # Preserve the previous lint boundary: the fork was a separate module.
+    # Keep upstream source intact; go vet and the fork suites still cover it.
+    paths:
+      - ^third_party/mvdan-sh/
 
 issues:
   # Report every finding. The defaults (50 per linter, 3 with the same text)

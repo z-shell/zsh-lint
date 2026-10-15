@@ -5,7 +5,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/parse"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"github.com/z-shell/zsh-lint/internal/suppress"
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Analyzer orchestrates the two-pass semantic analysis of a shell script.

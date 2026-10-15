@@ -3,7 +3,7 @@ package parse
 import (
 	"errors"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 const tryAlwaysParseError = "statements must be separated by &, ; or a newline"

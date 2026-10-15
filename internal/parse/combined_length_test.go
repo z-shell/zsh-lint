@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
-	"mvdan.cc/sh/v3/syntax/typedjson"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax/typedjson"
 )
 
 func TestCombinedLengthUsesTypedChildrenWithoutRetry(t *testing.T) {

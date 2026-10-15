@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // mvdan/sh reads a flagged subscript pattern as raw text only up to the first
