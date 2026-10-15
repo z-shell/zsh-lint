@@ -1,15 +1,13 @@
 package rules
 
 import (
-	"strings"
-
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// ZeroHandling reports uninitialized top-level usage of `$0` in plugin entrypoints.
+// ZeroHandling reports caller-dependent top-level usage of `$0` in configured plugin entrypoints.
 //
 // ID: `plugin/zero-handling`
 //
@@ -18,14 +16,16 @@ import (
 // Summary: Reports direct uses of `$0` at the top level of configured plugin
 // and Zi annex sourced-library entrypoints. Configured analysis also reports
 // assignment to special parameter `0`, because sourced entrypoints must not
-// replace caller state. Unconfigured analysis excludes complete `functions`
-// path segments (case-insensitive), `tests` path segments, and files with a
-// first-line shebang. These are heuristics; explicit configuration takes precedence.
-// The `${0:#$ZSH_ARGZERO}` filter is accepted in either mode.
+// replace caller state. Unconfigured sources remain silent: their execution
+// profile and the caller's option state are unknown.
+// The `${0:#$ZSH_ARGZERO}` filter is accepted.
 //
-// Why: When a Zsh plugin is sourced, positional parameter `$0` evaluates to the
-// name of the shell (`zsh` or `-zsh`) rather than the path of the sourced script,
-// unless `FUNCTION_ARGZERO` is active. Configured plugin entrypoints must
+// Why: Native Zsh enables `FUNCTION_ARGZERO` by default, temporarily setting
+// `$0` to the sourced filename or function name on entry. A caller that disables
+// it can leave `$0` holding the shell or caller name instead; the option state
+// at entry cannot be inferred from the source alone. See
+// https://zsh.sourceforge.io/Doc/Release/Options.html#Scripts-and-Functions.
+// Configured plugin entrypoints must
 // resolve the source path with prompt expansion `${(%):-%N}` or
 // `${(%):-%x}` (optionally with `$ZERO` fallback) and pass it into a
 // localized scope instead of assigning to caller-visible special parameter
@@ -49,11 +49,11 @@ import (
 // wrong path; assigning to `0` can replace caller state or fail when
 // `POSIX_ARGZERO` makes it read-only.
 //
-// False positives: Direct-execution scripts without a shebang or tests outside
-// a `tests` directory can be misclassified when no configuration is present.
-// Function definitions are excluded. Unconfigured initialization is recognized
-// in brace blocks and if branches in source order; it carries beyond an if
-// only when the condition initializes it or every branch does.
+// False positives: A native sourced script may legitimately use `$0` as its
+// filename, and an autoload body may use it as its function name. Those uses
+// are not plugin-entrypoint contract violations without an explicit configured
+// sourced-library profile. Function definitions and other configured profiles
+// remain silent.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/zero-handling -- <reason>` on the finding line or
@@ -73,7 +73,7 @@ func (ZeroHandling) Name() string {
 
 func (rule ZeroHandling) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	file, ok := node.(*syntax.File)
-	if !ok || !zeroHandlingApplies(ctx) {
+	if !ok || !configuredPluginSource(ctx.Source, projectconfig.ProfileSourcedLibrary) {
 		return
 	}
 
@@ -134,24 +134,6 @@ func analyzeZeroIf(ctx *analyzer.Context, clause *syntax.IfClause, ruleID diag.R
 	}
 	elseInitialized := analyzeZeroIf(ctx, clause.Else, ruleID, zeroInitialized)
 	return thenInitialized && elseInitialized
-}
-
-func zeroHandlingApplies(ctx *analyzer.Context) bool {
-	if ctx.Source.Configured() {
-		return configuredPluginSource(ctx.Source, projectconfig.ProfileSourcedLibrary)
-	}
-	for _, segment := range strings.Split(strings.ReplaceAll(ctx.FilePath, `\`, "/"), "/") {
-		if strings.EqualFold(segment, "functions") || segment == "tests" {
-			return false
-		}
-	}
-	if ctx.File != nil {
-		lines := ctx.File.Lines()
-		if len(lines) > 0 && strings.HasPrefix(lines[0], "#!") {
-			return false
-		}
-	}
-	return true
 }
 
 func reportConfiguredZeroAssignment(ctx *analyzer.Context, stmt *syntax.Stmt, ruleID diag.RuleID) bool {

@@ -13,6 +13,7 @@ import (
 // docs/project/rule-policy.md: hint for style/idiom preferences, info for
 // risky-but-sometimes-intentional patterns (the policy's example is
 // security/eval), warning for likely-bug patterns.
+// Configured-only zero handling is pinned by TestZeroHandlingRequiresConfiguredEntrypoint.
 func TestRuleSeverities(t *testing.T) {
 	tests := []struct {
 		rule analyzer.Rule
@@ -27,7 +28,6 @@ func TestRuleSeverities(t *testing.T) {
 		{PreferDoubleBrackets{}, "if [ -f x ]; then :; fi\n", "test.zsh", diag.Hint},
 		{FunctionScopedOptions{}, "rehash\n", "functions/handler", diag.Hint},
 		{SpecialParamShadow{}, "local ZSH_VERSION=1\n", "test.zsh", diag.Warning},
-		{ZeroHandling{}, "fpath+=( \"${0:h}/functions\" )\n", "plugin.zsh", diag.Warning},
 		{UnloadFunction{}, "example_plugin_unload() { add-zsh-hook -d precmd _hook; }\n", "example.plugin.zsh", diag.Hint},
 		{FpathHygiene{}, "fpath=( \"${0:h}/functions\" )\n", "plugin.zsh", diag.Warning},
 	}
