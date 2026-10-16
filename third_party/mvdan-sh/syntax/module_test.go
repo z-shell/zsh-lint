@@ -9,8 +9,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"mvdan.cc/sh/v3/syntax"
-	"mvdan.cc/sh/v3/syntax/typedjson"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax/typedjson"
 )
 
 // Issue #484. Native verdicts use newline-terminated files and zsh -f -n.

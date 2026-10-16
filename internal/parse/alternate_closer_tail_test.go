@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // What follows the closing `}` of a brace-form `while` or `for` on the same

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // A subscripted assignment before a command word is an ordinary Zsh prefix

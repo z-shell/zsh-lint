@@ -20,7 +20,7 @@ import (
 
 	"github.com/go-quicktest/qt"
 	"github.com/google/go-cmp/cmp"
-	"mvdan.cc/sh/v3/internal"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/internal"
 )
 
 func TestParseFiles(t *testing.T) {

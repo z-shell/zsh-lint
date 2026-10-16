@@ -3,7 +3,7 @@ package parse
 import (
 	"bytes"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // carriageReturnError is Zsh's own wording for the token it rejects, so the

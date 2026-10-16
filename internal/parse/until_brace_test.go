@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // `until list { list }` is the alternate form next to `while list { list }`

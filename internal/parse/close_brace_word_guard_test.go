@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Issues #314 and #316: Zsh's lexer reads an unquoted `}` that ends a word

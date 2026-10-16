@@ -7,7 +7,7 @@ import (
 	"sort"
 	"unicode/utf8"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 const invalidAlternationOperator = "not a valid test operator: `|`"

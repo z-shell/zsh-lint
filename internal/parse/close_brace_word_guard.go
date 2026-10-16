@@ -3,7 +3,7 @@ package parse
 import (
 	"strings"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // closeBraceWordError is the parser's own text for a `}` in a command's

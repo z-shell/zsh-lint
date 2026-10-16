@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // A math function call is valid anywhere an operand is (zshmisc, Arithmetic

@@ -1,6 +1,6 @@
 # mvdan.cc/sh fork
 
-This directory is a fork of [`mvdan.cc/sh/v3`](https://github.com/mvdan/sh) at `v3.14.1`, kept under its upstream BSD-3-Clause license (`LICENSE`), as ADR-0030 in z-shell/.github decides. `go.mod` at the repository root replaces the module with this directory, so import paths are unchanged.
+This directory is a fork of [`mvdan.cc/sh/v3`](https://github.com/mvdan/sh) at `v3.14.1`, kept under its upstream BSD-3-Clause license (`LICENSE`). It remains in-repository as ADR-0030 in z-shell/.github decides, but is compiled as packages of the root module rather than a nested module. Imports use `github.com/z-shell/zsh-lint/third_party/mvdan-sh` instead of `mvdan.cc/sh/v3`; the root module has no local `replace` directive, so `go install github.com/z-shell/zsh-lint/cmd/zsh-lint@VERSION` can download the fork with the CLI ([#653](https://github.com/z-shell/zsh-lint/issues/653)). This packaging change does not change the parser grammar or the upstream license.
 
 Only the packages zsh-lint builds are kept: `syntax`, `expand`, `pattern`, `fileutil`, and `internal`. Upstream's tests for them are kept and run in Go CI; they must keep passing.
 
@@ -87,4 +87,6 @@ These upstream commits were applied ahead of a release, unchanged apart from dro
 
 ## Taking an upstream release
 
-Copy the new release's packages over this directory, reapply the changes above, and run upstream's tests here and zsh-lint's full suite, with the tree-shape checks ADR-0023 point 3 requires.
+Copy the new release's retained packages over this directory without adding upstream's `go.mod` or `go.sum`. Rewrite Go imports from `mvdan.cc/sh/v3/` to `github.com/z-shell/zsh-lint/third_party/mvdan-sh/`, including imports between fork packages and their tests, then reapply the changes above. Keep the upstream BSD-3-Clause license and notices unchanged. Merge any required dependency or tool changes into the root `go.mod`, run `go mod tidy` there, and review the resolved versions. The root module owns `go tool stringer` as well as the documentation tool. Run upstream's tests here and zsh-lint's full suite, with the tree-shape checks ADR-0023 point 3 requires.
+
+`go test ./...` from the repository root now includes every retained fork package, including `syntax/typedjson`. Existing commands run from this directory, including `go test ./syntax/ ./pattern/ ./expand/`, still resolve through the root module. The parser verifier and mutation runner keep their existing directory and package routing. Renovate updates dependencies in the root module; taking an upstream parser release remains the manual source refresh described above.

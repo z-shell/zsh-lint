@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // invalidSecondSubscript is the exact error mvdan/sh (LangZsh, v3.14.1)

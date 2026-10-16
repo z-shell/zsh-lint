@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Issue #209: a reverse-subscript pattern containing `/` must parse as a

@@ -170,7 +170,7 @@ This replaces the upstream-first wording in the 2026-06-12 records and supersede
   Land it with tree-shape assertions for every corpus fixture the release affects and a survey run before and after.
   A `gap-*` fixture that stops erroring must fail on tree shape, not pass vacuously: v3.14.1 turns `foreach ... end` (#214) from a parse error into a silent three-command tree.
 - The fork trigger has fired ([ADR-0030](https://github.com/z-shell/.github/blob/main/decisions/0030-zsh-lint-parser-fork-trigger-fired.md)).
-  The parser is a fork of mvdan.cc/sh under `third_party/mvdan-sh`, wired with a `replace` directive; `third_party/mvdan-sh/FORK.md` lists every local change.
+  The parser is a fork of mvdan.cc/sh under `third_party/mvdan-sh`, compiled as packages of the root module under `github.com/z-shell/zsh-lint/third_party/mvdan-sh` without a local `replace` directive; `third_party/mvdan-sh/FORK.md` lists every local change.
   Adapters migrate into it one construct family at a time, and each migration removes the adapter it replaces and shows parity on the corpus, the workspace, and a probe grid judged by `zsh -f -n`.
   The brace-form `if`/`elif`/`else` and `while`/`until` bodies were the first family ([#446](https://github.com/z-shell/zsh-lint/issues/446)).
 - Do not add an adapter.

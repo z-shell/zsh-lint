@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 func Example() {

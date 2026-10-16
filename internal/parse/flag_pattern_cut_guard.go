@@ -3,7 +3,7 @@ package parse
 import (
 	"bytes"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // flagPatternCutError is the parser's own text for the byte that ends a flagged

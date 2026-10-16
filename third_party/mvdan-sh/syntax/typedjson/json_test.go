@@ -16,8 +16,8 @@ import (
 
 	"github.com/go-quicktest/qt"
 
-	"mvdan.cc/sh/v3/syntax"
-	"mvdan.cc/sh/v3/syntax/typedjson"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax/typedjson"
 )
 
 var update = flag.Bool("u", false, "update output files")

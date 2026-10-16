@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Inside a Zsh glob group, a quoted `)` and the `)` that closes a command

@@ -1,7 +1,7 @@
 package parse
 
 import (
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // adapterAttempt is one compatibility adapter's gated entry point. Each

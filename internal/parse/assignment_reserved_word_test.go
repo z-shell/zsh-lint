@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Each source is rejected by `zsh -f -n`: Zsh keeps command position after an
