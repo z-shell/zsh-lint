@@ -75,6 +75,17 @@ A rule PR is mergeable when:
 4. The rule is registered in `internal/rules.Default()`, or in an explicitly versioned opt-in profile when its approved proposal requires project metadata.
    The generated reference docs are regenerated in either case.
 5. Running the analyzer over the survey corpus produces no finding the author cannot classify as true positive or documented false positive.
+6. The PR description reports the precision sample below for every affected rule.
+
+## Precision gate
+
+Following [#612](https://github.com/z-shell/zsh-lint/issues/612), each rule PR reports at least 20 judged findings per affected rule on Z-Shell organization code.
+Identify the corpus revision, invocation and rule configuration, and list the sampled findings with their true-positive or false-positive judgments and reasons.
+Report precision as true positives divided by all judged findings; documented false positives still count as false positives.
+For a rule that ships at Warning, precision must be at least 80% on that sample.
+If the corpus yields fewer than 20 findings, report the full population and its size and obtain an explicit maintainer exception for the smaller sample before merge.
+
+The sample is review evidence, separate from the clean-corpus gate: retain legitimate false-positive examples for judging precision instead of suppressing them merely to make the corpus pass.
 
 ## False-positive policy
 
