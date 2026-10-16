@@ -5194,6 +5194,11 @@ func (p *Parser) testClause(s *Stmt) {
 	if tc.X = p.testExprBinary(false); tc.X == nil {
 		p.followErrExp(tc.Left, dblLeftBrack)
 	}
+	if p.lang == LangZsh {
+		// Reading past ]] can consume the newline and its here-documents.
+		// They belong to the surrounding command list, not the condition (#701).
+		p.buriedHdocs = old.buriedHdocs
+	}
 	tc.Right = p.pos
 	if _, ok := p.gotRsrv("]]"); !ok {
 		if p.tok == rightParen && p.zshBrokenGroup.IsValid() {
