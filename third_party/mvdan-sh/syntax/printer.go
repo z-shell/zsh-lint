@@ -13,7 +13,7 @@ import (
 	"text/tabwriter"
 	"unicode"
 
-	"mvdan.cc/sh/v3/fileutil"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/fileutil"
 )
 
 // PrinterOption is a function which can be passed to NewPrinter

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"mvdan.cc/sh/v3/pattern"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/pattern"
 )
 
 // ExtendedPatternMatcher returns a [regexp.Regexp.MatchString]-like function

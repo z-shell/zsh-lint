@@ -10,7 +10,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/parse"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"github.com/z-shell/zsh-lint/internal/rules"
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 type dummyRule struct{}

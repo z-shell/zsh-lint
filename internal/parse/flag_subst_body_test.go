@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // Issue #526: the body of a command substitution in a subscript flag

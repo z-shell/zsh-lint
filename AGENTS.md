@@ -57,7 +57,7 @@ The original interactive Zi/`.zshrc` plugin was removed from the tree; the Go an
 - `internal/survey/` — parser-survey core (greppable diagnostics + exit code).
 - `internal/workflowcontract/`: tests for CI and contributor workflow contracts.
 - `internal/manualcite/`: released-manual citation checks for rules and fixtures.
-- `third_party/mvdan-sh/`: local parser fork, wired through the root module's `replace` directive; see its `FORK.md`.
+- `third_party/mvdan-sh/`: local parser fork compiled as packages of the root module, under `github.com/z-shell/zsh-lint/third_party/mvdan-sh`; see its `FORK.md`.
 - `internal/wikidoc/`, `cmd/wikidoc/` — docs-sync tooling (not product code).
 
 ## Documentation

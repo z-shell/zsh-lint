@@ -13,9 +13,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"mvdan.cc/sh/v3/internal"
-	"mvdan.cc/sh/v3/pattern"
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/internal"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/pattern"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 func nodeLit(node syntax.Node) string {

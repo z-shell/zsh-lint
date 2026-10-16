@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/z-shell/zsh-lint/internal/parse"
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
 // commandForms lists ways to run name as a builtin or function: plain, after
