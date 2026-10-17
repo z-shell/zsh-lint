@@ -1,11 +1,14 @@
 package rules
 
 import (
+	"path"
+	"slices"
 	"strings"
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
+	"github.com/z-shell/zsh-lint/internal/suppress"
 	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
@@ -30,6 +33,11 @@ import (
 // See https://zsh.sourceforge.io/Doc/Release/Options.html#index-LOCAL_005fOPTIONS
 // and
 // https://zsh.sourceforge.io/Doc/Release/Shell-Builtin-Commands.html#index-emulate.
+// Autoload file bodies and single same-name definitions follow
+// https://zsh.sourceforge.io/Doc/Release/Functions.html#Autoloading-Functions.
+// First-line `#compdef` callbacks with underscore names run in the completion
+// system's option environment; see
+// https://zsh.sourceforge.io/Doc/Release/Completion-System.html#Autoloaded-files.
 //
 // Bad:
 //
@@ -49,13 +57,20 @@ import (
 // False positives: Functions that intentionally share caller option state and
 // trivial single-builtin functions remain findings by design; suppress them
 // with a reason. Files outside a complete `functions` path segment are out of
-// scope. A contiguous prefix of recognized `condition || return` or
-// single-return `if` guards is accepted before scoping.
+// scope. A single same-name wrapper is checked inside its body; bare autoload
+// bodies still need scoping. Underscore names alone and `#autoload` tags do
+// not exempt files. A contiguous prefix of recognized `condition || return`
+// or single-return `if` guards is accepted before scoping. Dynamic arguments
+// remain findings, including `${=${options[xtrace]:#off}:+-o xtrace}`: its word
+// splitting depends on inherited IFS, so it can make emulate fail before
+// options are localized. This rule does not prove the IFS precondition.
+// See https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/function-scoped-options -- <reason>` on the
 // finding line or immediately before the next non-comment, non-blank source
-// line.
+// line. A same-name wrapper also retains a directive targeting its declaration;
+// a directive inside the wrapper can target the reported body statement.
 //
 // Corpus evidence: Issue #63 reported missing scoping across z-a-meta-plugins
 // and zsh-fancy-completions function files. The analyzer currently flags
@@ -77,11 +92,27 @@ func (FunctionScopedOptions) Name() string {
 
 func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	file, ok := node.(*syntax.File)
-	if !ok || !functionScopedOptionsApplies(ctx) {
+	if !ok || !functionScopedOptionsApplies(ctx) || isCompletionCallback(ctx) {
 		return
 	}
 
-	for _, stmt := range file.Stmts {
+	stmts := file.Stmts
+	var wrapper *syntax.Stmt
+	// Zsh also accepts an autoload file containing only a definition of the
+	// function being loaded. Inspect that body, not the declaration itself.
+	// Initialization followed by a definition is a different autoload form.
+	if len(stmts) == 1 && !hasUnsafeGuardEffect(stmts[0]) {
+		if fn, ok := stmts[0].Cmd.(*syntax.FuncDecl); ok && fn.Name != nil &&
+			fn.Name.Value == path.Base(strings.ReplaceAll(ctx.FilePath, `\`, "/")) &&
+			len(fn.Names) == 0 && fn.Body != nil && !hasUnsafeGuardEffect(fn.Body) {
+			if block, ok := fn.Body.Cmd.(*syntax.Block); ok {
+				wrapper = stmts[0]
+				stmts = block.Stmts
+			}
+		}
+	}
+
+	for _, stmt := range stmts {
 		if stmt == nil {
 			continue
 		}
@@ -91,15 +122,39 @@ func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Nod
 		if isLeadingReturnGuard(stmt) {
 			continue
 		}
+		reportStmt := stmt
+		if wrapper != nil {
+			// Keep a directive targeting the declaration effective without
+			// changing line-based suppression for unrelated statements/rules.
+			// Otherwise retain the focused location inside the function body.
+			for _, directive := range suppress.Collect(ctx.File) {
+				if directive.Malformed == "" && directive.Target == int(wrapper.Pos().Line()) && slices.Contains(directive.Rules, rule.ID()) {
+					reportStmt = wrapper
+					break
+				}
+			}
+		}
 		ctx.Report(
-			stmt.Pos(),
-			stmt.End(),
+			reportStmt.Pos(),
+			reportStmt.End(),
 			rule.ID(),
 			diag.Hint,
 			"Scope function options with 'builtin emulate -L zsh' or 'setopt local_options' before executable logic",
 		)
 		return
 	}
+}
+
+func isCompletionCallback(ctx *analyzer.Context) bool {
+	// An underscore alone does not imply compsys execution. A first-line
+	// #compdef tag registers a completion callback, whose entry point supplies
+	// the option environment. #autoload helpers have no such guarantee.
+	if !strings.HasPrefix(path.Base(strings.ReplaceAll(ctx.FilePath, `\`, "/")), "_") || len(ctx.File.Lines()) == 0 {
+		return false
+	}
+	line := ctx.File.Lines()[0]
+	fields := strings.Fields(line)
+	return strings.HasPrefix(line, "#compdef") && len(fields) > 1 && fields[0] == "#compdef"
 }
 
 func functionScopedOptionsApplies(ctx *analyzer.Context) bool {
