@@ -293,6 +293,7 @@ func TestUnquotedVarSkipsNeverEmptyExpansions(t *testing.T) {
 		{"empty default", "print -r -- ${mode:-}\n", 1},
 		{"empty quoted default", "print -r -- ${mode:-\"\"}\n", 1},
 		{"expansion default", "print -r -- ${mode:-$other}\n", 1},
+		{"quoted expansion default", "print -r -- ${mode:-\"$other\"}\n", 1},
 		{"default without colon", "print -r -- ${mode-fast}\n", 1},
 		{"error without colon", "print -r -- ${mode?required}\n", 1},
 		{"read-only numeric special", "print -r -- $PPID $ZSH_SUBSHELL $TTYIDLE\n", 0},

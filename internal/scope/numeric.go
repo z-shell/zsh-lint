@@ -56,10 +56,38 @@ func (m *Map) indexUnset(call *syntax.CallExpr) {
 		return
 	}
 	for _, arg := range call.Args[1:] {
-		if name := extractLiteral(arg); name != "" && !strings.HasPrefix(name, "-") {
+		if name := staticText(arg); name != "" && !strings.HasPrefix(name, "-") {
 			m.unsets = append(m.unsets, unsetName{strings.SplitN(name, "[", 2)[0], m.currentFunc})
 		}
 	}
+}
+
+// staticText returns the text of a word made only of literal, single-quoted
+// and double-quoted literal parts, so `unset 'n'` and `unset "n"` name n.
+func staticText(word *syntax.Word) string {
+	if word == nil {
+		return ""
+	}
+	var text strings.Builder
+	for _, part := range word.Parts {
+		switch x := part.(type) {
+		case *syntax.Lit:
+			text.WriteString(x.Value)
+		case *syntax.SglQuoted:
+			text.WriteString(x.Value)
+		case *syntax.DblQuoted:
+			for _, inner := range x.Parts {
+				lit, ok := inner.(*syntax.Lit)
+				if !ok {
+					return ""
+				}
+				text.WriteString(lit.Value)
+			}
+		default:
+			return ""
+		}
+	}
+	return text.String()
 }
 
 // IsDeclaredNumeric reports an earlier integer or float declaration (integer,
