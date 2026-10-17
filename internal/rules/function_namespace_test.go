@@ -29,6 +29,22 @@ func TestFunctionNamespaceDeclarations(t *testing.T) {
 		{name: "legacy debug role", source: "function /example_debug { :; }\n", want: 1},
 		{name: "legacy api role", source: "function @example_api { :; }\n", want: 1},
 		{name: "missing namespace", source: "refresh() { :; }\n", want: 1},
+		{name: "special ZLE hook", source: "zle-line-init() { :; }\n", want: 0},
+		{name: "ordinary ZLE prefix", source: "zle-refresh() { :; }\n", want: 1},
+		{name: "signal trap", source: "TRAPINT() { :; }\n", want: 0},
+		{name: "real time minimum trap", source: "TRAPRTMIN() { :; }\n", want: 0},
+		{name: "real time maximum trap", source: "TRAPRTMAX() { :; }\n", want: 0},
+		{name: "real time offset trap", source: "function TRAPRTMIN+1 { :; }\n", want: 0},
+		{name: "real time maximum offset", source: "TRAPRTMAX-1() { :; }\n", want: 0},
+		{name: "real time nonnumeric suffix", source: "function TRAPRTMIN+oops { :; }\n", want: 1},
+		{name: "real time empty offset", source: "function TRAPRTMIN+ { :; }\n", want: 1},
+		{name: "exit trap", source: "TRAPEXIT() { :; }\n", want: 0},
+		{name: "not a trap", source: "TRAPordinary() { :; }\n", want: 1},
+		{name: "prompt setup", source: "prompt_demo_setup() { :; }\n", want: 0},
+		{name: "empty prompt name", source: "prompt__setup() { :; }\n", want: 1},
+		{name: "prompt helper", source: "prompt_demo_refresh() { :; }\n", want: 1},
+		{name: "native hook", source: "precmd() { :; }\n", want: 0},
+		{name: "hook-like helper", source: "precmd_helper() { :; }\n", want: 1},
 		{name: "prefix without boundary", source: "exampled_refresh() { :; }\n", want: 1},
 		{name: "role without namespace", source: "function .refresh { :; }\n", want: 1},
 		{name: "multiple declaration names", source: "function example_one foreign { :; }\n", want: 1},
@@ -50,6 +66,17 @@ func TestFunctionNamespaceDeclarations(t *testing.T) {
 }
 
 func TestFunctionNamespaceDeclarationRange(t *testing.T) {
+	// Every exact native interface is checked through the rule, not merely the
+	// name helper, so source-profile and AST traversal remain exercised.
+	for _, name := range []string{
+		"chpwd", "periodic", "precmd", "preexec", "zshaddhistory", "zshexit", "zsh_directory_name",
+		"zle-isearch-exit", "zle-isearch-update", "zle-line-pre-redraw", "zle-line-init", "zle-line-finish", "zle-history-line-set", "zle-keymap-select",
+		"TRAPEXIT", "TRAPDEBUG", "TRAPZERR", "TRAPERR", "TRAPUSR1", "TRAPWINCH", "TRAPINFO",
+	} {
+		if got := analyzeFunctionNamespace(t, name+"() { :; }\n", "plugin.zsh", sourcedPlugin("example")); len(got) != 0 {
+			t.Errorf("native interface %s: %+v", name, got)
+		}
+	}
 	diagnostics := analyzeFunctionNamespace(t, "print ok\nfunction refresh { :; }\n", "plugin.zsh", sourcedPlugin("example"))
 	got := diagnosticsByID(diagnostics, "plugin/function-namespace")
 	if len(got) != 1 {
@@ -114,6 +141,12 @@ func TestFunctionNamespaceAutoloadBasenames(t *testing.T) {
 		{name: "literal unload hook", path: "functions/zsh-eza_plugin_unload", identifier: "zsh-eza", want: 0},
 		{name: "foreign unload hook", path: "functions/other-plugin_plugin_unload", identifier: "zsh-eza", want: 1},
 		{name: "missing namespace", path: "functions/.refresh", want: 1, message: `Autoload function name ".refresh"`},
+		{name: "native hook basename", path: "functions/precmd", want: 0},
+		{name: "trap basename", path: "functions/TRAPINT", want: 0},
+		{name: "real time trap basename", path: "functions/TRAPRTMIN+1", want: 0},
+		{name: "ZLE hook basename", path: "functions/zle-line-init", want: 0},
+		{name: "prompt setup basename", path: "functions/prompt_demo_setup", want: 0},
+		{name: "ordinary ZLE basename", path: "functions/zle-refresh", want: 1},
 		{name: "completion", path: "completions/_git", role: projectconfig.RoleCompletion, want: 0},
 		{name: "completion requires underscore", path: "completions/example_git", role: projectconfig.RoleCompletion, want: 1, message: "must use the _command form"},
 		{name: "bare underscore is not completion", path: "completions/_", role: projectconfig.RoleCompletion, want: 1, message: "must use the _command form"},
