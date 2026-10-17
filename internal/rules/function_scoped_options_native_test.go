@@ -135,6 +135,11 @@ func TestFunctionScopedOptionsNativeInheritedIFS(t *testing.T) {
 		{"colon IFS", "IFS=':'\n", dynamic, "inside:off:on\nafter:off:on:on\n", 1},
 		{"empty IFS", "IFS=''\n", dynamic, "inside:off:on\nafter:off:on:on\n", 1},
 		{"static with colon IFS", "IFS=':'\n", "builtin emulate -L zsh", "inside:on:off\nafter:off:on:off\n", 0},
+		{"static with empty IFS", "IFS=''\n", "builtin emulate -L zsh", "inside:on:off\nafter:off:on:off\n", 0},
+		{"static with letter IFS", "IFS='x'\n", "builtin emulate -L zsh", "inside:on:off\nafter:off:on:off\n", 0},
+		{"explicit split with colon IFS", "IFS=':'\n", "builtin emulate -L zsh ${(s: :)${options[xtrace]:#off}:+-o xtrace}", "inside:on:off\nafter:off:on:off\n", 1},
+		{"explicit split with empty IFS", "IFS=''\n", "builtin emulate -L zsh ${(s: :)${options[xtrace]:#off}:+-o xtrace}", "inside:on:off\nafter:off:on:off\n", 1},
+		{"explicit split with letter IFS", "IFS='x'\n", "builtin emulate -L zsh ${(s: :)${options[xtrace]:#off}:+-o xtrace}", "inside:on:off\nafter:off:on:off\n", 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()

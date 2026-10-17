@@ -64,6 +64,9 @@ import (
 // remain findings, including `${=${options[xtrace]:#off}:+-o xtrace}`: its word
 // splitting depends on inherited IFS, so it can make emulate fail before
 // options are localized. This rule does not prove the IFS precondition.
+// The exact xtrace initializer receives an IFS-specific explanation; use the
+// static `builtin emulate -L zsh` baseline instead. Other dynamic arguments
+// retain the conservative generic finding, even if a caller can prove them safe.
 // See https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion.
 //
 // Suppression: Use
@@ -134,15 +137,44 @@ func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Nod
 				}
 			}
 		}
+		message := "Scope function options with 'builtin emulate -L zsh' or 'setopt local_options' before executable logic"
+		if isIFSDependentXtraceInitializer(stmt) {
+			message = "The xtrace initializer splits on inherited IFS and can make emulate fail before options are localized; use static 'builtin emulate -L zsh'"
+		}
 		ctx.Report(
 			reportStmt.Pos(),
 			reportStmt.End(),
 			rule.ID(),
 			diag.Hint,
-			"Scope function options with 'builtin emulate -L zsh' or 'setopt local_options' before executable logic",
+			message,
 		)
 		return
 	}
+}
+
+// This classifies the explanation only, never acceptance or caller IFS state.
+func isIFSDependentXtraceInitializer(stmt *syntax.Stmt) bool {
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok || call == nil {
+		return false
+	}
+	command, args := effectiveCommand(call)
+	if command != "emulate" || len(args) != 3 {
+		return false
+	}
+	flags, _ := literalWord(args[0])
+	shell, _ := literalWord(args[1])
+	if (flags != "-L" && flags != "-LR" && flags != "-RL") || shell != "zsh" || len(args[2].Parts) != 1 {
+		return false
+	}
+	if _, ok := args[2].Parts[0].(*syntax.ParamExp); !ok {
+		return false
+	}
+	var word strings.Builder
+	if err := syntax.NewPrinter().Print(&word, args[2]); err != nil {
+		return false
+	}
+	return word.String() == "${=${options[xtrace]:#off}:+-o xtrace}"
 }
 
 func isCompletionCallback(ctx *analyzer.Context) bool {
