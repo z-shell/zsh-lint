@@ -40,7 +40,7 @@ var adapterSnippets = map[string]adapterSnippet{
 	"functionSemicolon": {attempt: parseFunctionSemicolonBody, source: "function f; { print hi }"},
 	"multiNameFunction": {attempt: parseMultiNameFunction, source: "a b () { print hi }"},
 	"assignAlways":      {attempt: parseAssignAlways, source: "print ${x::=value}"},
-	"declBraceClose":    {attempt: parseDeclarationBraceClose, source: "{ typeset -g C=1 }"},
+	"declBraceClose":    {attempt: parseDeclarationBraceClose, source: "{ nameref x=y }"},
 	"mathFunctionCall":  {attempt: parseMathFunctionCall, source: "print $(( sqrt(4) ))"},
 	"nestedArithmetic":  {attempt: parseNestedArithmetic, source: "print \"${(l:5:)$(( a[1] ))}\""},
 }

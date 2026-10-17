@@ -10,6 +10,42 @@ import (
 // These fork-local rows share upstream's tree, print, printer-option, native
 // confirmation and fuzz-seed checks. Keep focused position and state tests too.
 var zshFileTests = []fileTestCase{
+	// Declarations end at alternate-body braces too (#649).
+	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Reserved-Words
+	fileTest(
+		[]string{"if [[ -n x ]] { local u=1 }\n"},
+		printsAs("if [[ -n x ]]; then local u=1; fi"),
+		langFile(&IfClause{
+			Cond: stmts(&TestClause{X: &UnaryTest{Op: TsNempStr, X: litWord("x")}}),
+			Then: stmts(&DeclClause{Variant: lit("local"), Args: litAssigns("u=1")}),
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"for i in 1; { local u=1 }"},
+		printsAs("for i in 1; do local u=1; done"),
+		langFile(&ForClause{
+			Loop: &WordIter{Name: lit("i"), Items: litWords("1")},
+			Do:   stmts(&DeclClause{Variant: lit("local"), Args: litAssigns("u=1")}),
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"{ let u=1 }"},
+		printsAs("{ let u=1; }"),
+		langFile(block(stmt(letClause(&BinaryArithm{Op: Assgn, X: litWord("u"), Y: litWord("1")}))), LangZsh),
+	),
+	fileTest(
+		[]string{`local '}' "}" \}`},
+		langFile(&DeclClause{Variant: lit("local"), Args: []*Assign{
+			{Naked: true, Value: word(sglQuoted("}"))},
+			{Naked: true, Value: word(dblQuoted(lit("}")))},
+			{Naked: true, Value: litWord(`\}`)},
+		}}, LangBash|LangMirBSDKorn|LangZsh),
+	),
+	fileTest(
+		[]string{"local }"},
+		langFile(&DeclClause{Variant: lit("local"), Args: []*Assign{{Naked: true, Value: litWord("}")}}}, LangBash|LangMirBSDKorn),
+		langErr2("1:7: `}` can only be used to close a block", LangZsh),
+	),
 	// Default printing uses the stop word known at parse time (#702).
 	// https://zsh.sourceforge.io/Doc/Release/Redirection.html#Redirection
 	fileTest(

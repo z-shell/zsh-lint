@@ -5577,9 +5577,10 @@ func (p *Parser) declClause(s *Stmt) {
 		if p.tok == rightBrace {
 			break
 		}
-		// A whole-word closing brace terminates these declarations, including
-		// inside quoted substitutions where the brace adapter cannot retry.
-		if zshNumeric && p.tok == _LitWord && p.val == "}" {
+		// Zsh reserves a whole-word closing brace in argument position too,
+		// including declarations in alternate bodies and substitutions (#649).
+		// nameref is not a Zsh reserved declaration; keep its legacy reading.
+		if p.lang.in(LangZsh) && ds.Variant.Value != "nameref" && p.tok == _LitWord && p.val == "}" {
 			break
 		}
 		if p.hasValidIdent() {
@@ -5662,6 +5663,10 @@ func (p *Parser) letClause(s *Stmt) {
 	old := p.preNested(arithmExprLet)
 	p.next()
 	for !p.stopToken() && !p.peekRedir() {
+		// Unquoted let arguments still end at Zsh's reserved closing brace.
+		if p.lang.in(LangZsh) && p.tok == _LitWord && p.val == "}" {
+			break
+		}
 		x := p.arithmExpr(true)
 		if x == nil {
 			break

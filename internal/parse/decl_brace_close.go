@@ -32,10 +32,10 @@ var keywordInsideBlockErrors = map[string]bool{
 }
 
 // parseDeclarationBraceClose adapts a brace block whose last command is a
-// declaration builtin or `let` with no separator before the closing `}`
-// (issues #231, #259 and #298). The parser reads those clauses up to a stop
-// token, and a `}` word is not one, so `{ local x=1 }` makes the brace a
-// naked argument and leaves the block open. The retry replaces the whitespace
+// legacy `nameref` declaration with no separator before the closing `}`
+// (issues #231, #259 and #298). Reserved declarations and `let` stop in the
+// fork; `nameref` retains a declaration AST but consumes `}` as a naked
+// argument. The retry replaces the whitespace
 // byte before that `}` with a `;`, which keeps every offset, and the synthetic
 // separator is cleared from the statement afterwards so the tree matches the
 // original source. An unquoted `}` glued to the preceding word or followed
@@ -89,7 +89,8 @@ func parseDeclarationBraceCloseWithParser(
 
 // declarationClauseWords are the command words the parser turns into a
 // DeclClause or LetClause, which read arguments until a stop token.
-// `integer` and `float` stop at `}` in the fork.
+// Zsh reserved declarations and `let` now stop at `}` in the fork;
+// `nameref` retains its legacy declaration reading.
 var declarationClauseWords = map[string]bool{
 	"declare":  true,
 	"export":   true,

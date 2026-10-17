@@ -1,0 +1,3 @@
+{ nameref x=} }
+# Issue #649: nameref is not a reserved Zsh declaration, so x=} closes the block.
+# Manual: https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Reserved-Words
