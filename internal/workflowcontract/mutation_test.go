@@ -37,9 +37,45 @@ func TestMutationRunsForkAndRootConsumers(t *testing.T) {
 	if !strings.Contains(out, "./syntax/") || !strings.Contains(out, "./internal/parse/ ./internal/survey/") {
 		t.Fatalf("fork mutants must exercise fork tests and root consumers:\n%s", out)
 	}
+	if strings.Count(out, "./syntax/") != 1 {
+		t.Fatalf("syntax mutants must not select the syntax suite twice:\n%s", out)
+	}
 	after, err := os.ReadFile(filepath.Join(dir, "third_party/mvdan-sh/syntax/guard.go"))
 	if err != nil || string(before) != string(after) {
 		t.Fatalf("mutation changed the contributor's source: %v", err)
+	}
+}
+
+func TestMutationRunsForkPackageTests(t *testing.T) {
+	for _, pkg := range []string{"expand", "pattern", "syntax/typedjson"} {
+		t.Run(pkg, func(t *testing.T) {
+			dir, run, write := mutationFixture(t)
+			// The retained fork is part of the root module, not a local replacement.
+			write("go.mod", "module example.invalid/root\ngo 1.26.0\n")
+			if err := os.Remove(filepath.Join(dir, "third_party/mvdan-sh/go.mod")); err != nil {
+				t.Fatal(err)
+			}
+			write("internal/parse/guard.go", "package parse\nimport \"example.invalid/root/third_party/mvdan-sh/syntax\"\nfunc Accept(n int) bool { return syntax.Accept(n) }\n")
+			write("internal/survey/guard_test.go", "package survey\nimport (\"testing\"; \"example.invalid/root/third_party/mvdan-sh/syntax\")\nfunc TestAccept(t *testing.T) { if !syntax.Accept(1) { t.Fatal(\"rejected one\") } }\n")
+			file := "third_party/mvdan-sh/" + pkg + "/guard.go"
+			name := filepath.Base(pkg)
+			write(file, "package "+name+"\nfunc Accept(n int) bool { return n <= 2 }\n")
+			// Neither syntax nor the root consumers import this package. Only its
+			// own tests can kill the false mutant; the equivalent one must live.
+			write("third_party/mvdan-sh/"+pkg+"/guard_test.go", "package "+name+"\nimport \"testing\"\nfunc TestAccept(t *testing.T) { if !Accept(2) || Accept(3) { t.Fatal(\"wrong boundary\") } }\n")
+			write("mutants.json", fmt.Sprintf(`[{"file":%q,"line":2,"old":"n <= 2","new":"false"},{"file":%q,"line":2,"old":"n <= 2","new":"n < 3"}]`, file, file))
+			status, out := run("--spec-only", "--spec", "mutants.json")
+			if status != 1 || !strings.Contains(out, "KILLED "+file+":2:") ||
+				!strings.Contains(out, "LIVED "+file+":2:") ||
+				!strings.Contains(out, "1 killed, 1 lived, 0 timed out, 0 invalid") {
+				t.Fatalf("fork package tests must decide its mutants: status %d\n%s", status, out)
+			}
+			if !strings.Contains(out, "./"+pkg+"/") ||
+				!strings.Contains(out, "./syntax/") ||
+				!strings.Contains(out, "./internal/parse/ ./internal/survey/") {
+				t.Fatalf("fork package routing must retain syntax and root consumer tests:\n%s", out)
+			}
+		})
 	}
 }
 
