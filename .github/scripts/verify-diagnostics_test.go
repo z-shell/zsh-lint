@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -372,6 +373,132 @@ func TestCommandFailureAndTimeoutRetainEvidence(t *testing.T) {
 	}
 	if !rows[1].TimedOut {
 		t.Fatal("expected row 1 timed_out to be true")
+	}
+}
+
+// A real detached process holds both output pipes until the test releases it.
+func TestCommandDetachedPipeHelper(t *testing.T) {
+	dir := os.Getenv("TEST_DIAGNOSTIC_PIPE_DIR")
+	switch os.Getenv("TEST_DIAGNOSTIC_PIPE_MODE") {
+	case "holder":
+		fmt.Fprintln(os.Stdout, "detached stdout")
+		fmt.Fprintln(os.Stderr, "detached stderr")
+		if err := os.WriteFile(filepath.Join(dir, "ready"), nil, 0600); err != nil {
+			os.Exit(3)
+		}
+		deadline := time.Now().Add(6 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(filepath.Join(dir, "release")); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = os.Stdout.Close()
+		_ = os.Stderr.Close()
+		if err := os.WriteFile(filepath.Join(dir, "finished"), nil, 0600); err != nil {
+			os.Exit(4)
+		}
+		os.Exit(0)
+	case "exited", "failed", "running":
+		exe, err := os.Executable()
+		if err != nil {
+			os.Exit(5)
+		}
+		child := exec.Command(exe, "-test.run=^TestCommandDetachedPipeHelper$")
+		child.Env = append(os.Environ(), "TEST_DIAGNOSTIC_PIPE_MODE=holder")
+		child.Stdout, child.Stderr = os.Stdout, os.Stderr
+		child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := child.Start(); err != nil {
+			os.Exit(6)
+		}
+		if os.Getenv("TEST_DIAGNOSTIC_PIPE_MODE") == "running" {
+			time.Sleep(6 * time.Second)
+		}
+		if os.Getenv("TEST_DIAGNOSTIC_PIPE_MODE") == "failed" {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+}
+
+func TestCommandTimeoutBoundsDetachedOutputDrain(t *testing.T) {
+	for _, mode := range []string{"exited", "failed", "running"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("TEST_DIAGNOSTIC_PIPE_MODE", mode)
+			t.Setenv("TEST_DIAGNOSTIC_PIPE_DIR", dir)
+			// Fixture processes must exit immediately even under the race detector.
+			t.Setenv("GORACE", os.Getenv("GORACE")+" atexit_sleep_ms=0")
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The exited case must reject a drain error even with exit 1 allowed,
+			// before the longer command deadline can mark the row timed out.
+			timeout := 4 * time.Second
+			if mode == "running" {
+				timeout = 200 * time.Millisecond
+			}
+			commands := newCommands(dir, timeout)
+			done := make(chan error, 1)
+			go func() {
+				_, _, runErr := commands.run([]string{exe, "-test.run=^TestCommandDetachedPipeHelper$"}, dir, []int{0, 1})
+				done <- runErr
+			}()
+			var runErr error
+			blocked := false
+			select {
+			case runErr = <-done:
+			case <-time.After(2 * time.Second):
+				blocked = true
+			}
+			// Release and join the finite fixture even when the regression fails.
+			if err := os.WriteFile(filepath.Join(dir, "release"), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if blocked {
+				select {
+				case runErr = <-done:
+				case <-time.After(5 * time.Second):
+					t.Fatal("command did not finish after releasing its output pipes")
+				}
+				t.Error("command waited for a detached pipe holder instead of bounding its output drain")
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if _, err := os.Stat(filepath.Join(dir, "finished")); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("detached fixture did not finish")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "ready")); err != nil {
+				t.Fatal("detached pipe holder was not exercised")
+			}
+			var evidenceErr EvidenceError
+			if !errors.As(runErr, &evidenceErr) {
+				t.Errorf("expected invalid command evidence, got %v", runErr)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "commands.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rows []CommandRow
+			if err := json.Unmarshal(data, &rows); err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 || !rows[0].TimedOut {
+				t.Fatalf("missing timeout evidence: %+v", rows)
+			}
+			for name, want := range map[string]string{rows[0].Stdout: "detached stdout", rows[0].Stderr: "detached stderr"} {
+				data, err := os.ReadFile(filepath.Join(dir, name))
+				if err != nil || !strings.Contains(string(data), want) {
+					t.Errorf("missing retained %s: %q, %v", name, data, err)
+				}
+			}
+		})
 	}
 }
 

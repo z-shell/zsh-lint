@@ -104,16 +104,40 @@ func (c *Commands) run(args []string, cwd string, allowed []int) ([]byte, []byte
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	// Own the pipes so process exit and output completion can be bounded
+	// separately. Cmd.WaitDelay can hide a drain error behind an allowed exit 1.
+	stdoutRead, stdoutWrite, startErr := os.Pipe()
+	var stderrRead, stderrWrite *os.File
+	if startErr == nil {
+		defer stdoutRead.Close()
+		defer stdoutWrite.Close()
+		stderrRead, stderrWrite, startErr = os.Pipe()
+		if startErr == nil {
+			defer stderrRead.Close()
+			defer stderrWrite.Close()
+		}
+	}
+	cmd.Stdout, cmd.Stderr = stdoutWrite, stderrWrite
 
 	var timedOut bool
-	var waitErr error
-	startErr := cmd.Start()
+	var waitErr, streamErr error
+	if startErr == nil {
+		startErr = cmd.Start()
+	}
 	if startErr != nil {
 		waitErr = startErr
 		fmt.Fprintln(&stderrBuf, startErr)
 	} else {
+		streamErr = errors.Join(stdoutWrite.Close(), stderrWrite.Close())
+		drained := make(chan error, 2)
+		go func() {
+			_, err := io.Copy(&stdoutBuf, stdoutRead)
+			drained <- err
+		}()
+		go func() {
+			_, err := io.Copy(&stderrBuf, stderrRead)
+			drained <- err
+		}()
 		done := make(chan error, 1)
 		go func() {
 			done <- cmd.Wait()
@@ -130,6 +154,27 @@ func (c *Commands) run(args []string, cwd string, allowed []int) ([]byte, []byte
 			}
 		} else {
 			waitErr = <-done
+		}
+		var drainTimeout <-chan time.Time
+		if c.timeout > 0 {
+			timer := time.NewTimer(min(c.timeout, time.Second))
+			defer timer.Stop()
+			drainTimeout = timer.C
+		}
+		for remaining := 2; remaining > 0; {
+			select {
+			case err := <-drained:
+				streamErr = errors.Join(streamErr, err)
+				remaining--
+			case <-drainTimeout:
+				timedOut = true
+				_ = stdoutRead.Close()
+				_ = stderrRead.Close()
+				drainTimeout = nil
+			}
+		}
+		if streamErr != nil {
+			fmt.Fprintln(&stderrBuf, "capture command output:", streamErr)
 		}
 	}
 
@@ -182,7 +227,7 @@ func (c *Commands) run(args []string, cwd string, allowed []int) ([]byte, []byte
 		}
 	}
 
-	if startErr != nil || row.TimedOut || !isAllowed {
+	if startErr != nil || streamErr != nil || row.TimedOut || !isAllowed {
 		return stdoutBuf.Bytes(), stderrBuf.Bytes(), EvidenceError(
 			fmt.Sprintf("command %d failed: see %s", number, filepath.Join(c.output, "commands.json")),
 		)
