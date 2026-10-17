@@ -4,9 +4,14 @@
 # Dialect: Bash 4.0 or later. Run from anywhere inside the repository:
 #
 #     bash .github/scripts/agent-setup.sh
+#     bash .github/scripts/agent-setup.sh --shells-only
 #
 # Idempotent: each step checks first and changes nothing when the tool is
 # already present at the expected version. It installs:
+# - dash, mksh R59 and Bash 5.3 for REQUIRE_SHELLS=1, in a user-owned
+#   cache when compatible commands are absent; no privileges are needed.
+#   ZSH_LINT_SHELL_PREFIX overrides the cache prefix. --shells-only stops
+#   after this step, without module downloads or other setup.
 #
 # - zsh, the native oracle for parser work, through apt-get when it is missing
 #   (with sudo when not root), plus zsh-doc for the manual when available;
@@ -26,6 +31,17 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 
 say() { printf 'agent-setup: %s\n' "$*"; }
+
+if (($# > 1)) || [[ ${1-} != '' && $1 != --shells-only ]]; then
+  say 'usage: bash .github/scripts/agent-setup.sh [--shells-only]' >&2
+  exit 2
+fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=confirmation-shells.sh
+source "$root/.github/scripts/confirmation-shells.sh"
+if [[ ${1-} == --shells-only ]]; then
+  exit 0
+fi
 
 as_root() {
   if ((EUID == 0)); then
