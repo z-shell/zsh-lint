@@ -629,6 +629,14 @@ func testCommands(name string) []testCommand {
 func test(parent context.Context, work string, commands []testCommand, timeout time.Duration, vet string, failfast bool) (string, string) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	// Go cannot clean its build directory when its process group is killed.
+	// Own both Go and test-program temporaries until every command has exited
+	// and its remaining descendants have been killed below.
+	temp, err := os.MkdirTemp(work, "test-tmp-")
+	if err != nil {
+		return "INVALID", err.Error()
+	}
+	defer func() { _ = os.RemoveAll(temp) }()
 	var output strings.Builder
 	for _, command := range commands {
 		log, err := os.CreateTemp(work, "test-output-")
@@ -642,7 +650,7 @@ func test(parent context.Context, work string, commands []testCommand, timeout t
 		args = append(args, command.args...)
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = filepath.Join(work, command.dir)
-		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Env = append(os.Environ(), "GOWORK=off", "GOTMPDIR="+temp, "TMPDIR="+temp)
 		cmd.Stdout, cmd.Stderr = log, log
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }

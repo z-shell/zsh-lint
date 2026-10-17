@@ -77,6 +77,11 @@ The new grammar is limited to Zsh arithmetic commands and substitutions; associa
 This implements the arithmetic part of [#612](https://github.com/z-shell/zsh-lint/issues/612).
 The Bash evaluator in `expand/arith.go` returns its existing unsupported error for these Zsh nodes rather than panicking.
 
+## Test harness
+
+The test harness has a separate lifetime repair for [#651](https://github.com/z-shell/zsh-lint/issues/651): `internal.TestMainSetup` returns cleanup for its `interp-bin-*` directory, and `syntax.TestMain` calls it explicitly after `m.Run` and before `os.Exit`, preserving the test exit status.
+This test-only deviation applies to every dialect and must be retained when refreshing upstream tests; `syntax/testmain_cleanup_test.go` covers both passing and failing runs.
+
 ## Upstream ports
 
 These upstream commits were applied ahead of a release, unchanged apart from dropping their `interp` hunks; they are not Zsh-only. Drop them when taking a release that contains them.
