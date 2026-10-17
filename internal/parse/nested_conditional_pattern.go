@@ -135,6 +135,7 @@ type conditionalPatternScan struct {
 	candidates      []patternCandidate
 	backtickIslands []legacyBacktickIsland
 	finding         *conditionalPatternFinding
+	heredocSkips    map[int]int
 }
 
 type activeConditionalContext struct {
@@ -306,6 +307,7 @@ func scanConditionalPatterns(
 	legacyLookupProbes ...activeLegacyLookupProbe,
 ) (conditionalPatternScan, bool) {
 	var candidates []patternCandidate
+	var heredocSkips map[int]int
 	var backtickRoots []*legacyBacktickSpan
 	var finding *conditionalPatternFinding
 	var inspectLegacyLookup activeLegacyLookupProbe
@@ -399,10 +401,18 @@ func scanConditionalPatterns(
 		}
 
 		if b == '\n' && frame.arithmeticDepth == 0 && len(frame.heredocs) > 0 {
-			next, ok := consumeHeredocBodies(src, i+1, frame.heredocs)
+			backtickDepth := 0
+			if frame.kind == activeSourceBacktickSubstitutionFrame {
+				backtickDepth = frame.legacyBacktickDepth
+			}
+			next, ok := consumeHeredocBodies(src, i+1, frame.heredocs, backtickDepth)
 			if !ok {
 				return abandonedConditionalPatternScan(finding)
 			}
+			if heredocSkips == nil {
+				heredocSkips = make(map[int]int)
+			}
+			heredocSkips[i] = next
 			frame.heredocs = nil
 			frame.inComment = false
 			frame.atWordStart = true
@@ -513,9 +523,7 @@ func scanConditionalPatterns(
 					continue
 				}
 			case activeCasePattern:
-				wordEnd := i + len("esac")
-				if frame.atWordStart && activeSourceWordAt(src, i, "esac") &&
-					(wordEnd >= len(src) || src[wordEnd] != ')') {
+				if frame.atWordStart && activeSourceCaseEndAt(frame, src, i) {
 					frame.caseContexts = frame.caseContexts[:len(frame.caseContexts)-1]
 					i += len("esac") - 1
 					frame.atWordStart = false
@@ -523,7 +531,7 @@ func scanConditionalPatterns(
 					continue
 				}
 			case activeCaseBody:
-				if frame.atWordStart && frame.atCommandStart && activeSourceWordAt(src, i, "esac") {
+				if frame.atWordStart && frame.atCommandStart && activeSourceCaseEndAt(frame, src, i) {
 					frame.caseContexts = frame.caseContexts[:len(frame.caseContexts)-1]
 					i += len("esac") - 1
 					frame.atWordStart = false
@@ -736,7 +744,11 @@ func scanConditionalPatterns(
 			continue
 		}
 		if frame.conditional == nil && b == '<' && i+1 < len(src) && src[i+1] == '<' {
-			heredoc, end, isHeredoc, ok := heredocAt(src, i)
+			backtickDepth := 0
+			if frame.kind == activeSourceBacktickSubstitutionFrame {
+				backtickDepth = frame.legacyBacktickDepth
+			}
+			heredoc, end, isHeredoc, ok := heredocAt(src, i, backtickDepth)
 			if !ok {
 				return abandonedConditionalPatternScan(finding)
 			}
@@ -745,6 +757,10 @@ func scanConditionalPatterns(
 				frame.atWordStart = true
 				continue
 			}
+			if heredocSkips == nil {
+				heredocSkips = make(map[int]int)
+			}
+			heredocSkips[i] = end
 			frame.heredocs = append(frame.heredocs, heredoc)
 			i = end - 1
 			frame.atWordStart = false
@@ -796,6 +812,7 @@ func scanConditionalPatterns(
 		candidates:      candidates,
 		backtickIslands: islands,
 		finding:         finding,
+		heredocSkips:    heredocSkips,
 	}, true
 }
 
@@ -1290,21 +1307,24 @@ func newActiveSourceFrame(kind activeSourceFrameKind, parent *activeSourceFrame)
 }
 
 func activeSourceFrameCanClose(frame *activeSourceFrame) bool {
+	// Pending bodies belong to this substitution. A true close drops them,
+	// just as the fork's zshEndPendingHdocs does; parent frames retain theirs.
 	return frame.kind != activeSourceRootFrame &&
 		frame.quote == activeSourceUnquoted && !frame.escaped &&
 		frame.groupDepth == 0 && frame.arithmeticDepth == 0 &&
 		frame.conditional == nil && !frame.inComment &&
-		len(frame.heredocs) == 0 && len(frame.caseContexts) == 0
+		len(frame.caseContexts) == 0
 }
 
 func activeSourceRootFrameComplete(frame *activeSourceFrame) bool {
 	// Root conditional and grouping balance remains parser-owned so the single
 	// compatibility retry can surface a later syntax error. Lexical states that
 	// can hide candidate positions still fail closed here.
+	// Pending documents without a newline also end at EOF (#686, #703).
 	return frame.kind == activeSourceRootFrame &&
 		frame.quote == activeSourceUnquoted && !frame.escaped &&
 		frame.arithmeticDepth == 0 &&
-		len(frame.heredocs) == 0 && len(frame.caseContexts) == 0
+		len(frame.caseContexts) == 0
 }
 
 // casePatternOpenerCloses reports whether the `)` at i, matching a case
@@ -1323,6 +1343,26 @@ func activeSourceWordAt(src []byte, start int, word string) bool {
 	return end == len(src) || activeSourceWordBoundary(src[end])
 }
 
+// Only a backquote closing this frame terminates a reserved word. An
+// opening backquote is still part of a pattern such as esac`echo x`).
+func activeSourceCaseEndAt(frame *activeSourceFrame, src []byte, start int) bool {
+	if activeSourceWordAt(src, start, "esac") {
+		return true
+	}
+	end := start + len("esac")
+	if end > len(src) || string(src[start:end]) != "esac" || frame.kind != activeSourceBacktickSubstitutionFrame {
+		return false
+	}
+	for end < len(src) && src[end] == '\\' {
+		end++
+	}
+	if end == len(src) || src[end] != '`' {
+		return false
+	}
+	depth, _ := legacyBacktickEscapeStateBefore(src, end)
+	return depth == frame.legacyBacktickDepth-1
+}
+
 func activeSourceWordBoundary(b byte) bool {
 	if shellSpace(b) {
 		return true
@@ -1335,7 +1375,7 @@ func activeSourceWordBoundary(b byte) bool {
 	}
 }
 
-func parseHeredocDelimiter(src []byte, start int) (string, int, bool) {
+func parseHeredocDelimiter(src []byte, start, backtickDepth int) (string, int, bool) {
 	for start < len(src) && (src[start] == ' ' || src[start] == '\t') {
 		start++
 	}
@@ -1343,7 +1383,20 @@ func parseHeredocDelimiter(src []byte, start int) (string, int, bool) {
 	consumed := false
 	for i := start; i < len(src); {
 		b := src[i]
-		if heredocWordTerminator(b) {
+		// A closing legacy delimiter ends a pending word too. Compare the
+		// same escape depth as the owning frame, before consuming a backslash.
+		closingBacktick := false
+		if backtickDepth > 0 && (b == '`' || b == '\\') {
+			quote := i
+			for quote < len(src) && src[quote] == '\\' {
+				quote++
+			}
+			if quote < len(src) && src[quote] == '`' {
+				depth, _ := legacyBacktickEscapeStateBefore(src, quote)
+				closingBacktick = depth == backtickDepth-1
+			}
+		}
+		if heredocWordTerminator(b) || closingBacktick {
 			if !consumed {
 				return "", 0, false
 			}
@@ -1371,7 +1424,7 @@ func parseHeredocDelimiter(src []byte, start int) (string, int, bool) {
 			consumed = true
 			i++
 			for {
-				if i >= len(src) || src[i] == '\n' {
+				if i >= len(src) {
 					return "", 0, false
 				}
 				if src[i] == '\'' {
@@ -1385,7 +1438,7 @@ func parseHeredocDelimiter(src []byte, start int) (string, int, bool) {
 			consumed = true
 			i++
 			for {
-				if i >= len(src) || src[i] == '\n' {
+				if i >= len(src) {
 					return "", 0, false
 				}
 				if src[i] == '"' {
@@ -1423,9 +1476,6 @@ func parseANSICQuotedHeredocSegment(src []byte, start int) ([]byte, int, bool) {
 	decoded := make([]byte, 0, 8)
 	for i := start + 2; i < len(src); {
 		b := src[i]
-		if b == '\n' {
-			return nil, 0, false
-		}
 		if b == '\'' {
 			return decoded, i + 1, true
 		}
@@ -1434,7 +1484,7 @@ func parseANSICQuotedHeredocSegment(src []byte, start int) ([]byte, int, bool) {
 			i++
 			continue
 		}
-		if i+1 >= len(src) || src[i+1] == '\n' {
+		if i+1 >= len(src) {
 			return nil, 0, false
 		}
 		escaped := src[i+1]
@@ -1461,7 +1511,8 @@ func parseANSICQuotedHeredocSegment(src []byte, start int) ([]byte, int, bool) {
 			decoded = append(decoded, '\f')
 			i += 2
 		case 'n':
-			return nil, 0, false
+			decoded = append(decoded, '\n')
+			i += 2
 		case 'r':
 			decoded = append(decoded, '\r')
 			i += 2
@@ -1485,7 +1536,7 @@ func parseANSICQuotedHeredocSegment(src []byte, start int) ([]byte, int, bool) {
 			}
 			value, end, ok := parseANSICDigits(src, i+2, maxDigits, 16)
 			r := rune(value)
-			if !ok || value == 0 || r == '\n' || !utf8.ValidRune(r) {
+			if !ok || value == 0 || !utf8.ValidRune(r) {
 				return nil, 0, false
 			}
 			decoded = utf8.AppendRune(decoded, r)
@@ -1539,7 +1590,7 @@ func heredocWordTerminator(b byte) bool {
 	}
 }
 
-func consumeHeredocBodies(src []byte, start int, heredocs []pendingHeredoc) (int, bool) {
+func consumeHeredocBodies(src []byte, start int, heredocs []pendingHeredoc, backtickDepth int) (int, bool) {
 	offset := start
 	for _, heredoc := range heredocs {
 		for {
@@ -1550,6 +1601,19 @@ func consumeHeredocBodies(src []byte, start int, heredocs []pendingHeredoc) (int
 			lineEnd := len(src)
 			if newline >= 0 {
 				lineEnd = offset + newline
+			}
+			if backtickDepth > 0 {
+				// A legacy close ends a started body too. Leave its lexical
+				// escape prefix for the owning frame to consume normally.
+				for quote := offset; quote < lineEnd; quote++ {
+					if src[quote] != '`' {
+						continue
+					}
+					depth, escapes := legacyBacktickEscapeStateBefore(src, quote)
+					if depth == backtickDepth-1 {
+						return quote - escapes, true
+					}
+				}
 			}
 			contentStart := offset
 			if heredoc.stripTabs {

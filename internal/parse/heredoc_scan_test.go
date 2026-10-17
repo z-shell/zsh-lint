@@ -32,7 +32,7 @@ func TestHeredocAt(t *testing.T) {
 		{src: "x<<EOF", end: 0, isHeredoc: false, ok: true},
 	}
 	for _, tt := range tests {
-		heredoc, end, isHeredoc, ok := heredocAt([]byte(tt.src), 0)
+		heredoc, end, isHeredoc, ok := heredocAt([]byte(tt.src), 0, 0)
 		if heredoc != tt.heredoc || end != tt.end || isHeredoc != tt.isHeredoc || ok != tt.ok {
 			t.Errorf("heredocAt(%q) = %+v, %d, %v, %v; want %+v, %d, %v, %v",
 				tt.src, heredoc, end, isHeredoc, ok, tt.heredoc, tt.end, tt.isHeredoc, tt.ok)

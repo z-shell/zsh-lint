@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -40,6 +41,100 @@ func TestRoundtripZsh(t *testing.T) {
 	sb := new(strings.Builder)
 	qt.Assert(t, qt.IsNil(syntax.NewPrinter().Print(sb, node2)))
 	qt.Assert(t, qt.Equals(sb.String(), src))
+}
+
+// Parsed delimiter semantics survive typed JSON, while old JSON and manually
+// constructed nodes keep their ordinary quote-removal behavior (#702).
+func TestRoundtripHeredocStop(t *testing.T) {
+	for _, src := range []string{
+		"cat <<$'\\xff'\nbody\n",
+		"cat <<$'E\\200F'\nbody\n",
+		"cat <<-$'\\tEOF'\n\tbody\nEOF\necho after\n",
+		"cat <<-'\t'\n\tbody\n\necho after\n",
+		"cat <<$'E\\nF'; echo x\nbody\n",
+		"echo `echo \\`cat <<$'E\\nF'\ninner\n\\`; cat <<$'G\\nH'\nouter\n`\necho after\n",
+
+		"cat <<$'E\\x4fF'\nbody\nEOF\necho after\n",
+		"cat <<$'E\\nF'\nbody\n",
+		"cat <<$'E\\nF'\nbody",
+		"cat <<$'E\\nF' <<B\nbody\n",
+		"cat <<$''\nbody\n\necho after\n",
+		"print $(cat <<$'E\\x4fF')\necho after\n",
+		"print $(cat <<$'E\\nF')\necho after\n",
+		"print $(cat <<EOF <<$'E\\nF'; true)\necho after\n",
+		"print <(cat <<$'E\\nF')\necho after\n",
+		"print `cat <<$'E\\nF'\nbody\n`\necho after\n",
+	} {
+		t.Run(src, func(t *testing.T) {
+			f, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(src), "")
+			qt.Assert(t, qt.IsNil(err))
+			var buf bytes.Buffer
+			qt.Assert(t, qt.IsNil(typedjson.Encode(&buf, f)))
+			node, err := typedjson.Decode(&buf)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Assert(t, qt.IsTrue(reflect.DeepEqual(node, f)))
+			var out strings.Builder
+			qt.Assert(t, qt.IsNil(syntax.NewPrinter().Print(&out, node)))
+			again, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(out.String()), "")
+			qt.Assert(t, qt.IsNil(err))
+			qt.Assert(t, qt.Equals(len(again.Stmts), len(f.Stmts)))
+			var before, after []string
+			for i, tree := range []*syntax.File{f, again} {
+				syntax.Walk(tree, func(n syntax.Node) bool {
+					if r, ok := n.(*syntax.Redirect); ok && r.Hdoc != nil {
+						var body strings.Builder
+						qt.Assert(t, qt.IsNil(syntax.NewPrinter().Print(&body, r.Hdoc)))
+						if i == 0 {
+							before = append(before, body.String())
+						} else {
+							after = append(after, body.String())
+						}
+					}
+					return true
+				})
+			}
+			// A bodyless substitution is printed with an explicit empty body.
+			if len(before) > 0 {
+				qt.Assert(t, qt.DeepEquals(after, before))
+			}
+		})
+	}
+	const old = `{"Type":"File","Stmts":[{"Cmd":{"Type":"CallExpr","Args":[{"Parts":[{"Type":"Lit","Value":"cat"}]}]},"Redirs":[{"Op":"<<","Word":{"Parts":[{"Type":"SglQuoted","Dollar":true,"Value":"E\\x4fF"}]},"Hdoc":{"Parts":[{"Type":"Lit","Value":"body\n"}]}}]}]}`
+	node, err := typedjson.Decode(strings.NewReader(old))
+	qt.Assert(t, qt.IsNil(err))
+	r := node.(*syntax.File).Stmts[0].Redirs[0]
+	qt.Assert(t, qt.Equals(len(r.HdocStop), 0))
+	for _, tree := range []*syntax.File{node.(*syntax.File), {Stmts: []*syntax.Stmt{{
+		Cmd:    &syntax.CallExpr{Args: []*syntax.Word{{Parts: []syntax.WordPart{&syntax.Lit{Value: "cat"}}}}},
+		Redirs: []*syntax.Redirect{{Op: syntax.Hdoc, Word: r.Word, Hdoc: r.Hdoc}},
+	}}}} {
+		var out strings.Builder
+		qt.Assert(t, qt.IsNil(syntax.NewPrinter().Print(&out, tree)))
+		qt.Assert(t, qt.Equals(out.String(), "cat <<$'E\\x4fF'\nbody\nE\\x4fF\n"))
+	}
+	// Changing the redirect operator on old or constructed nodes must not
+	// silently opt them into Zsh's decoded tab stripping.
+	r.Op = syntax.DashHdoc
+	r.Word = &syntax.Word{Parts: []syntax.WordPart{&syntax.SglQuoted{Dollar: true, Value: `\t`}}}
+	var fallback strings.Builder
+	qt.Assert(t, qt.IsNil(syntax.NewPrinter().Print(&fallback, node)))
+	qt.Assert(t, qt.Equals(fallback.String(), "cat <<-$'\\t'\n\tbody\n\\t\n"))
+
+}
+
+func TestRoundtripHeredocStopBinary(t *testing.T) {
+	f, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader("cat <<EOF\nbody\nEOF\n"), "")
+	qt.Assert(t, qt.IsNil(err))
+	// Constructed metadata is serialized losslessly too, even though the
+	// parser itself rejects NUL in a stop word. Do not print or execute it.
+	f.Stmts[0].Redirs[0].HdocStop = []byte{0, 0x80, 0xff}
+	var out bytes.Buffer
+	qt.Assert(t, qt.IsNil(typedjson.Encode(&out, f)))
+	again, err := typedjson.Decode(&out)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsTrue(reflect.DeepEqual(again, f)))
+	_, err = typedjson.Decode(strings.NewReader(`{"Type":"Redirect","HdocStop":"?"}`))
+	qt.Assert(t, qt.IsNotNil(err))
 }
 
 // allNodeNames lists the name of every [syntax.Node] type,

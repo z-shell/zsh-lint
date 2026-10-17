@@ -56,13 +56,21 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 	inANSICQuote := false
 	escaped := false
 	inComment := false
-	var heredocs []pendingHeredoc
+	heredocSkips, ok := sourceHeredocSkips(src)
+	if !ok {
+		return nil, false
+	}
 	arithmeticDepth := 0
 	// params tells a `#` inside a `${...}`, as in `${#x}`, from a comment.
 	var params parameterWordTracker
 
 	for i := 0; i < len(src); i++ {
 		b := src[i]
+		if end, ok := heredocSkips[i]; ok {
+			i = end - 1
+			inComment = false
+			continue
+		}
 		if escaped {
 			escaped = false
 			continue
@@ -95,15 +103,6 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 			if b == '\n' {
 				inComment = false
 			}
-			continue
-		}
-		if b == '\n' && len(heredocs) > 0 {
-			next, ok := consumeHeredocBodies(src, i+1, heredocs)
-			if !ok {
-				return nil, false
-			}
-			heredocs = nil
-			i = next - 1
 			continue
 		}
 		if b == '(' && i+1 < len(src) && src[i+1] == '(' {
@@ -146,18 +145,8 @@ func scanTryAlwaysEdits(src []byte, seedOffset int) ([]tryAlwaysEdit, bool) {
 			}
 			params.open(src, i)
 		}
-		if arithmeticDepth == 0 && b == '<' && i+1 < len(src) && src[i+1] == '<' {
-			heredoc, end, isHeredoc, ok := heredocAt(src, i)
-			if !ok {
-				return nil, false
-			}
-			if !isHeredoc {
-				// A here-string `<<<`: its word is ordinary text (#435).
-				i = end - 1
-				continue
-			}
-			heredocs = append(heredocs, heredoc)
-			i = end - 1
+		if arithmeticDepth == 0 && b == '<' && i+2 < len(src) && string(src[i:i+3]) == "<<<" {
+			i += 2
 			continue
 		}
 
