@@ -235,9 +235,14 @@ The full contract, including sort order and versioning rules, is [`docs/project/
 Run the test suite and static analysis from the repository root:
 
 ```bash
-go build ./... && go vet ./... && go test ./...
+go build ./... && go vet -tags=integration ./... && go test ./...
+go test -tags=integration ./internal/workflowcontract/
 golangci-lint run ./...
 ```
+
+The default suite omits the slower mutation-runner behavioral integration tests; the second command includes them and is required for full verification.
+Go CI runs both lanes, and release-tag tests enable the integration tag for the full suite.
+Vet and the golangci-lint configuration include the integration tag to retain analysis of these tests.
 
 To regenerate API and code-derived reference documentation:
 

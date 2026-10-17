@@ -43,7 +43,7 @@ jobs:
             exit 1
           fi
       - name: 🔎 Vet
-        run: go vet ./...
+        run: go vet -tags=integration ./...
       - name: 🏗 Build
         run: go build ./...
       # The native oracle test and the workflow behavior tests skip without
@@ -54,6 +54,8 @@ jobs:
           version: "5.9.2"
       - name: 🧪 Test
         run: go test ./...
+      - name: Test mutation-runner integration
+        run: go test -tags=integration ./internal/workflowcontract/
       # The parser fork keeps upstream's tests, which must keep passing
       # (ADR-0030, third_party/mvdan-sh/FORK.md).
       - name: Install fork confirmation shells
