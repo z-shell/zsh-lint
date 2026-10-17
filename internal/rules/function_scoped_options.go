@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"path"
 	"strings"
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
@@ -30,6 +31,11 @@ import (
 // See https://zsh.sourceforge.io/Doc/Release/Options.html#index-LOCAL_005fOPTIONS
 // and
 // https://zsh.sourceforge.io/Doc/Release/Shell-Builtin-Commands.html#index-emulate.
+// Autoload file bodies and single same-name definitions follow
+// https://zsh.sourceforge.io/Doc/Release/Functions.html#Autoloading-Functions.
+// First-line `#compdef` callbacks with underscore names run in the completion
+// system's option environment; see
+// https://zsh.sourceforge.io/Doc/Release/Completion-System.html#Autoloaded-files.
 //
 // Bad:
 //
@@ -49,8 +55,12 @@ import (
 // False positives: Functions that intentionally share caller option state and
 // trivial single-builtin functions remain findings by design; suppress them
 // with a reason. Files outside a complete `functions` path segment are out of
-// scope. A contiguous prefix of recognized `condition || return` or
-// single-return `if` guards is accepted before scoping.
+// scope. A single same-name wrapper is checked inside its body; bare autoload
+// bodies still need scoping. Underscore names alone and `#autoload` tags do
+// not exempt files. A contiguous prefix of recognized `condition || return`
+// or single-return `if` guards is accepted before scoping. With `emulate -L zsh`,
+// the exact trailing `${=${options[xtrace]:#off}:+-o xtrace}` idiom is accepted;
+// other dynamic arguments remain findings.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/function-scoped-options -- <reason>` on the
@@ -77,11 +87,25 @@ func (FunctionScopedOptions) Name() string {
 
 func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	file, ok := node.(*syntax.File)
-	if !ok || !functionScopedOptionsApplies(ctx) {
+	if !ok || !functionScopedOptionsApplies(ctx) || isCompletionCallback(ctx) {
 		return
 	}
 
-	for _, stmt := range file.Stmts {
+	stmts := file.Stmts
+	// Zsh also accepts an autoload file containing only a definition of the
+	// function being loaded. Inspect that body, not the declaration itself.
+	// Initialization followed by a definition is a different autoload form.
+	if len(stmts) == 1 && !hasUnsafeGuardEffect(stmts[0]) {
+		if fn, ok := stmts[0].Cmd.(*syntax.FuncDecl); ok && fn.Name != nil &&
+			fn.Name.Value == path.Base(strings.ReplaceAll(ctx.FilePath, `\`, "/")) &&
+			len(fn.Names) == 0 && fn.Body != nil && !hasUnsafeGuardEffect(fn.Body) {
+			if block, ok := fn.Body.Cmd.(*syntax.Block); ok {
+				stmts = block.Stmts
+			}
+		}
+	}
+
+	for _, stmt := range stmts {
 		if stmt == nil {
 			continue
 		}
@@ -100,6 +124,18 @@ func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Nod
 		)
 		return
 	}
+}
+
+func isCompletionCallback(ctx *analyzer.Context) bool {
+	// An underscore alone does not imply compsys execution. A first-line
+	// #compdef tag registers a completion callback, whose entry point supplies
+	// the option environment. #autoload helpers have no such guarantee.
+	if !strings.HasPrefix(path.Base(strings.ReplaceAll(ctx.FilePath, `\`, "/")), "_") || len(ctx.File.Lines()) == 0 {
+		return false
+	}
+	line := ctx.File.Lines()[0]
+	fields := strings.Fields(line)
+	return strings.HasPrefix(line, "#compdef") && len(fields) > 1 && fields[0] == "#compdef"
 }
 
 func functionScopedOptionsApplies(ctx *analyzer.Context) bool {
@@ -218,13 +254,23 @@ func literalWord(word *syntax.Word) (string, bool) {
 }
 
 func isLocalZshEmulate(args []*syntax.Word) bool {
-	values := make([]string, len(args))
+	var values []string
+	shellSeen := false
+	preservesXtrace := false
 	for i, arg := range args {
 		value, ok := literalWord(arg)
 		if !ok {
-			return false
+			// Accept only this fixed expansion, which yields either no words or
+			// exactly "-o xtrace". Never accept arbitrary dynamic flags, nor an
+			// expansion where a preceding -o/+o needs an option-name argument.
+			if !shellSeen || i != len(args)-1 || (len(values) > 0 && (values[len(values)-1] == "-o" || values[len(values)-1] == "+o")) || !isXtracePreservingArgument(arg) {
+				return false
+			}
+			preservesXtrace = true
+			continue
 		}
-		values[i] = value
+		values = append(values, value)
+		shellSeen = shellSeen || value == "zsh"
 	}
 
 	for _, value := range values {
@@ -238,7 +284,7 @@ func isLocalZshEmulate(args []*syntax.Word) bool {
 		if value == "zsh" {
 			return local
 		}
-		if !strings.HasPrefix(value, "-") {
+		if !strings.HasPrefix(value, "-") || (preservesXtrace && strings.Trim(value[1:], "LR") != "") {
 			return false
 		}
 		if strings.Contains(value[1:], "L") {
@@ -246,6 +292,20 @@ func isLocalZshEmulate(args []*syntax.Word) bool {
 		}
 	}
 	return false
+}
+
+func isXtracePreservingArgument(word *syntax.Word) bool {
+	if word == nil || len(word.Parts) != 1 {
+		return false
+	}
+	if _, ok := word.Parts[0].(*syntax.ParamExp); !ok {
+		return false
+	}
+	var text strings.Builder
+	if err := syntax.NewPrinter().Print(&text, word); err != nil {
+		return false
+	}
+	return text.String() == "${=${options[xtrace]:#off}:+-o xtrace}"
 }
 
 func enablesLocalOptions(args []*syntax.Word) bool {
