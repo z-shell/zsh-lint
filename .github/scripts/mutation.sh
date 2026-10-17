@@ -18,8 +18,8 @@
 #
 # The Go standard-library runner mutates comparisons, bounds, boolean guards
 # and increments without requiring coverage blocks, including case guards and
-# the parser fork. Fork mutants run ./syntax/ first; only a passing fork suite
-# reaches the root parse/survey tests. LIVED requires both suites to pass.
+# the parser fork. Fork mutants run their own package, then ./syntax/ (once),
+# then the root parse/survey tests. LIVED requires every selected suite to pass.
 # It tests an isolated snapshot, one mutant per build, never editing sources
 # in place. Every build/test gets a process group that is killed on timeout
 # and on normal completion so a descendant cannot outlive the run.
