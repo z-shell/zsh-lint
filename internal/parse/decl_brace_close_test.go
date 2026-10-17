@@ -48,8 +48,8 @@ func assertLiteralsMatchSource(t *testing.T, tree *syntax.File, src string) {
 
 // Issue #231 and #259: a declaration builtin or `let` may be the last command
 // of a brace block with no separator before `}`. The parser reads the clause
-// up to a stop token and a `}` word is not one, so the block never closes.
-// The adapter must accept every declaration word, keep every position, and
+// up to a stop token; a whole-word `}` must also stop it in Zsh.
+// The fork and the remaining adapter must keep every position and
 // leave the statement without a separator, as the original source has none.
 func TestParseDeclarationBraceClose(t *testing.T) {
 	tests := []struct {
@@ -146,9 +146,10 @@ func TestParseDeclarationBraceClose(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			src := []byte(test.src)
 			_, firstErr := parseTree(src, test.name+".zsh")
-			var parseErr syntax.ParseError
-			if !errors.As(firstErr, &parseErr) || !strings.HasSuffix(parseErr.Text, unmatchedBraceClose) {
-				t.Fatalf("parseTree() error = %v, want an unmatched brace error", firstErr)
+			// nameref keeps its legacy declaration adapter. Try/always
+			// independently needs its own adapter.
+			if firstErr != nil && test.lastWord != "nameref" && !strings.Contains(test.src, " always ") {
+				t.Fatalf("bare parser: %v", firstErr)
 			}
 
 			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
@@ -305,7 +306,7 @@ func TestParseDeclarationBraceCloseLeavesOtherErrorsUntouched(t *testing.T) {
 }
 
 func TestParseDeclarationBraceCloseFailsClosedWithoutRestoredBlock(t *testing.T) {
-	src := []byte("{ local x=1 }\n")
+	src := []byte("{ nameref x=1 }\n")
 	_, firstErr := parseTree(src, "closed.zsh")
 	if firstErr == nil {
 		t.Fatal("parseTree() unexpectedly accepted the source")
@@ -372,72 +373,67 @@ func TestFindDeclarationBraceCloseSkipsInactiveBraces(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			seed := 0
+			// Exercise the surviving family with all existing scanner contrasts.
+			src := strings.ReplaceAll(test.src, "local", "nameref")
+			space := test.space + 2*strings.Count(test.src[:test.space], "local")
+			brace := test.brace + 2*strings.Count(test.src[:test.brace], "local")
 			if test.name == "brace before seed" {
-				seed = strings.LastIndex(test.src, "{")
+				seed = strings.LastIndex(src, "{")
 			}
-			space, brace, ok := findDeclarationBraceClose([]byte(test.src), seed, len(test.src))
+			gotSpace, gotBrace, ok := findDeclarationBraceClose([]byte(src), seed, len(src))
 			if ok != test.ok {
 				t.Fatalf("ok = %t, want %t", ok, test.ok)
 			}
 			if !ok {
 				return
 			}
-			if space != test.space || brace != test.brace {
-				t.Fatalf("offsets = %d, %d, want %d, %d", space, brace, test.space, test.brace)
+			if gotSpace != space || gotBrace != brace {
+				t.Fatalf("offsets = %d, %d, want %d, %d", gotSpace, gotBrace, space, brace)
 			}
-			if test.src[brace] != '}' {
-				t.Fatalf("byte at %d is %q, want a brace", brace, test.src[brace])
+			if src[gotBrace] != '}' {
+				t.Fatalf("byte at %d is %q, want a brace", gotBrace, src[gotBrace])
 			}
 		})
 	}
 }
 
-// Issue #298: inside a loop, an `if` or a `case` body, a separator after the
-// brace makes the clause stop at the `;` with the `}` swallowed, so the parser
-// meets the enclosing keyword inside the open block and reports it instead
-// of the unclosed brace. The adapter must gate on those keyword errors and
-// close the first candidate block before the keyword, with the same
-// restoration as the unmatched-brace shape.
+// Issue #298: enclosing keywords must remain outside the declaration block.
 func TestParseDeclarationBraceCloseInsideBody(t *testing.T) {
 	tests := []struct {
 		name   string
 		src    string
-		errTxt string
 		braces []string
 	}{
-		{"while then separator", "while true; do { local x }; done\n", "`done` can only be used to end a loop", []string{"1:26"}},
-		{"while then newline", "while true; do { local x }\ndone\n", "`done` can only be used to end a loop", []string{"1:26"}},
-		{"if body", "if true; then { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:25"}},
-		{"loop in function", "f() { while true; do { local x }; done }\n", "`done` can only be used to end a loop", []string{"1:32"}},
-		{"until body", "until false; do { typeset -g y=1 }; done\n", "`done` can only be used to end a loop", []string{"1:34"}},
-		{"for body", "for i in 1; do { export z=2 }; done\n", "`done` can only be used to end a loop", []string{"1:29"}},
-		{"select body", "select i in 1; do { local x }; done\n", "`done` can only be used to end a loop", []string{"1:29"}},
-		// The bare parser reads `repeat` as a command and fails on the `}`;
-		// the keyword error appears inside the repeat adapter's retry.
-		{"repeat body", "repeat 2 do { local x }; done\n", "`done` can only be used to end a loop", []string{"1:23"}},
-		{"elif body", "if true; then :; elif true; then { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:44"}},
-		{"else body", "if true; then :; else { local x }; fi\n", "`fi` can only be used to end an `if`", []string{"1:33"}},
-		{"then body before elif", "if true; then { local x }; elif true; then :; fi\n", "`elif` can only be used in an `if`", []string{"1:25"}},
-		{"then body before else", "if true; then { local x }; else :; fi\n", "`else` can only be used in an `if`", []string{"1:25"}},
-		{"case arm with separator", "case x in (x) { local x }; esac\n", "`esac` can only be used to end a `case`", []string{"1:25"}},
-		{"case arm then newline", "case x in (x) { local x }\nesac\n", "`esac` can only be used to end a `case`", []string{"1:25"}},
-		{"while condition", "while { local x }; do :; done\n", "`do` can only be used in a loop", []string{"1:17"}},
-		{"if condition", "if { local x }; then :; fi\n", "`then` can only be used in an `if`", []string{"1:14"}},
-		{"multi-line body", "while true; do\n  { local x }\ndone\n", "`done` can only be used to end a loop", []string{"2:13"}},
-		{"comment before done", "while true; do { local x } # c\ndone\n", "`done` can only be used to end a loop", []string{"1:26"}},
-		{"two blocks in one body", "while true; do { local x }; { local y }; done\n", "`done` can only be used to end a loop", []string{"1:26", "1:39"}},
-		{"pipe in body", "while true; do { local x } | cat; done\n", "`done` can only be used to end a loop", []string{"1:26"}},
-		{"and list in body", "while true; do { local x } && :; done\n", "`done` can only be used to end a loop", []string{"1:26"}},
-		{"if in function", "g() { if true; then { local x }; fi }\n", "`fi` can only be used to end an `if`", []string{"1:31"}},
-		{"block before the loop", "{ local a }; while true; do { local b }; done\n", "`done` can only be used to end a loop", []string{"1:11", "1:39"}},
+		{"while then separator", "while true; do { local x }; done\n", []string{"1:26"}},
+		{"while then newline", "while true; do { local x }\ndone\n", []string{"1:26"}},
+		{"if body", "if true; then { local x }; fi\n", []string{"1:25"}},
+		{"loop in function", "f() { while true; do { local x }; done }\n", []string{"1:32"}},
+		{"until body", "until false; do { typeset -g y=1 }; done\n", []string{"1:34"}},
+		{"for body", "for i in 1; do { export z=2 }; done\n", []string{"1:29"}},
+		{"select body", "select i in 1; do { local x }; done\n", []string{"1:29"}},
+		{"repeat body", "repeat 2 do { local x }; done\n", []string{"1:23"}},
+		{"elif body", "if true; then :; elif true; then { local x }; fi\n", []string{"1:44"}},
+		{"else body", "if true; then :; else { local x }; fi\n", []string{"1:33"}},
+		{"then body before elif", "if true; then { local x }; elif true; then :; fi\n", []string{"1:25"}},
+		{"then body before else", "if true; then { local x }; else :; fi\n", []string{"1:25"}},
+		{"case arm with separator", "case x in (x) { local x }; esac\n", []string{"1:25"}},
+		{"case arm then newline", "case x in (x) { local x }\nesac\n", []string{"1:25"}},
+		{"while condition", "while { local x }; do :; done\n", []string{"1:17"}},
+		{"if condition", "if { local x }; then :; fi\n", []string{"1:14"}},
+		{"multi-line body", "while true; do\n  { local x }\ndone\n", []string{"2:13"}},
+		{"comment before done", "while true; do { local x } # c\ndone\n", []string{"1:26"}},
+		{"two blocks in one body", "while true; do { local x }; { local y }; done\n", []string{"1:26", "1:39"}},
+		{"pipe in body", "while true; do { local x } | cat; done\n", []string{"1:26"}},
+		{"and list in body", "while true; do { local x } && :; done\n", []string{"1:26"}},
+		{"if in function", "g() { if true; then { local x }; fi }\n", []string{"1:31"}},
+		{"block before the loop", "{ local a }; while true; do { local b }; done\n", []string{"1:11", "1:39"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			src := []byte(test.src)
 			_, firstErr := parseTree(src, test.name+".zsh")
-			var parseErr syntax.ParseError
-			if !errors.As(firstErr, &parseErr) || parseErr.Text != test.errTxt {
-				t.Fatalf("parseTree() error = %v, want %q", firstErr, test.errTxt)
+			if firstErr != nil {
+				t.Fatalf("bare parser: %v", firstErr)
 			}
 
 			file, err := Parse(strings.NewReader(test.src), test.name+".zsh")
@@ -470,8 +466,41 @@ func TestParseDeclarationBraceCloseInsideBody(t *testing.T) {
 	}
 }
 
-// The same-line shapes without a separator keep the unmatched-brace error and
-// the original site search, so widening the gate must not change them.
+// The surviving nameref adapter must still recover at enclosing keywords,
+// not just at EOF. Migrated local/typeset rows cannot exercise this path.
+func TestParseDeclarationBraceCloseNestedNameref(t *testing.T) {
+	for _, src := range []string{
+		"while true; do { nameref x=y }; done\n",
+		"if true; then { nameref x=y }; fi\n",
+	} {
+		t.Run(src, func(t *testing.T) {
+			_, bareErr := parseTree([]byte(src), "nameref.zsh")
+			var parseErr syntax.ParseError
+			if !errors.As(bareErr, &parseErr) || !keywordInsideBlockErrors[parseErr.Text] {
+				t.Fatalf("bare error = %v, want enclosing keyword error", bareErr)
+			}
+			ResetStats()
+			file, err := Parse(strings.NewReader(src), "nameref.zsh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := ReadStats(); got != (Stats{TreeParses: 2, MaxAdapterDepth: 1}) {
+				t.Fatalf("retained keyword recovery lost: %+v", got)
+			}
+			assertLiteralsMatchSource(t, file.AST(), src)
+			blocks := declarationBlocks(file.AST())
+			if len(blocks) != 1 || blocks[0].Rbrace.Offset() != uint(strings.Index(src, "}")) {
+				t.Fatalf("original closing brace lost: %+v", blocks)
+			}
+			last := blocks[0].Stmts[len(blocks[0].Stmts)-1]
+			if last.Semicolon.IsValid() || last.End().Offset() >= blocks[0].Rbrace.Offset() {
+				t.Fatal("synthetic separator or swallowed brace retained")
+			}
+		})
+	}
+}
+
+// Same-line enclosing keywords also follow the completed block.
 func TestParseDeclarationBraceCloseInsideBodyWithoutSeparator(t *testing.T) {
 	for name, src := range map[string]string{
 		"while": "while true; do { local x } done\n",
@@ -479,9 +508,8 @@ func TestParseDeclarationBraceCloseInsideBodyWithoutSeparator(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, firstErr := parseTree([]byte(src), name+".zsh")
-			var parseErr syntax.ParseError
-			if !errors.As(firstErr, &parseErr) || !strings.HasSuffix(parseErr.Text, unmatchedBraceClose) {
-				t.Fatalf("parseTree() error = %v, want an unmatched brace error", firstErr)
+			if firstErr != nil {
+				t.Fatalf("bare parser: %v", firstErr)
 			}
 			file, err := Parse(strings.NewReader(src), name+".zsh")
 			if err != nil {
