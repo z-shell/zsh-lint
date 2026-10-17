@@ -142,8 +142,8 @@ The native oracle judges only accept or reject, so a wrong tree for valid Zsh pa
 `TestStructuralOracle` (`internal/survey/structural_oracle_test.go`) asks Zsh for its own tree instead.
 Zsh deparses a function body from its word code in canonical form, turning brace, short and alternate forms into `do`/`done`, `then`/`fi` and `in`/`esac`, one command per line.
 For every `ok-*` fixture the test installs the source as a function body through `$functions`, which parses it without running it, does the same with the printed tree of the fixture parsed by `internal/parse`, and requires the two deparses to match.
-Zsh keeps arithmetic and command substitution bodies as source text, so the comparison deparses each substitution body on its own and ignores blanks inside arithmetic; `TestStructuralOracleComparison` pins which pairs count as the same program.
-A `$( )` body ends at the first `)` where Zsh accepts the text before it, and a substitution the comparison cannot split that way fails the test instead of being compared coarsely.
+Zsh keeps arithmetic, command and input/output process-substitution bodies as source text, so the comparison deparses each substitution body on its own and ignores blanks inside arithmetic; `TestStructuralOracleComparison` pins which pairs count as the same program.
+A command or input/output process-substitution body ends at the first `)` where Zsh accepts the text before it, and a substitution the comparison cannot split that way fails the test instead of being compared coarsely.
 
 A difference is a tree defect, a printer defect, or a construct held in `parse.File` metadata that the printer does not see.
 `structuralOracleKnownDifferences` names each fixture that differs today with its cause.

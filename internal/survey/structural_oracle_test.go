@@ -108,10 +108,10 @@ func (d *deparser) deparse(src string) (string, error) {
 
 // normalize makes a deparse comparable with another. Zsh's deparse is
 // canonical for commands, one command per line, but it keeps the source text
-// of arithmetic and of command substitutions verbatim, while the printer
-// reformats both and writes a backquote substitution as `$( )`. So the body
-// of every `$( )` and backquote substitution is replaced by the normalized
-// Zsh deparse of that body, and blanks and `;` are dropped inside `(( ))`
+// of arithmetic, command and process substitutions verbatim, while the printer
+// reformats them and writes a backquote substitution as `$( )`. So each
+// `$( )`, backquote, `<( )` and `>( )` body is replaced by its normalized
+// Zsh deparse, and blanks and `;` are dropped inside `(( ))`
 // and `$(( ))`. Line breaks stay significant, so a tree that joins or splits
 // commands still differs; indentation and blank lines do not, and every
 // other run of blanks becomes one space. The rewriting depends only on the
@@ -175,6 +175,13 @@ func (d *deparser) normalize(s string) string {
 			}
 			b.WriteString("$(" + d.substitution(s[i+2:min(end, len(s))]) + ")")
 			i = end + 1
+		case !double && braces == 0 && (strings.HasPrefix(s[i:], "<(") || strings.HasPrefix(s[i:], ">(")):
+			end := d.commandEnd(s, i+2)
+			if end >= len(s) {
+				d.harnessError("comparison harness: no closing parenthesis found for the process substitution at %q", s[i:min(len(s), i+60)])
+			}
+			b.WriteString(s[i:i+2] + d.substitution(s[i+2:min(end, len(s))]) + ")")
+			i = end + 1
 		default:
 			b.WriteByte(s[i])
 			i++
@@ -210,7 +217,7 @@ func isWordAt(s string, i int, w string) bool {
 // source holds it.
 const pipeMark = '\x01'
 
-// substitution normalizes a command substitution body through Zsh's deparse.
+// substitution normalizes a substitution body through Zsh's deparse.
 // The body comes from Zsh's own deparse of a source it accepted, so Zsh
 // rejecting it means the scanner cut the body in the wrong place, which would
 // leave the rest of the file compared only coarsely; the test fails instead.
@@ -302,8 +309,8 @@ func parenEnd(s string, start int) int {
 	return len(s)
 }
 
-// commandEnd returns the index of the `)` closing a command substitution
-// whose body starts at start, or len(s). Zsh ends the body at the first `)`
+// commandEnd returns the index of the `)` closing a command or process
+// substitution whose body starts at start, or len(s). Zsh ends it at the first `)`
 // that completes a command list, so the candidates are tried in order and
 // the first whose preceding text Zsh accepts as a function body wins; that
 // settles case patterns, subshells and arithmetic without guessing at
@@ -333,9 +340,10 @@ func (d *deparser) commandEnd(s string, start int) int {
 		case c == '\\':
 			i++
 			continue
-		case c == '$' && i+1 < len(s) && s[i+1] == '(':
-			// A nested command substitution, quoted or not, holds its own
-			// quotes and parentheses.
+		case c == '$' && i+1 < len(s) && s[i+1] == '(' ||
+			quote == 0 && braces == 0 && (strings.HasPrefix(s[i:], "<(") || strings.HasPrefix(s[i:], ">(")):
+			// Nested substitutions hold their own quotes and parentheses.
+			// Process substitution is literal inside double quotes.
 			i = d.commandEnd(s, i+2)
 			continue
 		case quote == '"' && c == '"':
@@ -482,6 +490,11 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"x=$(print '$(')\nprint a\n", "x=$(print '$(')\nprint a\n"},
 		{"print '$(' \"it's $(print ')')\" $'\\'$('\n", "print '$(' \"it's $(print ')')\" $'\\'$('\n"},
 		{"x=$(print $'\\'')\nprint a\n", "x=$(print $'\\'')\nprint a\n"},
+		{"cat <(repeat 2 print a)\n", "cat <(repeat 2; do print a; done)\n"},
+		{"cat >(repeat 2 print a)\n", "cat >(repeat 2; do print a; done)\n"},
+		{"x=$(cat <(print ')'))\n", "x=$(cat <(\nprint ')'\n))\n"},
+		{"cat <(cat >(repeat 2 print a))\n", "cat <(cat >(repeat 2; do print a; done))\n"},
+		{"cat <(cat <<EOF\n)\nEOF\n)\n", "cat <(\ncat <<EOF\n)\nEOF\n)\n"},
 	}
 	for _, c := range same {
 		if diff := d.compare(c.src, c.src, c.printed); diff != "" {
@@ -508,6 +521,10 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"print 'a | b'\n", "print 'a|b'\n"},
 		{"print ${x:-a | b}\n", "print ${x:-a|b}\n"},
 		{"[[ a == (a | b) ]]\n", "[[ a == (a|b) ]]\n"},
+		{"cat <(print a && print b)\n", "cat <(print a; print b)\n"},
+		{"cat <(print a)\n", "cat >(print a)\n"},
+		{"print \"<(repeat 2 print a)\"\n", "print \"<(repeat 2; do print a; done)\"\n"},
+		{"print '<(repeat 2 print a)'\n", "print '<(repeat 2; do print a; done)'\n"},
 	}
 	for _, c := range different {
 		if diff := d.compare(c.src, c.src, c.printed); diff == "" {
@@ -537,7 +554,7 @@ func TestStructuralOracleHarnessErrors(t *testing.T) {
 	if err != nil {
 		t.Skip("zsh is required for the structural oracle test")
 	}
-	for _, s := range []string{"x=$(print a", "x=$(fi)", "x=`fi`"} {
+	for _, s := range []string{"x=$(print a", "x=$(fi)", "x=`fi`", "cat <(print a", "cat <(fi)", "cat >(fi)"} {
 		d := newDeparser(t, zsh)
 		var reports []string
 		d.harnessError = func(format string, args ...any) {
