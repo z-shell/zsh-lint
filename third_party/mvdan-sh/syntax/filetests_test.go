@@ -6003,7 +6003,8 @@ func (c sanityChecker) visit(node Node) bool {
 		} else {
 			c.checkPos(node, node.ForPos, "for")
 		}
-		if node.Braces {
+		// Zsh brace bodies use ZshEnd, leaving the legacy Braces flag unset.
+		if node.Braces || node.ZshEnd.IsValid() && node.ZshEnd.Offset() == node.DonePos.Offset()+1 {
 			c.checkPos(node, node.DoPos, "{")
 			c.checkPos(node, node.DonePos, "}")
 			// Zero out Braces, to not duplicate all the test cases.
