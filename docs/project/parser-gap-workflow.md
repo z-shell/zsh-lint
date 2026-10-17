@@ -145,6 +145,8 @@ For every `ok-*` fixture the test installs the source as a function body through
 Zsh keeps arithmetic, command and input/output process-substitution bodies as source text, so the comparison deparses each substitution body on its own and ignores blanks inside arithmetic; `TestStructuralOracleComparison` pins which pairs count as the same program.
 A command or input/output process-substitution body ends at the first `)` where Zsh accepts the text before it, and a substitution the comparison cannot split that way fails the test instead of being compared coarsely.
 Zsh also determines whether an input/output process-substitution opener is code before the comparison rewrites it, so literal here-document text is not mistaken for a substitution body.
+Recursive arithmetic normalization keeps the original source position instead of treating its slice as a new program.
+A command or backquote body starts a fresh process-normalization context only when its opener belongs to code; a literal-body comparison cannot enable process rewrites while recursing.
 
 A difference is a tree defect, a printer defect, or a construct held in `parse.File` metadata that the printer does not see.
 `structuralOracleKnownDifferences` names each fixture that differs today with its cause.

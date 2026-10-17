@@ -117,6 +117,13 @@ func (d *deparser) deparse(src string) (string, error) {
 // other run of blanks becomes one space. The rewriting depends only on the
 // text, so text both sides share normalizes alike.
 func (d *deparser) normalize(s string) string {
+	return d.normalizeAt(s, s, 0)
+}
+
+// normalizeAt keeps the enclosing native source when arithmetic works on a
+// slice. Empty source disables only process rewrites in an enclosing literal
+// substitution whose body the older comparison still normalizes.
+func (d *deparser) normalizeAt(s, source string, offset int) string {
 	var b strings.Builder
 	double := false // inside double quotes, where `'` is literal
 	braces := 0     // `${` expansions open, whose text keeps its blanks
@@ -160,27 +167,30 @@ func (d *deparser) normalize(s string) string {
 			i = end + 1
 		case s[i] == '`':
 			end := backquoteEnd(s, i+1)
-			b.WriteString("$(" + d.substitution(unescapeBackquote(s[i+1:end])) + ")")
+			code := source != "" && d.substitutionCodeAt(source, offset+i)
+			b.WriteString("$(" + d.substitution(unescapeBackquote(s[i+1:end]), code) + ")")
 			i = end + 1
 		case (strings.HasPrefix(s[i:], "$((") || strings.HasPrefix(s[i:], "((")) && isArithmetic(s, i):
 			start := strings.IndexByte(s[i:], '(') + i
 			end := parenEnd(s, start+1)
 			inner := s[start+1 : min(end, len(s))]
-			b.WriteString(s[i:start] + "(" + strings.Map(dropBlankAndSemicolon, d.normalize(inner)) + ")")
+			b.WriteString(s[i:start] + "(" + strings.Map(dropBlankAndSemicolon, d.normalizeAt(inner, source, offset+start+1)) + ")")
 			i = end + 1
 		case strings.HasPrefix(s[i:], "$("):
 			end := d.commandEnd(s, i+2)
 			if end >= len(s) {
 				d.harnessError("comparison harness: no closing parenthesis found for the command substitution at %q", s[i:min(len(s), i+60)])
 			}
-			b.WriteString("$(" + d.substitution(s[i+2:min(end, len(s))]) + ")")
+			code := source != "" && d.substitutionCodeAt(source, offset+i)
+			b.WriteString("$(" + d.substitution(s[i+2:min(end, len(s))], code) + ")")
 			i = end + 1
-		case !double && braces == 0 && d.processSubstitutionAt(s, i):
+		case !double && braces == 0 && source != "" &&
+			(strings.HasPrefix(s[i:], "<(") || strings.HasPrefix(s[i:], ">(")) && d.substitutionCodeAt(source, offset+i):
 			end := d.commandEnd(s, i+2)
 			if end >= len(s) {
 				d.harnessError("comparison harness: no closing parenthesis found for the process substitution at %q", s[i:min(len(s), i+60)])
 			}
-			b.WriteString(s[i:i+2] + d.substitution(s[i+2:min(end, len(s))]) + ")")
+			b.WriteString(s[i:i+2] + d.substitution(s[i+2:min(end, len(s))], true) + ")")
 			i = end + 1
 		default:
 			b.WriteByte(s[i])
@@ -223,24 +233,40 @@ const pipeMark = '\x01'
 // leave the rest of the file compared only coarsely; the test fails instead.
 // A `$( )` body is cut only where Zsh accepts it, so this reports a backquote
 // body.
-func (d *deparser) substitution(body string) string {
+func (d *deparser) substitution(body string, process bool) string {
 	text, err := d.deparse(body)
 	if err != nil {
 		d.harnessError("comparison harness: zsh rejects the command substitution body %q: %v", body[:min(len(body), 60)], err)
 		return strings.Map(dropBlankAndSemicolon, body)
 	}
-	return d.normalize(text)
+	if process {
+		return d.normalize(text)
+	}
+	return d.normalizeAt(text, "", 0)
 }
 
-// processSubstitutionAt lets Zsh distinguish code from literal here-document
-// data. Replacing an opener with a plain redirection followed by an unquoted
-// ')' is invalid in code, but does not invalidate literal data. The source is
-// only parsed by deparse, never run. This avoids a second here-document lexer.
-func (d *deparser) processSubstitutionAt(s string, i int) bool {
-	if !strings.HasPrefix(s[i:], "<(") && !strings.HasPrefix(s[i:], ">(") {
+// substitutionCodeAt asks Zsh about an opener in its original context. A
+// leading 'then' is invalid in a command list but leaves literal data alone;
+// removing a legacy opening backquote instead unbalances its quoting. A
+// valid command prefix distinguishes code from an edited literal terminator.
+// All queries only parse function bodies, never run them.
+func (d *deparser) substitutionCodeAt(s string, i int) bool {
+	start := i + 2
+	if s[i] == '`' {
+		start = i + 1
+	}
+	bad := s[:start] + "then " + s[start:]
+	if s[i] == '`' {
+		bad = s[:i] + s[start:]
+	}
+	if _, err := d.deparse(bad); err == nil {
 		return false
 	}
-	_, err := d.deparse(s[:i+1] + " )" + s[i+2:])
+	if _, err := d.deparse(s[:start] + ":; " + s[start:]); err == nil {
+		return true
+	}
+	// Invalid direct harness inputs must still reach their failure reports.
+	_, err := d.deparse(s)
 	return err != nil
 }
 
@@ -507,6 +533,9 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"cat <(cat >(repeat 2 print a))\n", "cat <(cat >(repeat 2; do print a; done))\n"},
 		{"cat <(cat <<EOF\n)\nEOF\n)\n", "cat <(\ncat <<EOF\n)\nEOF\n)\n"},
 		{"x=$(cat <<'EOF'\n<(\nEOF\n)\n", "x=$(cat <<'EOF'\n<(\nEOF\n)\n"},
+		{"x=$(( $(cat <(repeat 1 print 1)) + 1 ))\n", "x=$(( $(cat <(repeat 1; do print 1; done)) + 1 ))\n"},
+		{"x=\"$(cat <(repeat 1 print 1))\"\n", "x=\"$(cat <(repeat 1; do print 1; done))\"\n"},
+		{"x=`cat <(repeat 1 print 1)`\n", "x=$(cat <(repeat 1; do print 1; done))\n"},
 	}
 	for _, c := range same {
 		if diff := d.compare(c.src, c.src, c.printed); diff != "" {
@@ -539,6 +568,9 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"print '<(repeat 2 print a)'\n", "print '<(repeat 2; do print a; done)'\n"},
 		{"cat <<'EOF'\n<(repeat 2 print a)\nEOF\n", "cat <<'EOF'\n<(repeat 2; do print a; done)\nEOF\n"},
 		{"cat <<EOF\n>(repeat 2 print a)\nEOF\n", "cat <<EOF\n>(repeat 2; do print a; done)\nEOF\n"},
+		{"cat <<'EOF'\n((a <(repeat 2 print a)))\nEOF\n", "cat <<'EOF'\n((a <(repeat 2; do print a; done)))\nEOF\n"},
+		{"cat <<'EOF'\n$(cat <(repeat 2 print a))\nEOF\n", "cat <<'EOF'\n$(cat <(repeat 2; do print a; done))\nEOF\n"},
+		{"cat <<'EOF'\n`cat <(repeat 2 print a)`\nEOF\n", "cat <<'EOF'\n`cat <(repeat 2; do print a; done)`\nEOF\n"},
 	}
 	for _, c := range different {
 		if diff := d.compare(c.src, c.src, c.printed); diff == "" {
