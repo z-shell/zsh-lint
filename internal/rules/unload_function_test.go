@@ -128,6 +128,47 @@ func TestProjectUnloadLifecycleAcrossFiles(t *testing.T) {
 	}
 }
 
+func TestProjectUnloadLifecycleAutoloadBasename(t *testing.T) {
+	for _, test := range []struct {
+		name, path string
+		kind       projectconfig.ProjectKind
+		profile    projectconfig.Profile
+		want       int
+	}{
+		{"bare autoload body", "functions/example_plugin_unload", projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, 0},
+		{"annex autoload body", "functions/example_plugin_unload", projectconfig.KindZiAnnex, projectconfig.ProfileAutoloadFunction, 0},
+		{"windows basename", `functions\example_plugin_unload`, projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, 0},
+		{"near miss suffix", "functions/example_plugin_unload_extra", projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, 1},
+		{"empty prefix", "functions/_plugin_unload", projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, 1},
+		{"sourced body is not autoload", "lib/example_plugin_unload", projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, 1},
+		{"test fixture not autoload", "tests/example_plugin_unload", projectconfig.KindPlugin, projectconfig.ProfileTestFixture, 1},
+		{"theme is not plugin", "functions/example_plugin_unload", projectconfig.KindTheme, projectconfig.ProfileAutoloadFunction, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			entry, err := parse.Parse(strings.NewReader("add-zsh-hook precmd _example_tick\n"), "entry.zsh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := parse.Parse(strings.NewReader("builtin emulate -L zsh\nunfunction example_plugin_unload\n"), test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inputs := []analyzer.ProjectInput{
+				{File: entry, Path: "entry.zsh", Source: sourceContext(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "example")},
+				{File: body, Path: test.path, Source: sourceContext(test.kind, test.profile, "example")},
+			}
+			got := analyzer.New(ProjectUnloadLifecycle{}).AnalyzeProject(inputs)
+			if len(got) != test.want {
+				t.Fatalf("diagnostics = %+v, want %d", got, test.want)
+			}
+			missing := analyzer.New(ProjectUnloadLifecycle{}).AnalyzeProject(inputs[:1])
+			if len(missing) != 1 || missing[0].RuleID != "plugin/project-unload-lifecycle" || missing[0].Severity != diag.Hint || missing[0].Range.Start.Line != 1 {
+				t.Fatalf("omitted source diagnostics = %+v, want one positioned lifecycle Hint", missing)
+			}
+		})
+	}
+}
+
 func TestUnloadFunctionExactLifecycleMatching(t *testing.T) {
 	tests := []struct {
 		name string
