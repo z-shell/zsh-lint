@@ -207,8 +207,10 @@ func TestParsePosOverflow(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	internal.TestMainSetup()
-	m.Run()
+	cleanup := internal.TestMainSetup()
+	status := m.Run()
+	cleanup()
+	os.Exit(status)
 }
 
 var (
