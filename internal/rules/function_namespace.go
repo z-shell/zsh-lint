@@ -53,6 +53,12 @@ import (
 // The exact `<identifier>_plugin_unload` loader hook retains the literal
 // project identifier, including hyphens, for manager interoperability.
 // Repository names and directory names are never inferred as identifiers.
+// Native hook, trap and special ZLE callback names, and prompt_<theme>_setup,
+// retain their caller-defined interfaces. Arbitrary zle-* names and hook-like
+// helpers are not exempt. See
+// https://zsh.sourceforge.io/Doc/Release/Functions.html#Special-Functions,
+// https://zsh.sourceforge.io/Doc/Release/Zsh-Line-Editor.html#Special-Widgets
+// and https://zsh.sourceforge.io/Doc/Release/User-Contributions.html#Writing-Themes.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/function-namespace -- <reason>` on a declaration
@@ -131,11 +137,55 @@ func functionNamespaceEnabled(source projectconfig.SourceContext) bool {
 }
 
 func namespacedFunction(name, identifier string) bool {
+	if nativeFunctionInterface(name) {
+		return true
+	}
 	if name == identifier+"_plugin_unload" {
 		return true
 	}
 	prefix := projectconfig.ShellPrefix(identifier) + "_"
 	return strings.HasPrefix(name, prefix) || strings.HasPrefix(name, "_"+prefix)
+}
+
+func nativeFunctionInterface(name string) bool {
+	switch name {
+	case "chpwd", "periodic", "precmd", "preexec", "zshaddhistory", "zshexit", "zsh_directory_name",
+		"zle-isearch-exit", "zle-isearch-update", "zle-line-pre-redraw", "zle-line-init",
+		"zle-line-finish", "zle-history-line-set", "zle-keymap-select":
+		return true
+	}
+	if strings.HasPrefix(name, "prompt_") && strings.HasSuffix(name, "_setup") && len(name) > len("prompt__setup") {
+		return true
+	}
+	// Signal names vary across supported operating systems. Keep the native
+	// spellings rather than accepting every user function beginning with TRAP.
+	if !strings.HasPrefix(name, "TRAP") {
+		return false
+	}
+	signal := strings.TrimPrefix(name, "TRAP")
+	for _, prefix := range []string{"RTMIN+", "RTMAX-"} {
+		if offset, ok := strings.CutPrefix(signal, prefix); ok {
+			if offset == "" {
+				return false
+			}
+			for _, digit := range offset {
+				if digit < '0' || digit > '9' {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	switch signal {
+	case "RTMIN", "RTMAX":
+		return true
+	case "EXIT", "DEBUG", "ZERR", "ERR", "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "IOT",
+		"BUS", "FPE", "KILL", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM", "STKFLT",
+		"CHLD", "CLD", "CONT", "STOP", "TSTP", "TTIN", "TTOU", "URG", "XCPU", "XFSZ",
+		"VTALRM", "PROF", "WINCH", "IO", "POLL", "PWR", "SYS", "EMT", "INFO", "LOST":
+		return true
+	}
+	return false
 }
 
 func functionNamespaceMessage(kind, name, identifier string) string {

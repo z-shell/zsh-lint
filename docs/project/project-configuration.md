@@ -49,13 +49,13 @@ In project profile version 2:
 
 - `plugin/function-scoped-options` applies to plugin and Zi annex `autoload-function` sources, including the `completion` role;
 - `plugin/zero-handling`, `plugin/unload-function`, and `plugin/fpath-hygiene` apply to plugin and Zi annex `sourced-library` sources; and
-- `plugin/function-namespace` accepts only the derived public `project_name_...` and private `_project_name_...` forms, native `_command` completion names, and the exact `<identifier>_plugin_unload` loader hook with the literal project identifier (including hyphens);
+- `plugin/function-namespace` accepts the derived public `project_name_...` and private `_project_name_...` forms, native `_command` completion names, documented shell hooks, trap and special ZLE callback names, `prompt_<theme>_setup`, and the exact `<identifier>_plugin_unload` loader hook with the literal project identifier (including hyphens);
 - `plugin/shared-plugins-registry` rejects writes to the ownerless `Plugins` parameter;
 - `plugin/persistent-parameter-namespace` requires persistent typed state to use the private project prefix and directs ordinary configuration to the `:project-identifier:config` style context; and
 - `plugin/load-only-helper` reports conservatively proven private setup helpers that remain defined after initialization.
 
 Inputs resolved from one configuration analyze their complete explicit input set as one project.
-The `plugin/project-unload-lifecycle` validator can therefore match a persistent registration in an entrypoint to an exact `*_plugin_unload` definition in another configured source.
+The `plugin/project-unload-lifecycle` validator can therefore match a persistent registration in an entrypoint to an exact `*_plugin_unload` definition in another configured source or a supplied autoload-function source with that basename.
 This proves only that an unload entrypoint is present.
 Exact ownership-aware restoration is a runtime contract and must be tested in a clean Zsh process.
 Files omitted from the command are intentionally outside that static proof boundary.

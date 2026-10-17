@@ -43,6 +43,8 @@ import (
 //
 // False positives: None in a Standard 2 portable source mapping. Manager-only
 // integration belongs in a separately classified source and remains silent.
+// Declaration printing is read-only and does not create a function-local
+// parameter: https://zsh.sourceforge.io/Doc/Release/Shell-Builtin-Commands.html#index-typeset.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/shared-plugins-registry -- <reason>` on the
@@ -92,6 +94,9 @@ func (rule SharedPluginsRegistry) Analyze(ctx *analyzer.Context, node syntax.Nod
 					return false
 				}
 				scan := scanDeclarationOptions(value.Variant.Value, value.Args)
+				if registryDeclarationPrints(value, scan) {
+					return false
+				}
 				for _, assign := range value.Args[scan.firstOperand:] {
 					report(assign)
 				}
@@ -123,6 +128,9 @@ func (rule SharedPluginsRegistry) analyzeFunction(function *syntax.FuncDecl, rep
 				return false
 			}
 			scan := scanDeclarationOptions(value.Variant.Value, value.Args)
+			if registryDeclarationPrints(value, scan) {
+				return false
+			}
 			for _, assign := range value.Args[scan.firstOperand:] {
 				name, _, _, ok := declaredParameter(assign)
 				if !ok || name != "Plugins" {
@@ -155,6 +163,21 @@ func (rule SharedPluginsRegistry) analyzeFunction(function *syntax.FuncDecl, rep
 		}
 		return true
 	})
+}
+
+// The shared scanner's non-declaration mode also includes pattern assignments,
+// which can mutate Plugins. Only display controls justify skipping this rule.
+func registryDeclarationPrints(declaration *syntax.DeclClause, scan declarationOptionScan) bool {
+	for _, assign := range declaration.Args[:scan.firstOperand] {
+		if assign == nil {
+			continue
+		}
+		value, ok := staticDeclarationWord(assign.Value)
+		if ok && (value == "+" || (len(value) > 1 && strings.ContainsRune("-+", rune(value[0])) && strings.ContainsAny(value[1:], "pf"))) {
+			return true
+		}
+	}
+	return false
 }
 
 // PersistentParameterNamespace reports persistent parameters outside the one
