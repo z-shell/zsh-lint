@@ -13,7 +13,8 @@ import (
 // docs/project/rule-policy.md: hint for style/idiom preferences, info for
 // risky-but-sometimes-intentional patterns (the policy's example is
 // security/eval), warning for likely-bug patterns.
-// Configured-only zero handling is pinned by TestZeroHandlingRequiresConfiguredEntrypoint.
+// Configured-only zero handling is pinned by TestZeroHandlingRequiresConfiguredEntrypoint,
+// and configured-only unquoted-var by TestUnquotedVarRequiresConfiguration.
 func TestRuleSeverities(t *testing.T) {
 	tests := []struct {
 		rule analyzer.Rule
@@ -21,7 +22,6 @@ func TestRuleSeverities(t *testing.T) {
 		path string
 		want diag.Severity
 	}{
-		{UnquotedVar{}, "echo $x\n", "test.zsh", diag.Info},
 		{EvalUsage{}, "eval $cmd\n", "test.zsh", diag.Info},
 		{Backquotes{}, "echo `pwd`\n", "test.zsh", diag.Hint},
 		{FuncDeclStyle{}, "function f() { :; }\n", "test.zsh", diag.Hint},

@@ -9,6 +9,7 @@ import (
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/parse"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 )
 
 func TestUnquotedVar(t *testing.T) {
@@ -30,8 +31,7 @@ echo ${(@)array}
 	}
 
 	rule := UnquotedVar{}
-	analyzerInst := analyzer.New(rule)
-	diags := analyzerInst.Analyze(f, "test.zsh")
+	diags := analyzeUnquotedVar(f, "test.zsh")
 
 	// Only the unquoted command argument `$foo` (line 2) is flagged. The quoted
 	// `"$bar"`, assignment RHS `A=$BAZ`, numeric expansions (`${#foo}`, `${+bar}`,
@@ -93,7 +93,7 @@ func TestUnquotedVarExplicitSplitting(t *testing.T) {
 				t.Fatalf("parse failed: %v", err)
 			}
 
-			diags := analyzer.New(UnquotedVar{}).Analyze(file, test.name+".zsh")
+			diags := analyzeUnquotedVar(file, test.name+".zsh")
 			if len(diags) != test.wantDiags {
 				t.Fatalf("diagnostics = %d, want %d: %v", len(diags), test.wantDiags, diags)
 			}
@@ -132,7 +132,7 @@ func TestUnquotedVarIgnoresRepeatCount(t *testing.T) {
 		t.Fatalf("parse failed: %v", err)
 	}
 
-	diags := analyzer.New(UnquotedVar{}).Analyze(f, "test.zsh")
+	diags := analyzeUnquotedVar(f, "test.zsh")
 
 	want := []string{"2:25", "3:21"}
 	var got []string
@@ -153,7 +153,7 @@ func TestUnquotedVarSeesSelectShortFormBody(t *testing.T) {
 		t.Fatalf("parse failed: %v", err)
 	}
 
-	diags := analyzer.New(UnquotedVar{}).Analyze(f, "test.zsh")
+	diags := analyzeUnquotedVar(f, "test.zsh")
 
 	want := []string{"1:26", "2:29", "4:8"}
 	var got []string
@@ -190,7 +190,8 @@ func TestUnquotedVarArgumentBoundaries(t *testing.T) {
 		{"dynamic command after modifier", `noglob $cmd arg`, 0},
 		{"dynamic external command", `command -- $cmd arg`, 0},
 		{"bare variable", `print $var`, 1},
-		{"default alone", `print ${x:-y}`, 1},
+		{"literal default alone", `print ${x:-y}`, 0},
+		{"expansion default alone", `print ${x:-$y}`, 1},
 		{"quoted variable", `print "$var"`, 0},
 		{"assignment", `name=$var`, 0},
 		{"issue repro without parser gaps", `f() { local -a opts; print a$y $y/b; : ${x:=default}; print ${opts[@]} $opts; }`, 2},
@@ -201,7 +202,7 @@ func TestUnquotedVarArgumentBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			got := analyzer.New(UnquotedVar{}).Analyze(file, "test.zsh")
+			got := analyzeUnquotedVar(file, "test.zsh")
 			if len(got) != test.want {
 				t.Fatalf("diagnostics = %v, want %d", got, test.want)
 			}
@@ -240,7 +241,7 @@ func TestUnquotedVarDeclaredArrays(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			got := analyzer.New(UnquotedVar{}).Analyze(file, "test.zsh")
+			got := analyzeUnquotedVar(file, "test.zsh")
 			if len(got) != 1 {
 				t.Fatalf("diagnostics = %v, want one", got)
 			}
@@ -250,6 +251,70 @@ func TestUnquotedVarDeclaredArrays(t *testing.T) {
 			}
 			if got[0].Message != want || got[0].Severity != diag.Info {
 				t.Fatalf("diagnostic = %v, want info with %q", got[0], want)
+			}
+		})
+	}
+}
+
+// analyzeUnquotedVar runs the rule for a configured standalone script; the rule
+// reports nothing without project configuration (#705).
+func analyzeUnquotedVar(file *parse.File, path string) diag.Diagnostics {
+	return analyzer.New(UnquotedVar{}).AnalyzeSource(file, path,
+		configuredSource(projectconfig.KindPlugin, projectconfig.ProfileStandaloneExecutable, ""))
+}
+
+func TestUnquotedVarRequiresConfiguration(t *testing.T) {
+	const src = "print -r -- $value\n"
+	file, err := parse.Parse(strings.NewReader(src), "test.zsh")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if got := analyzer.New(UnquotedVar{}).Analyze(file, "test.zsh"); len(got) != 0 {
+		t.Errorf("unconfigured diagnostics = %v, want none", got)
+	}
+	got := analyzeUnquotedVar(file, "test.zsh")
+	if len(got) != 1 || got[0].Severity != diag.Info || got[0].Range.Start.Column != 13 {
+		t.Fatalf("configured diagnostics = %v, want one Info at column 13", got)
+	}
+}
+
+func TestUnquotedVarSkipsNeverEmptyExpansions(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"alternate on set or non-empty", "print -r -- ${name:+--named}\n", 0},
+		{"alternate on set", "print -r -- ${name+--named}\n", 0},
+		{"error on unset or empty", "print -r -- ${name:?required}\n", 0},
+		{"literal default", "sleep ${interval:-0.1}\n", 0},
+		{"quoted literal default", "sleep ${interval:-\"0.1\"}\n", 0},
+		{"literal assigned default", "print -r -- ${mode:=fast}\n", 0},
+		{"empty default", "print -r -- ${mode:-}\n", 1},
+		{"empty quoted default", "print -r -- ${mode:-\"\"}\n", 1},
+		{"expansion default", "print -r -- ${mode:-$other}\n", 1},
+		{"quoted expansion default", "print -r -- ${mode:-\"$other\"}\n", 1},
+		{"default without colon", "print -r -- ${mode-fast}\n", 1},
+		{"error without colon", "print -r -- ${mode?required}\n", 1},
+		{"read-only numeric special", "print -r -- $PPID $ZSH_SUBSHELL $TTYIDLE\n", 0},
+		{"assignable special", "print -r -- $HOME $PWD $OSTYPE\n", 3},
+		{"integer local", "f() { integer count=3; print -r -- $count; }\n", 0},
+		{"float declaration", "float ratio=0.5; print -r -- $ratio\n", 0},
+		{"typeset integer flag", "f() { local -i n; print -r -- $n; }\n", 0},
+		{"typeset float flag", "typeset -F t; print -r -- $t\n", 0},
+		{"integer flag removed", "typeset +i n; print -r -- $n\n", 1},
+		{"integer then unset", "f() { integer n; unset n; print -r -- $n; }\n", 1},
+		{"integer in another function", "f() { integer n; }; g() { print -r -- $n; }\n", 1},
+		{"use before integer", "print -r -- $n; integer n\n", 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "test.zsh")
+			if err != nil {
+				t.Fatalf("parse failed: %v", err)
+			}
+			if got := analyzeUnquotedVar(file, "test.zsh"); len(got) != test.want {
+				t.Errorf("diagnostics = %d, want %d: %v", len(got), test.want, got)
 			}
 		})
 	}

@@ -236,6 +236,17 @@ func TestAnalyzerPositionsAfterNestedConditionalAlternation(t *testing.T) {
 	}
 }
 
+// analyzeConfigured runs the default rules for a configured standalone script,
+// where quoting/unquoted-var reports and so witnesses that a suppression for
+// another rule on the same line leaves it intact (#705).
+func analyzeConfigured(file *parse.File, path string) diag.Diagnostics {
+	return analyzer.New(rules.Default()...).AnalyzeSource(file, path, projectconfig.SourceContext{
+		ConfigVersion: projectconfig.CurrentVersion,
+		ProjectKind:   projectconfig.KindPlugin,
+		Profile:       projectconfig.ProfileStandaloneExecutable,
+	})
+}
+
 func findByID(ds diag.Diagnostics, id diag.RuleID) []diag.Diagnostic {
 	var out []diag.Diagnostic
 	for _, d := range ds {
@@ -253,7 +264,7 @@ func TestAnalyzerSuppressionAfterNestedConditionalAlternation(t *testing.T) {
 		t.Fatalf("parse failed: %v", err)
 	}
 
-	diags := analyzer.New(rules.Default()...).Analyze(file, "test.zsh")
+	diags := analyzeConfigured(file, "test.zsh")
 	if got := findByID(diags, "security/eval"); len(got) != 0 {
 		t.Errorf("security/eval finding survived suppression: %+v", got)
 	}
@@ -278,7 +289,7 @@ func TestAnalyzerSuppressionInIfShortForm(t *testing.T) {
 		t.Fatalf("parse failed: %v", err)
 	}
 
-	diags := analyzer.New(rules.Default()...).Analyze(file, "test.zsh")
+	diags := analyzeConfigured(file, "test.zsh")
 	got := findByID(diags, "security/eval")
 	if len(got) != 1 || got[0].Range.Start.Line != 2 {
 		t.Errorf("security/eval findings = %+v, want exactly the line 2 one", got)
@@ -324,7 +335,7 @@ func TestAnalyzerDiagnosticsAfterLegacyBacktickIsland(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse failed: %v", err)
 			}
-			diagnostics := analyzer.New(rules.Default()...).Analyze(file, "legacy-analyzer.zsh")
+			diagnostics := analyzeConfigured(file, "legacy-analyzer.zsh")
 			if got := findByID(diagnostics, "security/eval"); len(got) != 0 {
 				t.Errorf("security/eval finding survived suppression: %+v", got)
 			}
@@ -363,8 +374,7 @@ func TestAnalyzerAppliesSuppression(t *testing.T) {
 		t.Fatalf("parse failed: %v", err)
 	}
 
-	eng := analyzer.New(rules.Default()...)
-	diags := eng.Analyze(file, "test.zsh")
+	diags := analyzeConfigured(file, "test.zsh")
 
 	if got := findByID(diags, "security/eval"); len(got) != 0 {
 		t.Errorf("security/eval finding survived its suppression: %+v", got)
