@@ -13,7 +13,8 @@ import (
 // TestMainSetup is used by the integration tests running shell scripts
 // either via our interpreter or via real shells,
 // to ensure a reasonably clean and consistent environment.
-func TestMainSetup() {
+// The returned cleanup must run after the tests, before calling os.Exit.
+func TestMainSetup() func() {
 	// Set the locale to computer-friendly English and UTF-8.
 	// Some systems like macOS miss C.UTF8, so fall back to the US English locale.
 	if out, _ := exec.Command("locale", "-a").Output(); strings.Contains(
@@ -49,4 +50,9 @@ func TestMainSetup() {
 	}
 
 	os.Setenv("PATH", pathDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return func() {
+		if err := os.RemoveAll(pathDir); err != nil {
+			panic(err)
+		}
+	}
 }
