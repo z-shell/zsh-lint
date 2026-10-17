@@ -5,6 +5,10 @@
 # Usage, from anywhere inside the repository:
 #
 #     bash .github/scripts/verify-parser-change.sh [options] [base-ref] [file.zsh ...]
+#     bash .github/scripts/verify-parser-change.sh --diagnostics [diagnostic options]
+#
+# --diagnostics must be first; it compares analyzer JSON without running parser
+# grids, tests or mutation. See docs/project/diagnostic-diff.md for its options.
 #
 #     --bodies FILE     probe these bodies (variants split by `---` lines) in
 #                       every zsh-lint-probe context and compare the grid
@@ -60,6 +64,19 @@
 
 set -uo pipefail
 export LC_ALL=C
+
+if [[ ${1-} == --diagnostics ]]; then
+  shift
+  script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+  binary=$(mktemp) || exit 2
+  trap 'rm -f "$binary"' EXIT
+  if ! go build -o "$binary" "$script_dir/verify-diagnostics.go"; then
+    echo 'verify-diagnostics: runner build failed' >&2
+    exit 2
+  fi
+  "$binary" "$@"
+  exit $?
+fi
 
 die() {
   echo "verify: $*" >&2

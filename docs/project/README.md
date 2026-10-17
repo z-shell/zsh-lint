@@ -14,6 +14,7 @@ Change them in the same PR as the behavior they describe.
   The `Parser gap` issue form mirrors its capture and classify steps.
 - [Inline suppression contract](suppression.md): the shared `# zsh-lint disable=<rule-id>` directive.
 - [Machine-readable output contract](output-contract.md): the greppable diagnostic line and exit codes.
+- [Diagnostic-diff verification](diagnostic-diff.md): reusable base/candidate analyzer comparisons, portable measurement populations and user-level confirmation-shell setup.
 - [Project configuration](project-configuration.md): `zsh-lint.json` discovery, explicit overrides, and metadata for project-aware rules.
 - [Reference corpus](corpus.md): the repositories the survey and corpus gate run over, with `corpus-paths.txt`, `corpus-configs/`, and `configured-corpus-expected.json` as the gate's inputs, and `regression-corpus.txt` as the regression job's.
 
