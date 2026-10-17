@@ -481,6 +481,34 @@ func TestTrunkModelHasNoMainBranchSourceGuard(t *testing.T) {
 	}
 }
 
+func TestGoCIMutationIntegrationLane(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github", "workflows", "go-ci.yml")
+	vet := workflowJobStep(t, workflow, "build-test", "🔎 Vet")
+	if violations := exactWorkflowMappingViolations(
+		"integration-aware vet step", vet, 8,
+		[]workflowMappingField{{name: "run", value: "go vet -tags=integration ./..."}},
+	); len(violations) != 0 {
+		t.Fatalf("vet must retain integration test coverage: %s", strings.Join(violations, "; "))
+	}
+	step := workflowJobStep(t, workflow, "build-test", "Test mutation-runner integration")
+	if violations := exactWorkflowMappingViolations(
+		"mutation-runner integration step", step, 8,
+		[]workflowMappingField{{name: "run", value: "go test -tags=integration ./internal/workflowcontract/"}},
+	); len(violations) != 0 {
+		t.Fatalf("integration tests must run without condition or failure bypasses: %s", strings.Join(violations, "; "))
+	}
+	job := directWorkflowMapping(workflowBlock(t, workflow, "build-test:", 2), 4)
+	for _, field := range []string{"if", "continue-on-error"} {
+		if values := job[field]; len(values) != 0 {
+			t.Errorf("build-test must not make integration tests optional with %s: %q", field, values)
+		}
+	}
+	on := directWorkflowMapping(workflowBlock(t, workflow, "on:", 0), 2)
+	if values := on["pull_request"]; len(values) != 1 || values[0] != "{}" {
+		t.Errorf("Go CI must run integration tests for every pull request without filters; got %q", values)
+	}
+}
+
 func TestGoCIForkRequiresBash53(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github", "workflows", "go-ci.yml")
 	install := workflowJobStep(t, workflow, "build-test", "Install Bash 5.3 for fork confirmation")
@@ -642,6 +670,10 @@ func TestGoCIBuildTestLintsTheWholeModule(t *testing.T) {
 	}
 
 	config := readRepositoryFile(t, ".golangci.yml")
+	run := directWorkflowMapping(workflowBlock(t, config, "run:", 0), 2)
+	if values := run["build-tags"]; len(values) != 1 || values[0] != "[integration]" {
+		t.Fatalf("lint must retain integration test coverage; got build-tags %q", values)
+	}
 	for _, setting := range []string{"max-issues-per-linter", "max-same-issues"} {
 		if got := len(exactWorkflowLineSpans(config, "  "+setting+": 0")); got != 1 {
 			t.Fatalf(".golangci.yml must set %s to 0 so no finding is hidden (#380); got %d matching lines", setting, got)
@@ -828,7 +860,7 @@ func releaseGateStepViolations(t *testing.T, testStep, publishStep string) []str
 		"tagged-commit test step",
 		testStep,
 		8,
-		[]workflowMappingField{{name: "run", value: "go test -count=1 ./..."}},
+		[]workflowMappingField{{name: "run", value: "go test -tags=integration -count=1 ./..."}},
 	)...)
 	violations = append(violations, exactWorkflowMappingViolations(
 		"release publication step",
@@ -1145,8 +1177,8 @@ func TestReleaseGateRejectsFailureBypasses(t *testing.T) {
 			name: "continue-on-error test",
 			testStep: strings.Replace(
 				testStep,
-				"        run: go test -count=1 ./...",
-				"        continue-on-error: true\n        run: go test -count=1 ./...",
+				"        run: go test -tags=integration -count=1 ./...",
+				"        continue-on-error: true\n        run: go test -tags=integration -count=1 ./...",
 				1,
 			),
 			publishStep: publishStep,
