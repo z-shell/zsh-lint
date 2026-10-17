@@ -15,42 +15,42 @@ var zshFileTests = []fileTestCase{
 	fileTest(
 		[]string{"cat <<$'E\\x4fF'\nbody\nEOF\necho after"},
 		langFile([]*Stmt{
-			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\x4fF`}), Hdoc: litWord("body\n"), HdocStop: "EOF"}}},
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\x4fF`}), Hdoc: litWord("body\n"), HdocStop: []byte("EOF")}}},
 			litStmt("echo", "after"),
 		}, LangZsh),
 	),
 	fileTest(
 		[]string{"cat <<E$'\\x4f'F\nbody\nEOF\necho after"},
 		langFile([]*Stmt{
-			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(lit("E"), &SglQuoted{Dollar: true, Value: `\x4f`}, lit("F")), Hdoc: litWord("body\n"), HdocStop: "EOF"}}},
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(lit("E"), &SglQuoted{Dollar: true, Value: `\x4f`}, lit("F")), Hdoc: litWord("body\n"), HdocStop: []byte("EOF")}}},
 			litStmt("echo", "after"),
 		}, LangZsh),
 	),
 	fileTest(
 		[]string{"cat <<$'E\\nF'\nbody\n"},
 		printsAs("cat <<$'E\\nF'\nbody"),
-		langFile(&Stmt{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\nF`}), Hdoc: litWord("body\n"), HdocStop: "E\nF"}}}, LangZsh),
+		langFile(&Stmt{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\nF`}), Hdoc: litWord("body\n"), HdocStop: []byte("E\nF")}}}, LangZsh),
 	),
 
 	fileTest(
 		[]string{"cat <<$'E\\nF'; echo x\nbody\n"},
 		printsAs("cat <<$'E\\nF'; echo x\nbody"),
 		langFile([]*Stmt{
-			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\nF`}), Hdoc: litWord("body\n"), HdocStop: "E\nF"}}},
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\nF`}), Hdoc: litWord("body\n"), HdocStop: []byte("E\nF")}}},
 			litStmt("echo", "x"),
 		}, LangZsh),
 	),
 	fileTest(
 		[]string{"cat <<-$'\\tEOF'\n\tbody\nEOF\necho after"},
 		langFile([]*Stmt{
-			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: DashHdoc, Word: word(&SglQuoted{Dollar: true, Value: `\tEOF`}), Hdoc: litWord("\tbody\n"), HdocStop: "\tEOF"}}},
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: DashHdoc, Word: word(&SglQuoted{Dollar: true, Value: `\tEOF`}), Hdoc: litWord("\tbody\n"), HdocStop: []byte("\tEOF")}}},
 			litStmt("echo", "after"),
 		}, LangZsh),
 	),
 	fileTest(
 		[]string{"cat <<-$'\\t'\n\tbody\n\necho after"},
 		langFile([]*Stmt{
-			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: DashHdoc, Word: word(&SglQuoted{Dollar: true, Value: `\t`}), Hdoc: litWord("\tbody\n"), HdocStop: "\t"}}},
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: DashHdoc, Word: word(&SglQuoted{Dollar: true, Value: `\t`}), Hdoc: litWord("\tbody\n"), HdocStop: []byte("\t")}}},
 			litStmt("echo", "after"),
 		}, LangZsh),
 	),

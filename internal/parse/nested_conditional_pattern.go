@@ -401,7 +401,11 @@ func scanConditionalPatterns(
 		}
 
 		if b == '\n' && frame.arithmeticDepth == 0 && len(frame.heredocs) > 0 {
-			next, ok := consumeHeredocBodies(src, i+1, frame.heredocs)
+			backtickDepth := 0
+			if frame.kind == activeSourceBacktickSubstitutionFrame {
+				backtickDepth = frame.legacyBacktickDepth
+			}
+			next, ok := consumeHeredocBodies(src, i+1, frame.heredocs, backtickDepth)
 			if !ok {
 				return abandonedConditionalPatternScan(finding)
 			}
@@ -1420,7 +1424,7 @@ func parseHeredocDelimiter(src []byte, start, backtickDepth int) (string, int, b
 			consumed = true
 			i++
 			for {
-				if i >= len(src) || src[i] == '\n' {
+				if i >= len(src) {
 					return "", 0, false
 				}
 				if src[i] == '\'' {
@@ -1434,7 +1438,7 @@ func parseHeredocDelimiter(src []byte, start, backtickDepth int) (string, int, b
 			consumed = true
 			i++
 			for {
-				if i >= len(src) || src[i] == '\n' {
+				if i >= len(src) {
 					return "", 0, false
 				}
 				if src[i] == '"' {
@@ -1472,9 +1476,6 @@ func parseANSICQuotedHeredocSegment(src []byte, start int) ([]byte, int, bool) {
 	decoded := make([]byte, 0, 8)
 	for i := start + 2; i < len(src); {
 		b := src[i]
-		if b == '\n' {
-			return nil, 0, false
-		}
 		if b == '\'' {
 			return decoded, i + 1, true
 		}
@@ -1483,7 +1484,7 @@ func parseANSICQuotedHeredocSegment(src []byte, start int) ([]byte, int, bool) {
 			i++
 			continue
 		}
-		if i+1 >= len(src) || src[i+1] == '\n' {
+		if i+1 >= len(src) {
 			return nil, 0, false
 		}
 		escaped := src[i+1]
@@ -1510,7 +1511,8 @@ func parseANSICQuotedHeredocSegment(src []byte, start int) ([]byte, int, bool) {
 			decoded = append(decoded, '\f')
 			i += 2
 		case 'n':
-			return nil, 0, false
+			decoded = append(decoded, '\n')
+			i += 2
 		case 'r':
 			decoded = append(decoded, '\r')
 			i += 2
@@ -1534,7 +1536,7 @@ func parseANSICQuotedHeredocSegment(src []byte, start int) ([]byte, int, bool) {
 			}
 			value, end, ok := parseANSICDigits(src, i+2, maxDigits, 16)
 			r := rune(value)
-			if !ok || value == 0 || r == '\n' || !utf8.ValidRune(r) {
+			if !ok || value == 0 || !utf8.ValidRune(r) {
 				return nil, 0, false
 			}
 			decoded = utf8.AppendRune(decoded, r)
@@ -1588,7 +1590,7 @@ func heredocWordTerminator(b byte) bool {
 	}
 }
 
-func consumeHeredocBodies(src []byte, start int, heredocs []pendingHeredoc) (int, bool) {
+func consumeHeredocBodies(src []byte, start int, heredocs []pendingHeredoc, backtickDepth int) (int, bool) {
 	offset := start
 	for _, heredoc := range heredocs {
 		for {
@@ -1599,6 +1601,19 @@ func consumeHeredocBodies(src []byte, start int, heredocs []pendingHeredoc) (int
 			lineEnd := len(src)
 			if newline >= 0 {
 				lineEnd = offset + newline
+			}
+			if backtickDepth > 0 {
+				// A legacy close ends a started body too. Leave its lexical
+				// escape prefix for the owning frame to consume normally.
+				for quote := offset; quote < lineEnd; quote++ {
+					if src[quote] != '`' {
+						continue
+					}
+					depth, escapes := legacyBacktickEscapeStateBefore(src, quote)
+					if depth == backtickDepth-1 {
+						return quote - escapes, true
+					}
+				}
 			}
 			contentStart := offset
 			if heredoc.stripTabs {

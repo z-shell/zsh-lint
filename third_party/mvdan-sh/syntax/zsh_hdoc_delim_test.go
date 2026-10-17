@@ -90,6 +90,10 @@ func TestZshHdocDollarSglUnsupported(t *testing.T) {
 // reuse here; shared file rows cover the exact trees and printer options.
 func TestZshHdocPrintOwnership(t *testing.T) {
 	cases := []string{
+		"cat <<$'\\xff'\nbody\n",
+		"cat <<$'\\xff'; echo after\nbody\n",
+		"cat <<$'E\\nF'; case x in esac\nbody\n",
+		"{ cat <<$'E\\nF'; case x in esac; }\nbody\n",
 		"cat <<'E\nF'; echo x\nbody\n",
 		"cat <<$'E\nF'; echo x\nbody\n",
 
@@ -246,7 +250,7 @@ func TestZshHdocTabStop(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(f.Stmts) != 1 || f.Stmts[0].Redirs[0].HdocStop != "" || f.Stmts[0].Redirs[0].ClosePos.IsValid() {
+		if len(f.Stmts) != 1 || len(f.Stmts[0].Redirs[0].HdocStop) != 0 || f.Stmts[0].Redirs[0].ClosePos.IsValid() {
 			t.Fatalf("%s gained Zsh tab stripping", lang)
 		}
 	}

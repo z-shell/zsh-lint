@@ -345,7 +345,8 @@ type Redirect struct {
 	// or layout, before <<- tab stripping. Empty retains ordinary behavior,
 	// including for an empty delimiter and old or constructed nodes. A nonempty
 	// all-tab value represents an empty Zsh <<- stop word. Word keeps its quoting.
-	HdocStop string
+	// Bytes remain lossless even when quote removal produces invalid UTF-8.
+	HdocStop []byte
 }
 
 func (r *Redirect) Pos() Pos {

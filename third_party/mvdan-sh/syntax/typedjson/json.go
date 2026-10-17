@@ -16,6 +16,7 @@ package typedjson
 
 import (
 	"encoding"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -116,6 +117,11 @@ func encodeValue(val reflect.Value) (reflect.Value, string) {
 		if n == 0 {
 			break
 		}
+		if val.Type() == byteSliceType {
+			// encoding/json uses base64 for bytes, preserving invalid UTF-8
+			// and zero bytes rather than treating them as string text.
+			return val, ""
+		}
 		enc := reflect.MakeSlice(anySliceType, n, n)
 		for i := range n {
 			elem := val.Index(i)
@@ -152,6 +158,7 @@ var (
 
 	anyType         = reflect.TypeFor[any]()
 	anySliceType    = reflect.TypeFor[[]any]()
+	byteSliceType   = reflect.TypeFor[[]byte]()
 	posType         = reflect.TypeFor[syntax.Pos]()
 	exportedPosType = reflect.TypeFor[*exportedPos]()
 
@@ -410,6 +417,14 @@ func decodeValue(val reflect.Value, enc any) error {
 	case string:
 		if val.Kind() == reflect.String {
 			val.SetString(enc)
+			break
+		}
+		if val.Type() == byteSliceType {
+			decoded, err := base64.StdEncoding.DecodeString(enc)
+			if err != nil {
+				return fmt.Errorf("cannot decode bytes: %w", err)
+			}
+			val.SetBytes(decoded)
 			break
 		}
 		// Operators are encoded as their syntax form, such as "&&".

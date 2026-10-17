@@ -4029,7 +4029,7 @@ func (p *Parser) doRedirect(s *Stmt) {
 			raw, _ := unquotedWordBytes(r.Word)
 			if unsupported == nil && (!bytes.Equal(stop, raw) || bytes.ContainsRune(stop, '\n') ||
 				r.Op == DashHdoc && len(stop) > 0 && stop[0] == '\t') {
-				r.HdocStop = string(stop)
+				r.HdocStop = stop
 			}
 		}
 		if p.tok == _Newl {

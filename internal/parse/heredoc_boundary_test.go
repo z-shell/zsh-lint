@@ -120,6 +120,62 @@ func TestHeredocUnstartedAtEOFAdapters(t *testing.T) {
 	}
 }
 
+// A later EOF document must not prevent adapting an earlier valid site.
+func TestHeredocNewlineStopBeforeAdapters(t *testing.T) {
+	for _, delimiter := range []string{`$'E\nF'`, `$'E\u000aF'`, `$'E\012F'`, "'E\nF'", "\"E\nF\"", "$'E\nF'"} {
+		for _, site := range []string{"f() { local x=1 }", "{ true } always { true }"} {
+			src := site + "; cat <<" + delimiter + "\nbody\n"
+			t.Run(src, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "newline-stop.zsh")
+				if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if out, err := exec.Command("zsh", "-f", "-n", path).CombinedOutput(); err != nil || len(out) > 0 {
+					t.Fatalf("native: %v: %s", err, out)
+				}
+				f, err := Parse(strings.NewReader(src), "newline-stop.zsh")
+				if err != nil {
+					t.Fatal(err)
+				}
+				stmts := f.AST().Stmts
+				wantFirst, wantStmts := site, 2
+				if strings.Contains(site, " always ") {
+					wantFirst, wantStmts = "{ true }", 3
+				}
+				if len(stmts) != wantStmts || nodeText(src, stmts[0].Cmd) != wantFirst {
+					t.Fatalf("lost adapter site: %#v", stmts)
+				}
+				r := stmts[len(stmts)-1].Redirs[0]
+				if r.ClosePos.IsValid() || heredocBody(t, r) != "body\n" {
+					t.Fatal("lost EOF body ownership")
+				}
+			})
+		}
+	}
+}
+
+func TestHeredocLegacyBodyBeforeAdapters(t *testing.T) {
+	for _, delimiter := range []string{`$'E\nF'`, "EOF", `$'\xff'`} {
+		src := "f() { local x=1 }; echo `cat <<" + delimiter + "\nbody\n`\n"
+		t.Run(delimiter, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "legacy-body.zsh")
+			if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := exec.Command("zsh", "-f", "-n", path).CombinedOutput(); err != nil || len(out) > 0 {
+				t.Fatalf("native: %v: %s", err, out)
+			}
+			f, err := Parse(strings.NewReader(src), "legacy-body.zsh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(f.AST().Stmts) != 2 || nodeText(src, f.AST().Stmts[0].Cmd) != "f() { local x=1 }" {
+				t.Fatal("lost declaration before legacy body")
+			}
+		})
+	}
+}
+
 // A closing backquote is a reserved-word boundary; an opening substitution
 // continuing a pattern word is not. Both paths must retain body ownership.
 func TestHeredocCaseBacktickBoundaryAdapters(t *testing.T) {

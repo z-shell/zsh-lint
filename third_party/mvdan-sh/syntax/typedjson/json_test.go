@@ -47,6 +47,8 @@ func TestRoundtripZsh(t *testing.T) {
 // constructed nodes keep their ordinary quote-removal behavior (#702).
 func TestRoundtripHeredocStop(t *testing.T) {
 	for _, src := range []string{
+		"cat <<$'\\xff'\nbody\n",
+		"cat <<$'E\\200F'\nbody\n",
 		"cat <<-$'\\tEOF'\n\tbody\nEOF\necho after\n",
 		"cat <<-'\t'\n\tbody\n\necho after\n",
 		"cat <<$'E\\nF'; echo x\nbody\n",
@@ -101,7 +103,7 @@ func TestRoundtripHeredocStop(t *testing.T) {
 	node, err := typedjson.Decode(strings.NewReader(old))
 	qt.Assert(t, qt.IsNil(err))
 	r := node.(*syntax.File).Stmts[0].Redirs[0]
-	qt.Assert(t, qt.Equals(r.HdocStop, ""))
+	qt.Assert(t, qt.Equals(len(r.HdocStop), 0))
 	for _, tree := range []*syntax.File{node.(*syntax.File), {Stmts: []*syntax.Stmt{{
 		Cmd:    &syntax.CallExpr{Args: []*syntax.Word{{Parts: []syntax.WordPart{&syntax.Lit{Value: "cat"}}}}},
 		Redirs: []*syntax.Redirect{{Op: syntax.Hdoc, Word: r.Word, Hdoc: r.Hdoc}},
@@ -118,6 +120,21 @@ func TestRoundtripHeredocStop(t *testing.T) {
 	qt.Assert(t, qt.IsNil(syntax.NewPrinter().Print(&fallback, node)))
 	qt.Assert(t, qt.Equals(fallback.String(), "cat <<-$'\\t'\n\tbody\n\\t\n"))
 
+}
+
+func TestRoundtripHeredocStopBinary(t *testing.T) {
+	f, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader("cat <<EOF\nbody\nEOF\n"), "")
+	qt.Assert(t, qt.IsNil(err))
+	// Constructed metadata is serialized losslessly too, even though the
+	// parser itself rejects NUL in a stop word. Do not print or execute it.
+	f.Stmts[0].Redirs[0].HdocStop = []byte{0, 0x80, 0xff}
+	var out bytes.Buffer
+	qt.Assert(t, qt.IsNil(typedjson.Encode(&out, f)))
+	again, err := typedjson.Decode(&out)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsTrue(reflect.DeepEqual(again, f)))
+	_, err = typedjson.Decode(strings.NewReader(`{"Type":"Redirect","HdocStop":"?"}`))
+	qt.Assert(t, qt.IsNotNil(err))
 }
 
 // allNodeNames lists the name of every [syntax.Node] type,

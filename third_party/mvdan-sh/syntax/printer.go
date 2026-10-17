@@ -12,6 +12,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/fileutil"
 )
@@ -305,8 +306,8 @@ type Printer struct {
 
 	// pendingHdocs is the list of pending heredocs to write.
 	pendingHdocs []*Redirect
-	// inlineHdocs keeps a lexical list together when a newline in a stop
-	// word makes an explicit closing line impossible.
+	// inlineHdocs keeps a lexical list together when a stop word requires
+	// EOF layout rather than a printable closing line.
 	inlineHdocs bool
 	// requestedSingleLine is the caller option, before lexical heredoc layout.
 	requestedSingleLine bool
@@ -517,9 +518,9 @@ func (p *Printer) flushHeredocs() (endedAtEOF bool) {
 		p.w.WriteByte('\n')
 		p.wantSpace = spaceWritten
 		p.wantNewline, p.mustNewline = false, false
-		if strings.Contains(r.HdocStop, "\n") {
-			// No line can close this document. Preserve its EOF body without
-			// injecting a decoded newline or a synthetic closing word (#702).
+		if hdocNeedsEOFLayout(r) {
+			// Preserve the EOF body without injecting an unprintable or
+			// synthetic closing word (#702).
 			if r.Hdoc != nil {
 				p.hdocBody(r)
 			}
@@ -580,13 +581,19 @@ func (p *Printer) flushHeredocs() (endedAtEOF bool) {
 	return endedAtEOF
 }
 
+// A decoded newline cannot close a line. A non-UTF-8 stop word cannot be
+// emitted as source that this parser can read, so retain its EOF layout too.
+func hdocNeedsEOFLayout(r *Redirect) bool {
+	return bytes.IndexByte(r.HdocStop, '\n') >= 0 || !utf8.Valid(r.HdocStop)
+}
+
 func (p *Printer) hdocStop(r *Redirect) {
-	if r.HdocStop != "" {
+	if len(r.HdocStop) > 0 {
 		stop := r.HdocStop
 		if r.Op == DashHdoc {
-			stop = strings.TrimLeft(stop, "\t")
+			stop = bytes.TrimLeft(stop, "	")
 		}
-		p.writeLit(stop)
+		p.writeLit(string(stop))
 	} else {
 		p.unquotedWord(r.Word)
 	}
@@ -632,7 +639,7 @@ func (p *Printer) inlineHdocStmts(stmts []*Stmt) (restore func(), started bool) 
 			case *CmdSubst, *ProcSubst:
 				return false
 			case *Redirect:
-				if strings.Contains(n.HdocStop, "\n") {
+				if hdocNeedsEOFLayout(n) {
 					p.singleLine, p.inlineHdocs = true, true
 					started = started || n.Hdoc != nil
 				}
@@ -676,7 +683,7 @@ func (p *Printer) hdocBody(r *Redirect) {
 // in the middle of a line, by EOF or by a closing backquote.
 // Keep in sync with the copy in the interp package.
 func hdocNeedsNewline(r *Redirect) bool {
-	if r.Hdoc == nil || r.ClosePos.IsValid() || strings.Contains(r.HdocStop, "\n") {
+	if r.Hdoc == nil || r.ClosePos.IsValid() || hdocNeedsEOFLayout(r) {
 		return false
 	}
 	lit, ok := r.Hdoc.Parts[len(r.Hdoc.Parts)-1].(*Lit)
@@ -1055,8 +1062,8 @@ func (p *Printer) cmdSubst(cs *CmdSubst) {
 		legacy := cs.Backquotes && unclosable
 		w := p.w
 		if legacy {
-			// A backquote can end a started body whose stop word contains a
-			// newline; a command substitution's parenthesis cannot (#702).
+			// A backquote can end a started EOF-layout body; a command
+			// substitution's parenthesis cannot (#702).
 			p.w.WriteByte('`')
 			p.w = &backquoteWriter{bufWriter: w}
 		} else {
@@ -1679,7 +1686,7 @@ func (p *Printer) command(cmd Command, redirs []*Redirect) (startRedirs int) {
 		if p.swtCaseIndent {
 			p.incLevel()
 		}
-		if len(cmd.Items) == 0 {
+		if len(cmd.Items) == 0 && !p.inlineHdocs {
 			// Apparently "case x in; esac" is invalid shell.
 			p.mustNewline = true
 		}
@@ -1731,7 +1738,15 @@ func (p *Printer) command(cmd Command, redirs []*Redirect) (startRedirs int) {
 			p.flushComments()
 			p.decLevel()
 		}
-		p.semiRsrv("esac", cmd.Esac)
+		if len(cmd.Items) == 0 && p.inlineHdocs {
+			// A newline would start the pending EOF body before esac;
+			// an empty case needs a space, not a semicolon after in.
+			p.space()
+			p.w.WriteString("esac")
+			p.wantSpace = spaceRequired
+		} else {
+			p.semiRsrv("esac", cmd.Esac)
+		}
 	case *ArithmCmd:
 		p.w.WriteString("((")
 		if cmd.Unsigned {
