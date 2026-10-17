@@ -15,8 +15,9 @@ import (
 //
 // Name: Unquoted variable expansion
 //
-// Summary: Reports standalone unquoted parameter expansions in command arguments
-// that may lose an empty value, with element-preserving advice for declared arrays.
+// Summary: In configured projects, reports standalone unquoted parameter
+// expansions in command arguments that may lose an empty value, with
+// element-preserving advice for declared arrays.
 //
 // Why: The Zsh manual's Parameter Expansion section explains that unquoted
 // parameters are not split on whitespace by default, unlike in sh, but null
@@ -36,10 +37,21 @@ import (
 // Severity: Info. Losing an empty argument can change command behavior, but
 // intentional elision and values guaranteed to be non-empty are common.
 //
+// Configuration: The rule reports only for sources with project configuration.
+// Without it, one file cannot show whether a value may be empty, and sampled
+// precision was 1 in 34 on organization code and 0 in 20 on third-party code
+// (#614, #705).
+//
 // False positives: Explicit native-Zsh splitting forms such as `${=words}`,
 // flag-guided array or field splitting, and glob substitution `${~pattern}`
 // (whose value must stay unquoted to match as a pattern) are excluded. Compound
-// words, command names, and arguments of `:` are also excluded. Code may
+// words, command names, and arguments of `:` are also excluded. Expansions that
+// can never be empty are skipped: `${x:+word}` and `${x+word}`, which elide on
+// purpose and would pass an empty argument if quoted; `${x:-word}` and
+// `${x:=word}` with a non-empty literal word; `${x:?word}`, which fails instead
+// of expanding empty; names declared integer or float earlier in the same
+// function or file scope, unless that scope unsets them; and the read-only
+// numeric parameters `PPID`, `ZSH_SUBSHELL` and `TTYIDLE`. Code may
 // intentionally omit an empty argument or expand a value guaranteed to be
 // non-empty; suppress those cases with a reason. Array advice uses only earlier
 // declarations in the same lexical function or file scope, without resolving
@@ -65,7 +77,7 @@ func (UnquotedVar) NeedsScope() bool { return true }
 
 func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	call, ok := node.(*syntax.CallExpr)
-	if !ok {
+	if !ok || !ctx.Source.Configured() {
 		return
 	}
 	// The : exemption also covers a name after the command modifier: its
@@ -85,6 +97,9 @@ func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 		}
 		param, ok := word.Parts[0].(*syntax.ParamExp)
 		if !ok || shouldSkipUnquotedParam(param) {
+			continue
+		}
+		if param.Param != nil && ctx.Scope != nil && ctx.Scope.IsDeclaredNumeric(param.Param.Value, param.Pos()) {
 			continue
 		}
 		message := "Variable expansion should be double-quoted"
@@ -109,8 +124,24 @@ func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 	// 2. Special parameters guaranteed to evaluate to numeric integers
 	if param.Param != nil {
 		switch param.Param.Value {
-		case "?", "$", "!", "#", "LINENO", "HISTCMD", "SECONDS", "RANDOM", "EPOCHSECONDS", "EPOCHREALTIME":
+		case "?", "$", "!", "#", "LINENO", "HISTCMD", "SECONDS", "RANDOM", "EPOCHSECONDS", "EPOCHREALTIME",
+			"PPID", "ZSH_SUBSHELL", "TTYIDLE":
 			return true
+		}
+	}
+
+	// 6. Expansion operators whose result is never an empty argument: ${x:+w}
+	// and ${x+w} elide on purpose, so quoting them would pass an empty word;
+	// ${x:?w} fails rather than expanding empty; ${x:-w} and ${x:=w} with a
+	// non-empty literal w fall back to that text.
+	if param.Exp != nil {
+		switch param.Exp.Op {
+		case syntax.AlternateUnset, syntax.AlternateUnsetOrNull, syntax.ErrorUnsetOrNull:
+			return true
+		case syntax.DefaultUnsetOrNull, syntax.AssignUnsetOrNull:
+			if nonEmptyLiteralWord(param.Exp.Word) {
+				return true
+			}
 		}
 	}
 
@@ -138,4 +169,32 @@ func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 	}
 
 	return false
+}
+
+// nonEmptyLiteralWord reports a word made only of literal or quoted literal
+// text that is not empty.
+func nonEmptyLiteralWord(word *syntax.Word) bool {
+	if word == nil {
+		return false
+	}
+	text := ""
+	for _, part := range word.Parts {
+		switch x := part.(type) {
+		case *syntax.Lit:
+			text += x.Value
+		case *syntax.SglQuoted:
+			text += x.Value
+		case *syntax.DblQuoted:
+			for _, inner := range x.Parts {
+				lit, ok := inner.(*syntax.Lit)
+				if !ok {
+					return false
+				}
+				text += lit.Value
+			}
+		default:
+			return false
+		}
+	}
+	return text != ""
 }

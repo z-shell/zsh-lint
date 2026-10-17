@@ -53,12 +53,7 @@ func (m *Map) indexArrayDeclaration(decl *syntax.DeclClause) {
 // IsDeclaredArray reports an earlier array declaration in the same lexical
 // function or file scope. It deliberately does not infer dynamic caller scope.
 func (m *Map) IsDeclaredArray(name string, pos syntax.Pos) bool {
-	var function *syntax.FuncDecl
-	for _, candidate := range m.functions {
-		if candidate.Pos().Offset() <= pos.Offset() && pos.Offset() < candidate.End().Offset() {
-			function = candidate
-		}
-	}
+	function := m.enclosingFunction(pos)
 	for _, declaration := range m.arrays {
 		if declaration.name == name && declaration.function == function && declaration.pos.Offset() < pos.Offset() {
 			return true
