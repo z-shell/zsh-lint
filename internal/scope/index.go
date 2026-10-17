@@ -58,6 +58,7 @@ func (m *Map) Index(node syntax.Node) {
 		// Handle export, local, declare, typeset
 		case *syntax.DeclClause:
 			m.indexArrayDeclaration(x)
+			m.indexNumericDeclaration(x)
 			cmdName := ""
 			if x.Variant != nil {
 				cmdName = x.Variant.Value
@@ -83,6 +84,7 @@ func (m *Map) Index(node syntax.Node) {
 			if len(x.Args) == 0 {
 				return true
 			}
+			m.indexUnset(x)
 			cmdName := extractLiteral(x.Args[0])
 
 			isAlias := cmdName == "alias"

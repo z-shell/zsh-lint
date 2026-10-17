@@ -40,6 +40,11 @@ Presence is checked by `plugin/project-unload-lifecycle` across the configured s
 Native Zsh normally sets `$0` to the sourced filename or function name; an unconfigured file cannot establish the caller's option state or a portable plugin-entrypoint contract.
 Configured plugin and Zi annex `sourced-library` sources retain the Warning for caller-dependent `$0` use and assignment to caller-visible special parameter `0`.
 
+`quoting/unquoted-var` also stays silent without configured source metadata ([#705](https://github.com/z-shell/zsh-lint/issues/705)).
+Native Zsh does not split or glob an unquoted parameter, so the remaining hazard is an empty value dropped from the argument list, and one file cannot show whether a value may be empty.
+Configured sources keep the Info finding, except for expansions that can never be empty: `${x:+word}`, `${x:-word}` or `${x:=word}` with a non-empty literal word, `${x:?word}`, names declared integer or float earlier in the same scope and not unset there, and read-only numeric parameters.
+The rule stays in the default set, so its suppression directives remain valid.
+
 In project profile version 2:
 
 - `plugin/function-scoped-options` applies to plugin and Zi annex `autoload-function` sources, including the `completion` role;

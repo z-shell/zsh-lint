@@ -39,6 +39,8 @@ type Map struct {
 	currentFunc *syntax.FuncDecl
 	functions   []*syntax.FuncDecl
 	arrays      []arrayDeclaration
+	numerics    []numericDeclaration
+	unsets      []unsetName
 }
 
 // NewMap creates an empty scope map.
