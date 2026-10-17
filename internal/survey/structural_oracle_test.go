@@ -24,10 +24,6 @@ import (
 // first difference in a file, so a listed fixture can hide a second cause
 // until the first is fixed.
 var structuralOracleKnownDifferences = map[string]string{
-	// The printer writes a `$'...'` here-document delimiter undecoded, so it
-	// closes the body with its quoted text; the parser leaves decoding to the
-	// internal/parse adapter, and both belong in the fork together.
-	"ok-ansic-heredoc.zsh": "printer: a $'...' here-document delimiter is closed by its quoted form",
 	// The tree keeps only the first name of a multi-name loop.
 	"ok-foreach-end.zsh":                      "tree: WordIter keeps one loop name",
 	"ok-heredoc-quote-before-brace-forms.zsh": "tree: WordIter keeps one loop name",

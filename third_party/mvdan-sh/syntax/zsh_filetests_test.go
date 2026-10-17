@@ -10,6 +10,50 @@ import (
 // These fork-local rows share upstream's tree, print, printer-option, native
 // confirmation and fuzz-seed checks. Keep focused position and state tests too.
 var zshFileTests = []fileTestCase{
+	// Default printing uses the stop word known at parse time (#702).
+	// https://zsh.sourceforge.io/Doc/Release/Redirection.html#Redirection
+	fileTest(
+		[]string{"cat <<$'E\\x4fF'\nbody\nEOF\necho after"},
+		langFile([]*Stmt{
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\x4fF`}), Hdoc: litWord("body\n"), HdocStop: []byte("EOF")}}},
+			litStmt("echo", "after"),
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"cat <<E$'\\x4f'F\nbody\nEOF\necho after"},
+		langFile([]*Stmt{
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(lit("E"), &SglQuoted{Dollar: true, Value: `\x4f`}, lit("F")), Hdoc: litWord("body\n"), HdocStop: []byte("EOF")}}},
+			litStmt("echo", "after"),
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"cat <<$'E\\nF'\nbody\n"},
+		printsAs("cat <<$'E\\nF'\nbody"),
+		langFile(&Stmt{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\nF`}), Hdoc: litWord("body\n"), HdocStop: []byte("E\nF")}}}, LangZsh),
+	),
+
+	fileTest(
+		[]string{"cat <<$'E\\nF'; echo x\nbody\n"},
+		printsAs("cat <<$'E\\nF'; echo x\nbody"),
+		langFile([]*Stmt{
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: Hdoc, Word: word(&SglQuoted{Dollar: true, Value: `E\nF`}), Hdoc: litWord("body\n"), HdocStop: []byte("E\nF")}}},
+			litStmt("echo", "x"),
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"cat <<-$'\\tEOF'\n\tbody\nEOF\necho after"},
+		langFile([]*Stmt{
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: DashHdoc, Word: word(&SglQuoted{Dollar: true, Value: `\tEOF`}), Hdoc: litWord("\tbody\n"), HdocStop: []byte("\tEOF")}}},
+			litStmt("echo", "after"),
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{"cat <<-$'\\t'\n\tbody\n\necho after"},
+		langFile([]*Stmt{
+			{Cmd: litCall("cat"), Redirs: []*Redirect{{Op: DashHdoc, Word: word(&SglQuoted{Dollar: true, Value: `\t`}), Hdoc: litWord("\tbody\n"), HdocStop: []byte("\t")}}},
+			litStmt("echo", "after"),
+		}, LangZsh),
+	),
 	// Negation can return a nonzero native status without a syntax diagnostic.
 	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Simple-Commands-_0026-Pipelines
 	fileTest([]string{"! true"}, langFile(&Stmt{Negated: true, Cmd: litCall("true")}, LangZsh)),

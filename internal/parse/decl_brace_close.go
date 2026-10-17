@@ -111,7 +111,10 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 	inANSICQuote := false
 	escaped := false
 	inComment := false
-	var heredocs []pendingHeredoc
+	heredocSkips, ok := sourceHeredocSkips(src)
+	if !ok {
+		return 0, 0, false
+	}
 	arithmeticDepth := 0
 	// params tells a `#` inside a `${...}`, as in `${#x}`, from a comment.
 	var params parameterWordTracker
@@ -143,6 +146,16 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 
 	for i := 0; i < len(src); i++ {
 		b := src[i]
+		if end, ok := heredocSkips[i]; ok {
+			if b == '\n' {
+				endClause(true)
+			} else {
+				atCommandStart = false
+			}
+			i = end - 1
+			inComment = false
+			continue
+		}
 		if escaped {
 			escaped = false
 			continue
@@ -178,16 +191,6 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 					endClause(true)
 				}
 			}
-			continue
-		}
-		if b == '\n' && len(heredocs) > 0 {
-			next, ok := consumeHeredocBodies(src, i+1, heredocs)
-			if !ok {
-				return 0, 0, false
-			}
-			heredocs = nil
-			i = next - 1
-			endClause(true)
 			continue
 		}
 		if b == '(' && i+1 < len(src) && src[i+1] == '(' {
@@ -257,19 +260,8 @@ func findDeclarationBraceClose(src []byte, after, before int) (int, int, bool) {
 			}
 			continue
 		}
-		if b == '<' && i+1 < len(src) && src[i+1] == '<' {
-			heredoc, end, isHeredoc, ok := heredocAt(src, i)
-			if !ok {
-				return 0, 0, false
-			}
-			if !isHeredoc {
-				// A here-string `<<<`: its word is ordinary text.
-				i += 2
-				atCommandStart = false
-				continue
-			}
-			heredocs = append(heredocs, heredoc)
-			i = end - 1
+		if b == '<' && i+2 < len(src) && string(src[i:i+3]) == "<<<" {
+			i += 2
 			atCommandStart = false
 			continue
 		}

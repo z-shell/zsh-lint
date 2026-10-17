@@ -137,6 +137,73 @@ func TestANSICHeredocDelimiterClosesBody(t *testing.T) {
 	}
 }
 
+// The default printer must retain the parser's delimiter semantics (#702),
+// including an empty stop word and a stop word that cannot match any line.
+func TestANSICHeredocPrintRoundtrip(t *testing.T) {
+	for _, tc := range []struct{ delimiter, closer string }{
+		{`$'E\x4fF'`, "EOF"},
+		{`E$'\x4f'F`, "EOF"},
+		{`$'E\117F'`, "EOF"},
+		{`$'\u00e9OF'`, "éOF"},
+		{`$'\U000000e9OF'`, "éOF"},
+		{`$'E\tF'`, "E\tF"},
+		{`$'E\'F'`, "E'F"},
+		{`$''`, ""},
+	} {
+		for _, op := range []string{"<<", "<<-"} {
+			t.Run(op+tc.delimiter, func(t *testing.T) {
+				src := "cat " + op + tc.delimiter + "\nbody\n" + tc.closer + "\necho after\n"
+				file, err := Parse(strings.NewReader(src), "roundtrip.zsh")
+				if err != nil {
+					t.Fatal(err)
+				}
+				var out strings.Builder
+				if err := syntax.NewPrinter().Print(&out, file.AST()); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(out.String(), op+tc.delimiter+"\n") {
+					t.Fatalf("opener changed: %q", out.String())
+				}
+				again, err := Parse(strings.NewReader(out.String()), "printed.zsh")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(again.AST().Stmts) != 2 {
+					t.Fatalf("printed %q reparsed as %d statements, want 2", out.String(), len(again.AST().Stmts))
+				}
+				r := again.AST().Stmts[0].Redirs[0]
+				if !r.ClosePos.IsValid() || strings.TrimLeft(heredocBody(t, r), "\t") != "body\n" {
+					t.Fatalf("printed %q lost body or closer", out.String())
+				}
+				if !strings.HasPrefix(out.String()[r.ClosePos.Offset():], tc.closer+"\n") {
+					t.Fatalf("closer at %v in %q, want %q", r.ClosePos, out.String(), tc.closer)
+				}
+				if got := nodeText(out.String(), again.AST().Stmts[1]); got != "echo after" {
+					t.Fatalf("following statement = %q", got)
+				}
+			})
+		}
+	}
+	for _, delimiter := range []string{`$'E\nF'`, `$'E\x4fF'`} {
+		src := "cat <<" + delimiter + "\nbody\n"
+		file, err := Parse(strings.NewReader(src), "eof.zsh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out strings.Builder
+		if err := syntax.NewPrinter().Print(&out, file.AST()); err != nil {
+			t.Fatal(err)
+		}
+		again, err := Parse(strings.NewReader(out.String()), "printed.zsh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := heredocBody(t, again.AST().Stmts[0].Redirs[0]); got != "body\n" {
+			t.Errorf("printed %q added body text: %q", out.String(), got)
+		}
+	}
+}
+
 // Control, meta and NUL escapes are not decoded, so such a delimiter stays a
 // parse error rather than a stop word that never matches. zsh -f -n accepts
 // all but the surrogate, which it reports as a character not in range: the

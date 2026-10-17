@@ -341,6 +341,12 @@ type Redirect struct {
 	N        *Lit  // fd>, or {varname}> with [LangBash] or [LangZsh]
 	Word     *Word // >word
 	Hdoc     *Word // here-document body
+	// HdocStop retains a Zsh stop word needing dialect-specific quote removal
+	// or layout, before <<- tab stripping. Empty retains ordinary behavior,
+	// including for an empty delimiter and old or constructed nodes. A nonempty
+	// all-tab value represents an empty Zsh <<- stop word. Word keeps its quoting.
+	// Bytes remain lossless even when quote removal produces invalid UTF-8.
+	HdocStop []byte
 }
 
 func (r *Redirect) Pos() Pos {

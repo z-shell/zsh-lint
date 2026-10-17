@@ -1,5 +1,21 @@
 package parse
 
+import (
+	"bytes"
+	"strings"
+)
+
+// sourceHeredocSkips shares the active-source scanner's substitution ownership
+// with flat adapter scanners. Only real bodies are skipped at a newline;
+// documents abandoned at a substitution close never consume later source.
+func sourceHeredocSkips(src []byte) (map[int]int, bool) {
+	if !bytes.Contains(src, []byte("<<")) {
+		return nil, true
+	}
+	scan, ok := scanConditionalPatterns(src, -1, nil)
+	return scan.heredocSkips, ok && scan.finding == nil
+}
+
 // heredocAt reads the redirection at src[i] when it opens a here-document:
 // `<<` or `<<-` followed by the delimiter word. It returns the pending body
 // and the offset just past the delimiter. isHeredoc is false for anything
@@ -11,7 +27,9 @@ package parse
 //
 // The site scanners share it so that each one skips a here-document body the
 // same way (#429): a quote character in the body is text, not quoting.
-func heredocAt(src []byte, i int) (heredoc pendingHeredoc, end int, isHeredoc, ok bool) {
+// backtickDepth is the owning legacy substitution's depth, or zero outside
+// one; an attached closing backtick ends the delimiter as well as the command.
+func heredocAt(src []byte, i, backtickDepth int) (heredoc pendingHeredoc, end int, isHeredoc, ok bool) {
 	if i+1 >= len(src) || src[i] != '<' || src[i+1] != '<' {
 		return pendingHeredoc{}, i, false, true
 	}
@@ -23,9 +41,12 @@ func heredocAt(src []byte, i int) (heredoc pendingHeredoc, end int, isHeredoc, o
 	if stripTabs {
 		delimiterStart++
 	}
-	delimiter, end, ok := parseHeredocDelimiter(src, delimiterStart)
+	delimiter, end, ok := parseHeredocDelimiter(src, delimiterStart, backtickDepth)
 	if !ok {
 		return pendingHeredoc{}, i, true, false
+	}
+	if stripTabs {
+		delimiter = strings.TrimLeft(delimiter, "\t")
 	}
 	return pendingHeredoc{delimiter: delimiter, stripTabs: stripTabs}, end, true, true
 }
