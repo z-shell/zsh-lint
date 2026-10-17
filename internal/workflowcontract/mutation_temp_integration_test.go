@@ -45,6 +45,29 @@ import (
  "time"
 )
 
+func TestRelativeTemporaryDirectory(t *testing.T) {
+ root := t.TempDir()
+ t.Chdir(root)
+ t.Setenv("TMPDIR", ".")
+ gotmp := filepath.Join(root, "caller-gotmp")
+ if err := os.Mkdir(gotmp, 0700); err != nil { t.Fatal(err) }
+ t.Setenv("GOTMPDIR", gotmp)
+ work, err := os.MkdirTemp("", "relative-worker-")
+ if err != nil { t.Fatal(err) }
+ for name, body := range map[string]string{
+  "go.mod": "module example.invalid/relativeprobe\ngo 1.27.0\n",
+  "probe_test.go": "package probe\nimport \"testing\"\nfunc TestPass(t *testing.T) {}\n",
+ } {
+  if err := os.WriteFile(filepath.Join(work, name), []byte(body), 0600); err != nil { t.Fatal(err) }
+ }
+ status, output := test(context.Background(), work, []testCommand{{"", []string{"."}}}, 15*time.Second, "off", false)
+ if status != "LIVED" { t.Fatalf("relative worker did not pass: %s: %s", status, output) }
+ entries, err := os.ReadDir(work)
+ if err != nil || len(entries) != 2 { t.Fatalf("relative worker cleanup mismatch: %v %v", entries, err) }
+ entries, err = os.ReadDir(gotmp)
+ if err != nil || len(entries) != 0 { t.Fatalf("caller temporary directory changed: %v %v", entries, err) }
+}
+
 func TestTemporaryDirectories(t *testing.T) {
  for _, mode := range []string{"success", "timeout", "cancel"} {
   t.Run(mode, func(t *testing.T) {

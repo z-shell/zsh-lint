@@ -637,6 +637,12 @@ func test(parent context.Context, work string, commands []testCommand, timeout t
 		return "INVALID", err.Error()
 	}
 	defer func() { _ = os.RemoveAll(temp) }()
+	// The child changes directories, so relative caller roots must not be
+	// resolved a second time beneath its worker directory.
+	absoluteTemp, err := filepath.Abs(temp)
+	if err != nil {
+		return "INVALID", err.Error()
+	}
 	var output strings.Builder
 	for _, command := range commands {
 		log, err := os.CreateTemp(work, "test-output-")
@@ -650,7 +656,7 @@ func test(parent context.Context, work string, commands []testCommand, timeout t
 		args = append(args, command.args...)
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = filepath.Join(work, command.dir)
-		cmd.Env = append(os.Environ(), "GOWORK=off", "GOTMPDIR="+temp, "TMPDIR="+temp)
+		cmd.Env = append(os.Environ(), "GOWORK=off", "GOTMPDIR="+absoluteTemp, "TMPDIR="+absoluteTemp)
 		cmd.Stdout, cmd.Stderr = log, log
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
