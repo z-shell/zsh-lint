@@ -15,10 +15,10 @@ func TestFunctionScopedOptionsAutoloadForms(t *testing.T) {
 		name, path, src string
 		want            int
 	}{
-		{"xtrace preserving bare body", "functions/handler", "builtin emulate -L zsh " + trace + "\nprint ready\n", 0},
-		{"xtrace preserving reset", "functions/handler", "builtin emulate -LR zsh " + trace + "\nprint ready\n", 0},
+		{"xtrace bare body needs known IFS", "functions/handler", "builtin emulate -L zsh " + trace + "\nprint ready\n", 1},
+		{"xtrace reset needs known IFS", "functions/handler", "builtin emulate -LR zsh " + trace + "\nprint ready\n", 1},
 		{"same name wrapper", "functions/handler", "handler() {\n builtin emulate -L zsh\n print ready\n}\n", 0},
-		{"same name wrapper xtrace", "functions/handler", "handler() {\n builtin emulate -L zsh " + trace + "\n print ready\n}\n", 0},
+		{"wrapper xtrace needs known IFS", "functions/handler", "handler() {\n builtin emulate -L zsh " + trace + "\n print ready\n}\n", 1},
 		{"windows wrapper path", `C:\plugin\functions\handler`, "handler() { setopt local_options; print ready; }\n", 0},
 		{"wrapper leading guard", "functions/handler", "handler() { [[ -n $ready ]] || return; emulate -L zsh; print ready; }\n", 0},
 		{"unscoped wrapper", "functions/handler", "handler() { print ready; }\n", 1},
@@ -46,9 +46,12 @@ func TestFunctionScopedOptionsAutoloadForms(t *testing.T) {
 		{"listing mode", "functions/handler", "emulate -lL zsh " + trace + "\nprint ready\n", 1},
 		{"local flag overrides literal disabling", "functions/handler", "emulate -L zsh +o local_options\nprint ready\n", 0},
 		{"local flag overrides inverse option", "functions/handler", "emulate -L zsh -o no_local_options\nprint ready\n", 0},
-		{"preserve static options before trace", "functions/handler", "emulate -L zsh -o extended_glob " + trace + "\nprint ready\n", 0},
+		{"static options before trace need known IFS", "functions/handler", "emulate -L zsh -o extended_glob " + trace + "\nprint ready\n", 1},
 		{"only recognize trailing trace idiom", "functions/handler", "emulate -L zsh " + trace + " -o extended_glob\nprint ready\n", 1},
 		{"suppressed unscoped wrapper", "functions/handler", "handler() {\n# zsh-lint disable=plugin/function-scoped-options -- caller state is intentional\nprint ready\n}\n", 0},
+		{"suppressed wrapper declaration", "functions/handler", "# zsh-lint disable=plugin/function-scoped-options -- caller state is intentional\nhandler() {\n print ready\n}\n", 0},
+		{"suppressed wrapper after blank and comment", "functions/handler", "# zsh-lint disable=plugin/function-scoped-options -- caller state is intentional\n\n# wrapper\nhandler() { print ready; }\n", 0},
+		{"suppressed wrapper trailing directive", "functions/handler", "handler() { # zsh-lint disable=plugin/function-scoped-options -- caller state is intentional\n print ready\n}\n", 0},
 		{"background wrapper", "functions/handler", "handler() { emulate -L zsh; print ready; } &\n", 1},
 		{"multiple wrapper names", "functions/handler", "function handler other { emulate -L zsh; print ready; }\n", 1},
 	} {
@@ -69,7 +72,8 @@ func TestFunctionScopedOptionsConfiguredForms(t *testing.T) {
 		want      int
 	}{
 		{"configured plugin wrapper", "handler() { emulate -L zsh; print ready; }", projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, 0},
-		{"configured annex bare", "builtin emulate -L zsh ${=${options[xtrace]:#off}:+-o xtrace}\nprint ready", projectconfig.KindZiAnnex, projectconfig.ProfileAutoloadFunction, 0},
+		{"configured suppressed wrapper", "# zsh-lint disable=plugin/function-scoped-options -- caller state is intentional\nhandler() { print ready; }", projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, 0},
+		{"configured annex xtrace needs known IFS", "builtin emulate -L zsh ${=${options[xtrace]:#off}:+-o xtrace}\nprint ready", projectconfig.KindZiAnnex, projectconfig.ProfileAutoloadFunction, 1},
 		{"configured unscoped body", "print ready", projectconfig.KindPlugin, projectconfig.ProfileAutoloadFunction, 1},
 		{"sourced profile", "print ready", projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, 0},
 		{"tool profile", "print ready", projectconfig.KindTool, projectconfig.ProfileAutoloadFunction, 0},
@@ -82,6 +86,40 @@ func TestFunctionScopedOptionsConfiguredForms(t *testing.T) {
 			ds := analyzer.New(FunctionScopedOptions{}).AnalyzeSource(file, "autoload/handler", configuredSource(test.kind, test.profile, ""))
 			if len(ds) != test.want {
 				t.Fatalf("diagnostics = %v, want %d", ds, test.want)
+			}
+		})
+	}
+}
+
+func TestFunctionScopedOptionsWrapperSuppressionScope(t *testing.T) {
+	for _, test := range []struct {
+		name, source, meta string
+		line               int
+	}{
+		{"other rule", "# zsh-lint disable=security/eval\nhandler() {\n print ready\n}\n", "meta/unused-suppression", 3},
+		{"malformed", "# zsh-lint enable=plugin/function-scoped-options\nhandler() {\n print ready\n}\n", "meta/malformed-suppression", 3},
+		{"later statement", "handler() {\n print first\n# zsh-lint disable=plugin/function-scoped-options -- later statement only\n print second\n}\n", "meta/unused-suppression", 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.source), "functions/handler")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ds := analyzer.New(FunctionScopedOptions{}).Analyze(file, "functions/handler")
+			if len(ds) != 2 {
+				t.Fatalf("diagnostics = %v, want target and %s", ds, test.meta)
+			}
+			var target, meta bool
+			for _, d := range ds {
+				switch string(d.RuleID) {
+				case "plugin/function-scoped-options":
+					target = d.Range.Start.Line == test.line
+				case test.meta:
+					meta = true
+				}
+			}
+			if !target || !meta {
+				t.Fatalf("diagnostics = %v, want target on line %d and %s", ds, test.line, test.meta)
 			}
 		})
 	}

@@ -2,11 +2,13 @@ package rules
 
 import (
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
+	"github.com/z-shell/zsh-lint/internal/suppress"
 	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
 
@@ -58,14 +60,17 @@ import (
 // scope. A single same-name wrapper is checked inside its body; bare autoload
 // bodies still need scoping. Underscore names alone and `#autoload` tags do
 // not exempt files. A contiguous prefix of recognized `condition || return`
-// or single-return `if` guards is accepted before scoping. With `emulate -L zsh`,
-// the exact trailing `${=${options[xtrace]:#off}:+-o xtrace}` idiom is accepted;
-// other dynamic arguments remain findings.
+// or single-return `if` guards is accepted before scoping. Dynamic arguments
+// remain findings, including `${=${options[xtrace]:#off}:+-o xtrace}`: its word
+// splitting depends on inherited IFS, so it can make emulate fail before
+// options are localized. This rule does not prove the IFS precondition.
+// See https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion.
 //
 // Suppression: Use
 // `# zsh-lint disable=plugin/function-scoped-options -- <reason>` on the
 // finding line or immediately before the next non-comment, non-blank source
-// line.
+// line. A same-name wrapper also retains a directive targeting its declaration;
+// a directive inside the wrapper can target the reported body statement.
 //
 // Corpus evidence: Issue #63 reported missing scoping across z-a-meta-plugins
 // and zsh-fancy-completions function files. The analyzer currently flags
@@ -92,6 +97,7 @@ func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Nod
 	}
 
 	stmts := file.Stmts
+	var wrapper *syntax.Stmt
 	// Zsh also accepts an autoload file containing only a definition of the
 	// function being loaded. Inspect that body, not the declaration itself.
 	// Initialization followed by a definition is a different autoload form.
@@ -100,6 +106,7 @@ func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Nod
 			fn.Name.Value == path.Base(strings.ReplaceAll(ctx.FilePath, `\`, "/")) &&
 			len(fn.Names) == 0 && fn.Body != nil && !hasUnsafeGuardEffect(fn.Body) {
 			if block, ok := fn.Body.Cmd.(*syntax.Block); ok {
+				wrapper = stmts[0]
 				stmts = block.Stmts
 			}
 		}
@@ -115,9 +122,21 @@ func (rule FunctionScopedOptions) Analyze(ctx *analyzer.Context, node syntax.Nod
 		if isLeadingReturnGuard(stmt) {
 			continue
 		}
+		reportStmt := stmt
+		if wrapper != nil {
+			// Keep a directive targeting the declaration effective without
+			// changing line-based suppression for unrelated statements/rules.
+			// Otherwise retain the focused location inside the function body.
+			for _, directive := range suppress.Collect(ctx.File) {
+				if directive.Malformed == "" && directive.Target == int(wrapper.Pos().Line()) && slices.Contains(directive.Rules, rule.ID()) {
+					reportStmt = wrapper
+					break
+				}
+			}
+		}
 		ctx.Report(
-			stmt.Pos(),
-			stmt.End(),
+			reportStmt.Pos(),
+			reportStmt.End(),
 			rule.ID(),
 			diag.Hint,
 			"Scope function options with 'builtin emulate -L zsh' or 'setopt local_options' before executable logic",
@@ -254,23 +273,13 @@ func literalWord(word *syntax.Word) (string, bool) {
 }
 
 func isLocalZshEmulate(args []*syntax.Word) bool {
-	var values []string
-	shellSeen := false
-	preservesXtrace := false
+	values := make([]string, len(args))
 	for i, arg := range args {
 		value, ok := literalWord(arg)
 		if !ok {
-			// Accept only this fixed expansion, which yields either no words or
-			// exactly "-o xtrace". Never accept arbitrary dynamic flags, nor an
-			// expansion where a preceding -o/+o needs an option-name argument.
-			if !shellSeen || i != len(args)-1 || (len(values) > 0 && (values[len(values)-1] == "-o" || values[len(values)-1] == "+o")) || !isXtracePreservingArgument(arg) {
-				return false
-			}
-			preservesXtrace = true
-			continue
+			return false
 		}
-		values = append(values, value)
-		shellSeen = shellSeen || value == "zsh"
+		values[i] = value
 	}
 
 	for _, value := range values {
@@ -284,7 +293,7 @@ func isLocalZshEmulate(args []*syntax.Word) bool {
 		if value == "zsh" {
 			return local
 		}
-		if !strings.HasPrefix(value, "-") || (preservesXtrace && strings.Trim(value[1:], "LR") != "") {
+		if !strings.HasPrefix(value, "-") {
 			return false
 		}
 		if strings.Contains(value[1:], "L") {
@@ -292,20 +301,6 @@ func isLocalZshEmulate(args []*syntax.Word) bool {
 		}
 	}
 	return false
-}
-
-func isXtracePreservingArgument(word *syntax.Word) bool {
-	if word == nil || len(word.Parts) != 1 {
-		return false
-	}
-	if _, ok := word.Parts[0].(*syntax.ParamExp); !ok {
-		return false
-	}
-	var text strings.Builder
-	if err := syntax.NewPrinter().Print(&text, word); err != nil {
-		return false
-	}
-	return text.String() == "${=${options[xtrace]:#off}:+-o xtrace}"
 }
 
 func enablesLocalOptions(args []*syntax.Word) bool {

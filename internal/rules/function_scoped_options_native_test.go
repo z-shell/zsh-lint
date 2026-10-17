@@ -118,3 +118,54 @@ print -r -- after:$options[localoptions]:$options[shwordsplit]
 		t.Fatalf("completion setup = %q (%v)", output, err)
 	}
 }
+
+// ${=spec} uses inherited IFS before emulate can reset option state. A
+// successful default-IFS call is not proof of safe caller-independent scoping.
+func TestFunctionScopedOptionsNativeInheritedIFS(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh is required for native inherited-IFS controls")
+	}
+	const dynamic = "builtin emulate -L zsh ${=${options[xtrace]:#off}:+-o xtrace}"
+	for _, test := range []struct {
+		name, setup, init, want string
+		findings                int
+	}{
+		{"default IFS", "", dynamic, "inside:on:off\nafter:off:on:off\n", 1},
+		{"colon IFS", "IFS=':'\n", dynamic, "inside:off:on\nafter:off:on:on\n", 1},
+		{"empty IFS", "IFS=''\n", dynamic, "inside:off:on\nafter:off:on:on\n", 1},
+		{"static with colon IFS", "IFS=':'\n", "builtin emulate -L zsh", "inside:on:off\nafter:off:on:off\n", 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			body := test.init + "\nprint -r -- inside:${options[localoptions]}:${options[shwordsplit]}\nsetopt extended_glob\n"
+			path := filepath.Join(dir, "handler")
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			check := exec.Command(zsh, "-f", "-n", path)
+			if output, err := check.CombinedOutput(); err != nil || len(output) != 0 {
+				t.Fatalf("syntax: %s (%v)", output, err)
+			}
+			driver := "fpath=( \"$1\" )\nautoload -Uz handler\nunsetopt local_options extended_glob\nsetopt sh_word_split xtrace\n" + test.setup + "handler\nprint -r -- after:${options[localoptions]}:${options[shwordsplit]}:${options[extendedglob]}\n"
+			driverPath := filepath.Join(dir, "driver.zsh")
+			if err := os.WriteFile(driverPath, []byte(driver), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(zsh, "-f", driverPath, dir)
+			cmd.Env = append(os.Environ(), "HOME="+dir, "ZDOTDIR="+dir)
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			output, err := cmd.Output()
+			if err != nil || string(output) != test.want {
+				t.Fatalf("autoload = %q (%v), stderr %q; want %q", output, err, stderr.String(), test.want)
+			}
+			if strings.HasPrefix(test.want, "inside:off:") && !strings.Contains(stderr.String(), "no such option:") {
+				t.Fatalf("missing native initialization failure: %q", stderr.String())
+			}
+			if got := analyzeFunctionScopedOptions(t, "functions/handler", body); len(got) != test.findings {
+				t.Fatalf("lines = %v, want %d findings", got, test.findings)
+			}
+		})
+	}
+}
