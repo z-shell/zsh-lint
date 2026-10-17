@@ -253,7 +253,8 @@ It executes the rows, so use it on generated probe rows only, never on corpus or
 `.github/scripts/mutation.sh [options] [base-ref]` mutates supported constructs on changed Go source lines and exits 1 when a mutant survives ([#425](https://github.com/z-shell/zsh-lint/issues/425), [#544](https://github.com/z-shell/zsh-lint/issues/544)).
 The standard-library Go runner changes comparisons, integer bounds, boolean guards and increments without depending on a coverage block, so `case` expressions are included.
 Each mutant runs in an isolated snapshot; the contributor's files stay untouched.
-Fork changes under `third_party/mvdan-sh` run that module's `go test -failfast ./syntax/` first and run the root `go test -failfast ./internal/parse/ ./internal/survey/` only if the fork suite passes; `LIVED` requires both suites to pass.
+Fork changes under `third_party/mvdan-sh` run the changed file's own package tests first, then `go test -failfast ./syntax/` from the fork directory (unless that is already the owning package), then the root `go test -failfast ./internal/parse/ ./internal/survey/`; `LIVED` requires every selected suite to pass.
+For example, an `expand/` mutant must pass `./expand/`, `./syntax/` and both root consumers; nested package paths select their exact directory, not their parent or all fork packages.
 Other source changes run their package's tests with `-failfast`; `--failfast=false` restores the non-failfast commands for comparisons.
 Each build/test gets a process group, and its descendants are killed on timeout or normal completion.
 `MUTATION_TIMEOUT` sets a whole-mutant deadline in seconds; otherwise it is at least 30 seconds and `MUTATION_TIMEOUT_COEFFICIENT` (default 30) times the baseline test duration.

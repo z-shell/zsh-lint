@@ -613,8 +613,15 @@ type testCommand struct {
 }
 
 func testCommands(name string) []testCommand {
-	if strings.HasPrefix(name, "third_party/mvdan-sh/") {
-		return []testCommand{{"third_party/mvdan-sh", []string{"./syntax/"}}, {"", []string{"./internal/parse/", "./internal/survey/"}}}
+	if relative, ok := strings.CutPrefix(name, "third_party/mvdan-sh/"); ok {
+		// Test the owning package first, then syntax and the root consumers.
+		// A syntax mutant already owns that suite, so do not run it twice.
+		pkg := "./" + filepath.ToSlash(filepath.Dir(relative)) + "/"
+		commands := []testCommand{{"third_party/mvdan-sh", []string{pkg}}}
+		if pkg != "./syntax/" {
+			commands = append(commands, testCommand{"third_party/mvdan-sh", []string{"./syntax/"}})
+		}
+		return append(commands, testCommand{"", []string{"./internal/parse/", "./internal/survey/"}})
 	}
 	return []testCommand{{"", []string{"./" + filepath.ToSlash(filepath.Dir(name)) + "/"}}}
 }
