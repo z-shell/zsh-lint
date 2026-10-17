@@ -235,6 +235,8 @@ Use `--output DIR` to retain logs, command invocations and `summary.md` in a new
 `--check-base` checks revisions without building. `--candidate REV` replays a committed candidate's verdicts and skips functional checks and mutation, so it is comparison evidence only.
 The tools below explain those checks and support focused diagnostics.
 
+Rule and tooling changes can use the same entry point's `--diagnostics` mode to compare analyzer findings over explicit populations, with added/removed identities, non-target checks and input/configuration hashes. See [diagnostic-diff verification](diagnostic-diff.md); this comparison does not replace the functional or parser checks above.
+
 Every masked retry parses the whole file again, so an adapter that resolves one site per pass costs a parse per site ([#366](https://github.com/z-shell/zsh-lint/issues/366)).
 Measure that cost with `go run ./cmd/zsh-lint-survey -trace-parses <file>`, which writes each file's whole-source parse count and deepest adapter retry nesting to standard error ([#408](https://github.com/z-shell/zsh-lint/issues/408)).
 State the before and after numbers in a pull request that changes them on a corpus file.
