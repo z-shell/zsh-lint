@@ -373,21 +373,25 @@ func TestFindDeclarationBraceCloseSkipsInactiveBraces(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			seed := 0
+			// Exercise the surviving family with all existing scanner contrasts.
+			src := strings.ReplaceAll(test.src, "local", "nameref")
+			space := test.space + 2*strings.Count(test.src[:test.space], "local")
+			brace := test.brace + 2*strings.Count(test.src[:test.brace], "local")
 			if test.name == "brace before seed" {
-				seed = strings.LastIndex(test.src, "{")
+				seed = strings.LastIndex(src, "{")
 			}
-			space, brace, ok := findDeclarationBraceClose([]byte(test.src), seed, len(test.src))
+			gotSpace, gotBrace, ok := findDeclarationBraceClose([]byte(src), seed, len(src))
 			if ok != test.ok {
 				t.Fatalf("ok = %t, want %t", ok, test.ok)
 			}
 			if !ok {
 				return
 			}
-			if space != test.space || brace != test.brace {
-				t.Fatalf("offsets = %d, %d, want %d, %d", space, brace, test.space, test.brace)
+			if gotSpace != space || gotBrace != brace {
+				t.Fatalf("offsets = %d, %d, want %d, %d", gotSpace, gotBrace, space, brace)
 			}
-			if test.src[brace] != '}' {
-				t.Fatalf("byte at %d is %q, want a brace", brace, test.src[brace])
+			if src[gotBrace] != '}' {
+				t.Fatalf("byte at %d is %q, want a brace", gotBrace, src[gotBrace])
 			}
 		})
 	}

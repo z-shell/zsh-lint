@@ -87,18 +87,11 @@ func parseDeclarationBraceCloseWithParser(
 	return tree, nil
 }
 
-// declarationClauseWords are the command words the parser turns into a
-// DeclClause or LetClause, which read arguments until a stop token.
-// Zsh reserved declarations and `let` now stop at `}` in the fork;
-// `nameref` retains its legacy declaration reading.
+// Only nameref retains a legacy declaration reading needing recovery. Scanning
+// migrated declarations can select an earlier valid alternate body and leave
+// no syntax.Block for restoration when a later nameref triggers a retry.
 var declarationClauseWords = map[string]bool{
-	"declare":  true,
-	"export":   true,
-	"let":      true,
-	"local":    true,
-	"nameref":  true,
-	"readonly": true,
-	"typeset":  true,
+	"nameref": true,
 }
 
 // findDeclarationBraceClose scans syntactically active source for the first

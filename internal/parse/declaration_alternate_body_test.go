@@ -87,6 +87,14 @@ func TestDeclarationAlternateBodyPreservesSource(t *testing.T) {
 // The fork's declaration bodies must compose with every adapter in both
 // orders, including braces read inside another adapter's retry.
 func TestDeclarationBraceCloseComposesWithAdapters(t *testing.T) {
+	for _, declaration := range []string{"if [[ -n x ]] { local u=1 }", "for i in 1; { local u=1 }"} {
+		legacy := "while true; do { nameref x=y }; done"
+		for _, source := range []string{declaration + "\n" + legacy, legacy + "\n" + declaration} {
+			if _, err := Parse(strings.NewReader(source+"\n"), "keyword-composition.zsh"); err != nil {
+				t.Fatalf("retained keyword recovery composition %q: %v", source, err)
+			}
+		}
+	}
 	for name, snippet := range adapterSnippets {
 		for _, declaration := range []string{
 			"{ typeset -g C=1 }",
