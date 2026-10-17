@@ -108,8 +108,13 @@ Both point at the wiki as the canonical reading surface.
 ## Build & test
 
     bash .github/scripts/agent-setup.sh   # once per session: zsh, golangci-lint, module cache
-    go build ./... && go vet ./... && go test ./...
+    go build ./... && go vet -tags=integration ./... && go test ./...
+    go test -tags=integration ./internal/workflowcontract/
     golangci-lint run ./...
+
+The default suite excludes the mutation-runner behavioral integration tests.
+Full verification also runs the explicit integration command above; Go CI and the parser verifier require both lanes, and release-tag tests enable the integration tag for the full suite.
+Vet and the golangci-lint configuration include the integration tag so these tests retain static-analysis coverage.
 
 Go CI runs `golangci-lint` v2.14.0 over the whole module with `.golangci.yml`, so a finding anywhere fails the build, not only on changed lines.
 Use the lint command the setup script prints; it derives the toolchain from `go.mod` and includes `GOTOOLCHAIN` when the local Go release differs.

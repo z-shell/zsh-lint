@@ -292,11 +292,13 @@ check() {
 echo "verify: logs in $logs"
 
 if [[ -z $candidate_ref ]]; then
-  check test bash -c 'go build ./... && go vet ./... && go test ./...'
+  check test bash -c 'go build ./... && go vet -tags=integration ./... && go test ./...'
+  check integration-test go test -tags=integration ./internal/workflowcontract/
   check fork-test bash -c 'cd third_party/mvdan-sh && go test ./syntax/ ./pattern/ ./expand/'
   check lint env GOTOOLCHAIN="go$(go list -m -f '{{.GoVersion}}')" "$lint" run ./...
 else
   record test skipped
+  record integration-test skipped
   record fork-test skipped
   record lint skipped
 fi

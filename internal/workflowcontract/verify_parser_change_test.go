@@ -200,6 +200,10 @@ func TestVerifyParserChangeMutationPolicy(t *testing.T) {
 	}
 	write(filepath.Join(bin, "go"), `#!/usr/bin/env bash
 set -eu
+printf '%s\n' "$*" >> "$PILOT_GO_CALLS"
+if [[ $* == 'test -tags=integration ./internal/workflowcontract/' && ${PILOT_INTEGRATION_FAIL:-0} == 1 ]]; then
+  exit 1
+fi
 case $1 in
 version) echo 'go version go1.27.0 test'; exit 0 ;;
 list) echo '1.27.0'; exit 0 ;;
@@ -257,6 +261,7 @@ exit "$PILOT_MUTATION_EXIT"
 		{"sampled-survivors", nil, "1", 3, false},
 		{"sampled-incomplete", nil, "3", 3, false},
 		{"setup-failure", nil, "2", 1, false},
+		{"integration-failure", nil, "0", 1, false},
 		{"unstructured-setup-failure", nil, "2", 1, false},
 		{"full-survivors", []string{"--full-mutation"}, "1", 1, false},
 		{"full-clean", []string{"--full-mutation"}, "0", 0, false},
@@ -295,6 +300,11 @@ exit "$PILOT_MUTATION_EXIT"
 			cmd := exec.Command("bash", append(args, "HEAD")...)
 			cmd.Dir = caller
 			cmd.Env = append(env, "PILOT_MUTATION_ARGS="+argsFile, "PILOT_MUTATION_EXIT="+tc.mutation)
+			goCalls := filepath.Join(dir, tc.name+".go-calls")
+			cmd.Env = append(cmd.Env, "PILOT_GO_CALLS="+goCalls)
+			if tc.name == "integration-failure" {
+				cmd.Env = append(cmd.Env, "PILOT_INTEGRATION_FAIL=1")
+			}
 			if tc.name == "unstructured-setup-failure" {
 				cmd.Env = append(cmd.Env, "PILOT_MUTATION_LOG=unstructured")
 			}
@@ -328,6 +338,21 @@ exit "$PILOT_MUTATION_EXIT"
 			summary, err := os.ReadFile(filepath.Join(output, "summary.md"))
 			if err != nil {
 				t.Fatal(err)
+			}
+			calls, err := os.ReadFile(goCalls)
+			if err != nil || !strings.Contains(string(calls), "test -tags=integration ./internal/workflowcontract/\n") {
+				t.Fatalf("verification must run the integration lane: %v\n%s", err, calls)
+			}
+			if !strings.Contains(string(calls), "vet -tags=integration ./...\n") {
+				t.Fatalf("verification must vet the integration tests:\n%s", calls)
+			}
+			if tc.name == "integration-failure" {
+				if _, err := os.Stat(argsFile); !os.IsNotExist(err) ||
+					!strings.Contains(string(summary), "| integration-test | FAIL |") ||
+					!strings.Contains(string(summary), "| mutation | skipped |") {
+					t.Fatalf("integration failure must fail verification and skip mutation: %v\n%s", err, summary)
+				}
+				return
 			}
 			if tc.name == "unstructured-setup-failure" {
 				mutationLog, err := os.ReadFile(filepath.Join(output, "mutation.log"))

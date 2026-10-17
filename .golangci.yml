@@ -1,5 +1,8 @@
 version: "2"
 
+run:
+  build-tags: [integration]
+
 # Go CI runs this configuration over the whole module, and Trunk runs it over
 # changed lines, so a finding on main fails the next Go CI run instead of
 # waiting for a pull request to touch its line (#380).

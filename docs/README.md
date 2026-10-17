@@ -33,11 +33,16 @@ Create short-lived `feature-<id>`, `bug-<id>`, or `hotfix-<id>` branches from `m
 Reviewed changes are squash-merged; annotated `vX.Y.Z` tags remain the publication boundary.
 
 ```sh
-go build ./... && go vet ./... && go test ./...
+go build ./... && go vet -tags=integration ./... && go test ./...
+go test -tags=integration ./internal/workflowcontract/
 golangci-lint run ./...   # v2.12.2, as Go CI runs it
 go tool gomarkdoc --output ref.md \
   ./cmd/zsh-lint ./cmd/zsh-lint-survey ./internal/survey ./internal/rules
 ```
+
+The mutation-runner behavioral tests use the `integration` build tag so the default suite stays focused on fast feedback.
+Full verification requires both test commands; Go CI, release-tag tests and the parser verifier retain the integration lane.
+Vet and the golangci-lint configuration also include the integration tag.
 
 ## License
 
