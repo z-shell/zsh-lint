@@ -889,9 +889,20 @@ func (p *Parser) hdocStopWord(r *Redirect) ([]byte, bool) {
 	if p.lang != LangZsh {
 		return unquotedWordBytes(r.Word)
 	}
+	buf, quoted, unsupported := zshHdocStopWord(r.Word)
+	if unsupported != nil {
+		p.posErr(unsupported.Pos(), "unsupported escape in here-document delimiter %#q", "$'"+unsupported.Value+"'")
+	}
+	if r.Op == DashHdoc {
+		buf = bytes.TrimLeft(buf, "\t")
+	}
+	return buf, quoted
+}
+
+func zshHdocStopWord(w *Word) ([]byte, bool, *SglQuoted) {
 	buf := make([]byte, 0, 4)
 	quoted := false
-	for _, wp := range r.Word.Parts {
+	for _, wp := range w.Parts {
 		sq, ok := wp.(*SglQuoted)
 		if !ok || !sq.Dollar {
 			var q bool
@@ -901,13 +912,12 @@ func (p *Parser) hdocStopWord(r *Redirect) ([]byte, bool) {
 		}
 		decoded, ok := zshDecodeDollarSgl(sq.Value)
 		if !ok {
-			p.posErr(sq.Pos(), "unsupported escape in here-document delimiter %#q", "$'"+sq.Value+"'")
-			return nil, true
+			return nil, true, sq
 		}
 		buf = append(buf, decoded...)
 		quoted = true
 	}
-	return buf, quoted
+	return buf, quoted, nil
 }
 
 // zshDecodeDollarSgl decodes the text between the quotes of $'...' as Zsh
@@ -4010,6 +4020,18 @@ func (p *Parser) doRedirect(s *Stmt) {
 		p.heredocs = append(p.heredocs, r)
 		r.Word = p.followWordTok(token(r.Op), r.OpPos)
 		p.quote, p.forbidNested = old, false
+		if p.lang == LangZsh && r.Word != nil {
+			// Remember quote removal even when the body never starts (#702).
+			// Keep tabs before stripping so an all-tab stop word can carry
+			// Zsh semantics without overloading the empty legacy fallback.
+			// Unsupported escapes retain their existing error in doHeredocs.
+			stop, _, unsupported := zshHdocStopWord(r.Word)
+			raw, _ := unquotedWordBytes(r.Word)
+			if unsupported == nil && (!bytes.Equal(stop, raw) || bytes.ContainsRune(stop, '\n') ||
+				r.Op == DashHdoc && len(stop) > 0 && stop[0] == '\t') {
+				r.HdocStop = string(stop)
+			}
+		}
 		if p.tok == _Newl {
 			if len(p.accComs) > 0 {
 				c := p.accComs[0]

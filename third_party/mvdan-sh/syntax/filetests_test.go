@@ -5923,6 +5923,12 @@ func (c sanityChecker) visit(node Node) bool {
 			c.checkPos(node, r.OpPos, strs...)
 			if r.ClosePos.IsValid() {
 				stop, _ := unquotedWordBytes(r.Word)
+				if r.HdocStop != "" {
+					stop = []byte(r.HdocStop)
+					if r.Op == DashHdoc {
+						stop = []byte(strings.TrimLeft(string(stop), "\t"))
+					}
+				}
 				c.checkPos(node, r.ClosePos, string(stop))
 			}
 		}

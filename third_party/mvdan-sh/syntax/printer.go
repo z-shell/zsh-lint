@@ -120,6 +120,7 @@ func NewPrinter(opts ...PrinterOption) *Printer {
 // when a [*File] is used.
 func (p *Printer) Print(w io.Writer, node Node) error {
 	p.reset()
+	p.requestedSingleLine = p.singleLine
 
 	if p.minify && p.singleLine {
 		return fmt.Errorf("Minify and SingleLine together are not supported yet; please file an issue describing your use case: https://github.com/mvdan/sh/issues")
@@ -142,11 +143,17 @@ func (p *Printer) Print(w io.Writer, node Node) error {
 	p.w.Reset(w)
 	switch node := node.(type) {
 	case *File:
+		restore, _ := p.inlineHdocStmts(node.Stmts)
+		defer restore()
 		p.stmtList(node.Stmts, node.Last)
 		p.newline(Pos{})
 	case *Stmt:
+		restore, _ := p.inlineHdocStmts([]*Stmt{node})
+		defer restore()
 		p.stmtList([]*Stmt{node}, nil)
 	case Command:
+		restore, _ := p.inlineHdocStmts([]*Stmt{{Cmd: node}})
+		defer restore()
 		p.command(node, nil)
 	case *Word:
 		p.line = node.Pos().Line()
@@ -182,6 +189,31 @@ type bufWriter interface {
 	Reset(io.Writer)
 	Flush() error
 }
+
+// backquoteWriter restores the lexical escape layer removed by Parser.rune.
+// It surrounds only a retained legacy body, so nested layers compose, while
+// its own opening and closing backquotes go straight to the enclosing writer.
+type backquoteWriter struct{ bufWriter }
+
+func (w *backquoteWriter) WriteByte(b byte) error {
+	if bquoteEscaped(b) {
+		if err := w.bufWriter.WriteByte('\\'); err != nil {
+			return err
+		}
+	}
+	return w.bufWriter.WriteByte(b)
+}
+
+func (w *backquoteWriter) WriteString(s string) (int, error) {
+	for i := 0; i < len(s); i++ {
+		if err := w.WriteByte(s[i]); err != nil {
+			return i, err
+		}
+	}
+	return len(s), nil
+}
+
+func (w *backquoteWriter) Write(b []byte) (int, error) { return w.WriteString(string(b)) }
 
 type colCounter struct {
 	*bufio.Writer
@@ -273,6 +305,11 @@ type Printer struct {
 
 	// pendingHdocs is the list of pending heredocs to write.
 	pendingHdocs []*Redirect
+	// inlineHdocs keeps a lexical list together when a newline in a stop
+	// word makes an explicit closing line impossible.
+	inlineHdocs bool
+	// requestedSingleLine is the caller option, before lexical heredoc layout.
+	requestedSingleLine bool
 
 	// used when printing <<- heredocs with tab indentation
 	tabsPrinter *Printer
@@ -292,6 +329,7 @@ func (p *Printer) reset() {
 	p.nestedBinary = false
 	p.gluedBrace = Pos{}
 	p.pendingHdocs = p.pendingHdocs[:0]
+	p.inlineHdocs = false
 }
 
 func (p *Printer) spaces(n uint) {
@@ -436,9 +474,11 @@ func (p *Printer) indent() {
 
 // newline prints one newline and advances p.line to pos.Line().
 func (p *Printer) newline(pos Pos) {
-	p.flushHeredocs()
+	endedAtEOF := p.flushHeredocs()
 	p.flushComments()
-	p.w.WriteByte('\n')
+	if !endedAtEOF {
+		p.w.WriteByte('\n')
+	}
 	p.wantSpace = spaceWritten
 	p.wantNewline, p.mustNewline = false, false
 	p.advanceLine(pos.Line())
@@ -448,9 +488,9 @@ func (p *Printer) advanceLine(line uint) {
 	p.line = max(p.line, line)
 }
 
-func (p *Printer) flushHeredocs() {
+func (p *Printer) flushHeredocs() (endedAtEOF bool) {
 	if len(p.pendingHdocs) == 0 {
-		return
+		return false
 	}
 	hdocs := p.pendingHdocs
 	p.pendingHdocs = p.pendingHdocs[:0]
@@ -477,6 +517,15 @@ func (p *Printer) flushHeredocs() {
 		p.w.WriteByte('\n')
 		p.wantSpace = spaceWritten
 		p.wantNewline, p.mustNewline = false, false
+		if strings.Contains(r.HdocStop, "\n") {
+			// No line can close this document. Preserve its EOF body without
+			// injecting a decoded newline or a synthetic closing word (#702).
+			if r.Hdoc != nil {
+				p.hdocBody(r)
+			}
+			endedAtEOF = true
+			break // later pending documents cannot start beyond this EOF
+		}
 		if r.Op == DashHdoc && p.indentSpaces == 0 && !p.minify {
 			if r.Hdoc != nil {
 				extra := extraIndenter{
@@ -501,7 +550,7 @@ func (p *Printer) flushHeredocs() {
 				p.tabsPrinter.hdocBody(r)
 			}
 			p.indent()
-			p.unquotedWord(r.Word)
+			p.hdocStop(r)
 		} else {
 			w := p.w
 			if e, ok := p.w.(*extraIndenter); ok {
@@ -515,7 +564,7 @@ func (p *Printer) flushHeredocs() {
 			if r.Hdoc != nil {
 				p.hdocBody(r)
 			}
-			p.unquotedWord(r.Word)
+			p.hdocStop(r)
 			p.w = w
 		}
 		if r.Hdoc != nil {
@@ -528,6 +577,19 @@ func (p *Printer) flushHeredocs() {
 	p.level = newLevel
 	p.pendingComments = coms
 	p.mustNewline = true
+	return endedAtEOF
+}
+
+func (p *Printer) hdocStop(r *Redirect) {
+	if r.HdocStop != "" {
+		stop := r.HdocStop
+		if r.Op == DashHdoc {
+			stop = strings.TrimLeft(stop, "\t")
+		}
+		p.writeLit(stop)
+	} else {
+		p.unquotedWord(r.Word)
+	}
 }
 
 // hasUnclosedHdoc reports whether s has a heredoc without its closing word.
@@ -558,6 +620,40 @@ func hasBodilessHdoc(stmts []*Stmt) bool {
 	return found
 }
 
+// inlineHdocStmts preserves the owning lexical list when its stop word
+// cannot close on a line. Substitutions own independent lists and documents;
+// walking into them would impose their layout on their parent or siblings.
+func (p *Printer) inlineHdocStmts(stmts []*Stmt) (restore func(), started bool) {
+	singleLine, inlineHdocs := p.singleLine, p.inlineHdocs
+	p.singleLine, p.inlineHdocs = p.requestedSingleLine, false
+	for _, s := range stmts {
+		Walk(s, func(node Node) bool {
+			switch n := node.(type) {
+			case *CmdSubst, *ProcSubst:
+				return false
+			case *Redirect:
+				if strings.Contains(n.HdocStop, "\n") {
+					p.singleLine, p.inlineHdocs = true, true
+					started = started || n.Hdoc != nil
+				}
+				return false
+			}
+			return true
+		})
+	}
+	return func() { p.singleLine, p.inlineHdocs = singleLine, inlineHdocs }, started
+}
+
+// Substitution newlines cannot flush documents pending in an enclosing list.
+func (p *Printer) buryHeredocs(enabled bool) func() {
+	if !enabled {
+		return func() {}
+	}
+	pending := p.pendingHdocs
+	p.pendingHdocs = nil
+	return func() { p.pendingHdocs = pending }
+}
+
 // hdocBody prints a heredoc's body, ending it with a newline if it lacks one,
 // as the parser ends a heredoc at EOF or a closing backquote.
 func (p *Printer) hdocBody(r *Redirect) {
@@ -580,7 +676,7 @@ func (p *Printer) hdocBody(r *Redirect) {
 // in the middle of a line, by EOF or by a closing backquote.
 // Keep in sync with the copy in the interp package.
 func hdocNeedsNewline(r *Redirect) bool {
-	if r.Hdoc == nil || r.ClosePos.IsValid() {
+	if r.Hdoc == nil || r.ClosePos.IsValid() || strings.Contains(r.HdocStop, "\n") {
 		return false
 	}
 	lit, ok := r.Hdoc.Parts[len(r.Hdoc.Parts)-1].(*Lit)
@@ -785,6 +881,11 @@ func (p *Printer) wordPart(wp, next WordPart) {
 		p.writeLit(wp.Pattern.Value)
 		p.w.WriteByte(')')
 	case *ProcSubst:
+		outerInline := p.inlineHdocs
+		restore, _ := p.inlineHdocStmts(wp.Stmts)
+		defer restore()
+		unbury := p.buryHeredocs(outerInline || p.inlineHdocs)
+		defer unbury()
 		// avoid conflict with << and others
 		if p.wantSpace == spaceRequired {
 			p.space()
@@ -946,7 +1047,21 @@ func (p *Printer) cmdSubst(cs *CmdSubst) {
 		p.w.WriteString(cs.Last[0].Text)
 		p.w.WriteString("`")
 	default:
-		p.w.WriteString("$(")
+		outerInline := p.inlineHdocs
+		restore, unclosable := p.inlineHdocStmts(cs.Stmts)
+		defer restore()
+		unbury := p.buryHeredocs(outerInline || p.inlineHdocs)
+		defer unbury()
+		legacy := cs.Backquotes && unclosable
+		w := p.w
+		if legacy {
+			// A backquote can end a started body whose stop word contains a
+			// newline; a command substitution's parenthesis cannot (#702).
+			p.w.WriteByte('`')
+			p.w = &backquoteWriter{bufWriter: w}
+		} else {
+			p.w.WriteString("$(")
+		}
 		if len(cs.Stmts) > 0 && startsWithLparen(cs.Stmts[0]) {
 			p.wantSpace = spaceRequired
 		} else {
@@ -966,7 +1081,14 @@ func (p *Printer) cmdSubst(cs *CmdSubst) {
 			p.wantNewline = true
 		}
 		p.nestedStmts(cs.Stmts, cs.Last, cs.Right)
-		p.closingParen(cs.Stmts, cs.Last, cs.Left, cs.Right)
+		if legacy {
+			p.flushHeredocs()
+			p.w = w
+			p.w.WriteByte('`')
+			p.wantSpace = spaceRequired
+		} else {
+			p.closingParen(cs.Stmts, cs.Last, cs.Left, cs.Right)
+		}
 	}
 }
 
@@ -1331,7 +1453,9 @@ func (p *Printer) stmt(s *Stmt) {
 		}
 		p.word(r.Word)
 		if r.Op == Hdoc || r.Op == DashHdoc {
-			p.pendingHdocs = append(p.pendingHdocs, r)
+			if !p.inlineHdocs || r.Hdoc != nil || r.ClosePos.IsValid() {
+				p.pendingHdocs = append(p.pendingHdocs, r)
+			}
 		}
 	}
 	sep := s.Semicolon.IsValid() && s.Semicolon.Line() > p.line && !p.singleLine
