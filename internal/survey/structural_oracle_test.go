@@ -175,7 +175,7 @@ func (d *deparser) normalize(s string) string {
 			}
 			b.WriteString("$(" + d.substitution(s[i+2:min(end, len(s))]) + ")")
 			i = end + 1
-		case !double && braces == 0 && (strings.HasPrefix(s[i:], "<(") || strings.HasPrefix(s[i:], ">(")):
+		case !double && braces == 0 && d.processSubstitutionAt(s, i):
 			end := d.commandEnd(s, i+2)
 			if end >= len(s) {
 				d.harnessError("comparison harness: no closing parenthesis found for the process substitution at %q", s[i:min(len(s), i+60)])
@@ -230,6 +230,18 @@ func (d *deparser) substitution(body string) string {
 		return strings.Map(dropBlankAndSemicolon, body)
 	}
 	return d.normalize(text)
+}
+
+// processSubstitutionAt lets Zsh distinguish code from literal here-document
+// data. Replacing an opener with a plain redirection followed by an unquoted
+// ')' is invalid in code, but does not invalidate literal data. The source is
+// only parsed by deparse, never run. This avoids a second here-document lexer.
+func (d *deparser) processSubstitutionAt(s string, i int) bool {
+	if !strings.HasPrefix(s[i:], "<(") && !strings.HasPrefix(s[i:], ">(") {
+		return false
+	}
+	_, err := d.deparse(s[:i+1] + " )" + s[i+2:])
+	return err != nil
 }
 
 func dropBlankAndSemicolon(r rune) rune {
@@ -340,10 +352,9 @@ func (d *deparser) commandEnd(s string, start int) int {
 		case c == '\\':
 			i++
 			continue
-		case c == '$' && i+1 < len(s) && s[i+1] == '(' ||
-			quote == 0 && braces == 0 && (strings.HasPrefix(s[i:], "<(") || strings.HasPrefix(s[i:], ">(")):
-			// Nested substitutions hold their own quotes and parentheses.
-			// Process substitution is literal inside double quotes.
+		case c == '$' && i+1 < len(s) && s[i+1] == '(':
+			// A nested command substitution, quoted or not, holds its own
+			// quotes and parentheses.
 			i = d.commandEnd(s, i+2)
 			continue
 		case quote == '"' && c == '"':
@@ -495,6 +506,7 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"x=$(cat <(print ')'))\n", "x=$(cat <(\nprint ')'\n))\n"},
 		{"cat <(cat >(repeat 2 print a))\n", "cat <(cat >(repeat 2; do print a; done))\n"},
 		{"cat <(cat <<EOF\n)\nEOF\n)\n", "cat <(\ncat <<EOF\n)\nEOF\n)\n"},
+		{"x=$(cat <<'EOF'\n<(\nEOF\n)\n", "x=$(cat <<'EOF'\n<(\nEOF\n)\n"},
 	}
 	for _, c := range same {
 		if diff := d.compare(c.src, c.src, c.printed); diff != "" {
@@ -525,6 +537,8 @@ func TestStructuralOracleComparison(t *testing.T) {
 		{"cat <(print a)\n", "cat >(print a)\n"},
 		{"print \"<(repeat 2 print a)\"\n", "print \"<(repeat 2; do print a; done)\"\n"},
 		{"print '<(repeat 2 print a)'\n", "print '<(repeat 2; do print a; done)'\n"},
+		{"cat <<'EOF'\n<(repeat 2 print a)\nEOF\n", "cat <<'EOF'\n<(repeat 2; do print a; done)\nEOF\n"},
+		{"cat <<EOF\n>(repeat 2 print a)\nEOF\n", "cat <<EOF\n>(repeat 2; do print a; done)\nEOF\n"},
 	}
 	for _, c := range different {
 		if diff := d.compare(c.src, c.src, c.printed); diff == "" {
