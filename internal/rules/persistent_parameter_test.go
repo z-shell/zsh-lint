@@ -59,6 +59,18 @@ func TestSharedPluginsRegistry(t *testing.T) {
 		{name: "function local", src: "example_print() { local -A Plugins; Plugins[item]=value; }\n"},
 		{name: "temporary command assignment", src: "Plugins=value command print ok\n"},
 		{name: "read only", src: "print -r -- $Plugins[EXAMPLE_DIR]\n"},
+		{name: "print declaration", src: "typeset -p Plugins\n"},
+		{name: "print assignment operand", src: "typeset -p Plugins=ignored\n"},
+		{name: "print plus flag", src: "typeset +p Plugins\n"},
+		{name: "print formatted declaration", src: "typeset -p 1 Plugins\n"},
+		{name: "pattern assignment remains write", src: "typeset -m 'Plugins=changed'\n", want: 1},
+		{name: "global pattern assignment remains write", src: "typeset -gm 'Plugins=changed'\n", want: 1},
+		{name: "print global declaration", src: "typeset -gp Plugins\n"},
+		{name: "print inside function", src: "example_print() { typeset -p Plugins; }\n"},
+		{name: "print does not localize later write", src: "example_reset() { typeset -p Plugins; Plugins[item]=value; }\n", want: 1},
+		{name: "print global does not mutate", src: "example_print() { typeset -gp Plugins; }\n"},
+
+		{name: "print flag after operand is not option", src: "typeset Plugins -p\n", want: 1},
 		{name: "project state", src: "typeset -gA _example_state\n"},
 	}
 	for _, test := range tests {

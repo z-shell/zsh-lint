@@ -119,7 +119,10 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 // Summary: Reports each persistent hook or widget registration (`add-zsh-hook`,
 // `add-zle-hook-widget`, `zle -N`, or an append to a *_functions array) in
 // configured plugin and Zi annex sourced-library sources when no configured
-// source in the same invocation defines a `*_plugin_unload` function.
+// source in the same invocation defines a `*_plugin_unload` function or supplies
+// that basename as an autoload-function source. Autoload file bodies acquire
+// their function name from the filename; see
+// https://zsh.sourceforge.io/Doc/Release/Functions.html#Autoloading-Functions.
 //
 // Why: The Zsh Plugin Standard requires a plugin with persistent side effects
 // to provide a namespaced unload function. A project may register a hook in its
@@ -138,7 +141,8 @@ func (rule UnloadFunction) Analyze(ctx *analyzer.Context, node syntax.Node) {
 //	add-zsh-hook precmd _example_precmd
 //
 //	# functions/example_plugin_unload, a configured source of the same project
-//	example_plugin_unload() { ... }
+//	builtin emulate -L zsh
+//	unfunction example_plugin_unload
 //
 // Severity: Hint. Static presence of an unload entrypoint is a lifecycle
 // recommendation; it does not prove runtime restoration.
@@ -173,6 +177,13 @@ func (rule ProjectUnloadLifecycle) AnalyzeProject(ctx *analyzer.ProjectContext) 
 	}
 	hasUnload := false
 	for _, input := range ctx.Inputs {
+		if configuredPluginSource(input.Source, projectconfig.ProfileAutoloadFunction) {
+			name := filepath.Base(strings.ReplaceAll(input.Path, `\`, "/"))
+			if strings.HasSuffix(name, "_plugin_unload") && len(name) > len("_plugin_unload") {
+				hasUnload = true
+			}
+			continue
+		}
 		if !configuredPluginSource(input.Source, projectconfig.ProfileSourcedLibrary) {
 			continue
 		}
