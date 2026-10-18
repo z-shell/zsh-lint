@@ -59,6 +59,12 @@ jobs:
       - name: ⚡ zsh -n
         run: |
           set -uo pipefail
+          inventory=$(mktemp) || exit 1
+          trap 'rm -f -- "$inventory"' EXIT
+          if ! find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0 > "$inventory"; then
+            echo "::error::Zsh source discovery failed."
+            exit 1
+          fi
           checked=0
           failed=0
           while IFS= read -r -d '' file; do
@@ -67,7 +73,7 @@ jobs:
               failed=$((failed + 1))
               echo "::error file=${file#./}::zsh -n failed: ${output}"
             fi
-          done < <(find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0)
+          done < "$inventory"
           echo "Checked ${checked} file(s) with zsh -n, ${failed} failed."
           if [[ "${checked}" -eq 0 ]]; then
             echo "::error::No Zsh files were discovered; the check would pass vacuously."
@@ -81,6 +87,11 @@ jobs:
           set -uo pipefail
           compile_dir=$(mktemp -d) || exit 1
           trap 'rm -rf -- "$compile_dir"' EXIT
+          inventory="$compile_dir/sources"
+          if ! find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0 > "$inventory"; then
+            echo "::error::Zsh source discovery failed."
+            exit 1
+          fi
           compiled=0
           failed=0
           while IFS= read -r -d '' file; do
@@ -95,7 +106,7 @@ jobs:
               failed=$((failed + 1))
               echo "::error file=${file#./}::zcompile produced no .zwc output"
             fi
-          done < <(find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0)
+          done < "$inventory"
           echo "Compiled ${compiled} file(s), ${failed} failed."
           if [[ "${compiled}" -eq 0 ]]; then
             echo "::error::No Zsh files were discovered; the check would pass vacuously."

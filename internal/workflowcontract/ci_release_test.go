@@ -221,6 +221,24 @@ func TestZshSyntaxFailsWhenNoFilesDiscovered(t *testing.T) {
 			if !strings.Contains(string(output), "No Zsh files were discovered") {
 				t.Errorf("%s step must say why it failed; got:\n%s", script.name, output)
 			}
+			t.Run("partial discovery failure", func(t *testing.T) {
+				dir := t.TempDir()
+				bin := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, "good.zsh"), []byte("true\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				stub := "#!/bin/sh\nprintf './good.zsh\\0'\nprintf 'find: traversal failed\\n' >&2\nexit 1\n"
+				if err := os.WriteFile(filepath.Join(bin, "find"), []byte(stub), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				command := exec.Command(bash, "--noprofile", "--norc", "-c", script.text)
+				command.Dir = dir
+				command.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+				output, runErr := command.CombinedOutput()
+				if runErr == nil || !strings.Contains(string(output), "Zsh source discovery failed") {
+					t.Fatalf("partial inventory must fail before validation: %v\n%s", runErr, output)
+				}
+			})
 		})
 	}
 }
