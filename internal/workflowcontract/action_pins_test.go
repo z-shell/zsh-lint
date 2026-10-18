@@ -10,19 +10,27 @@ import (
 )
 
 var immutableActionSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
-var workflowUses = regexp.MustCompile(`^\s*(?:-\s*)?(?:uses|"uses"|'uses')\s*:\s*("[^"\\\r\n]*"|'[^'\r\n]*'|[^\s"'{}\[\],&#*!|>]+)\s*(?:#.*)?$`)
+var workflowUses = regexp.MustCompile(`^\s*(?:-\s*)?(?:uses|"uses"|'uses')\s*:\s*("[^"\\\r\n]*"|'[^'\r\n]*'|[^\s"'{}\[\],&#*!|>]+)(?:\s+#.*|\s*)$`)
 var workflowUsesKey = regexp.MustCompile(`(?:^|[\s{,?])(?:uses|"uses"|'uses')\s*(?::|$)`)
 var workflowIndirection = regexp.MustCompile(`(?:^|[\s\[{},:])(?:[&*][\pL\pN_.-]+|![A-Za-z!][^\s]*)`)
 var escapedWorkflowKey = regexp.MustCompile(`(?:^|[\s{,?])"[^"\r\n]*\\[^"\r\n]*"\s*:`)
+var explicitWorkflowKey = regexp.MustCompile(`(?:^|[\s{,])\?(?:\s|$)`)
+var workflowExpression = regexp.MustCompile(`\$\{\{.*?\}\}`)
+var workflowBlockScalar = regexp.MustCompile(`:\s*[|>][1-9+-]*\s*(?:#.*)?$`)
 
 // References must be single block-mapping scalars on the same line. Reject
 // unsupported uses representations and indirection rather than silently
 // omitting them. This is a conservative guard, not a YAML parser.
 func workflowLineReference(line string) (string, error) {
-	if strings.HasPrefix(strings.TrimSpace(line), "#") {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "#") {
 		return "", nil
 	}
-	if workflowIndirection.MatchString(line) || escapedWorkflowKey.MatchString(line) {
+	if explicitWorkflowKey.MatchString(line) {
+		return "", fmt.Errorf("explicit and multiline YAML keys are unsupported by the reference guard")
+	}
+	structure := workflowExpression.ReplaceAllString(line, "EXPRESSION")
+	if workflowIndirection.MatchString(structure) || escapedWorkflowKey.MatchString(structure) {
 		return "", fmt.Errorf("YAML anchors, aliases, tags and escaped keys are unsupported by the reference guard")
 	}
 	if !workflowUsesKey.MatchString(line) {
@@ -33,6 +41,32 @@ func workflowLineReference(line string) (string, error) {
 		return "", fmt.Errorf("uses must contain exactly one same-line immutable reference without flow mappings or indirection")
 	}
 	return match[1], nil
+}
+
+func workflowReferenceViolations(name, body string) (int, []string) {
+	checked := 0
+	var violations []string
+	blockIndent := -1
+	for line, text := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(text)
+		indent := len(text) - len(strings.TrimLeft(text, " "))
+		if blockIndent >= 0 {
+			if trimmed == "" || indent > blockIndent {
+				continue
+			}
+			blockIndent = -1
+		}
+		ref, err := workflowLineReference(text)
+		if err != nil {
+			violations = append(violations, fmt.Sprintf("%s:%d: %v", name, line+1, err))
+		} else if ref != "" {
+			checked++
+		}
+		if !strings.HasPrefix(trimmed, "#") && workflowBlockScalar.MatchString(text) {
+			blockIndent = indent
+		}
+	}
+	return checked, violations
 }
 
 // immutableWorkflowReference checks ref shape, not commit provenance. Only
@@ -58,6 +92,10 @@ func immutableWorkflowReference(ref string) bool {
 }
 
 func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
+	ordinary := "    if: ${{ !cancelled() }}\n    run: |\n      for f in *.zsh; do :; done\n      echo 'uses: actions/setup-go@v7'\n    uses: actions/checkout@0123456789012345678901234567890123456789\n"
+	if checked, violations := workflowReferenceViolations("ordinary.yml", ordinary); checked != 1 || len(violations) != 0 {
+		t.Errorf("ordinary expression and shell block must preserve reference discovery: checked=%d violations=%v", checked, violations)
+	}
 	for _, line := range []string{
 		`        uses: actions/setup-go@v7`,
 		`        "uses": actions/setup-go@v7`,
@@ -80,12 +118,20 @@ func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
 		`      - *λ`,
 		`        <<: *setup`,
 		`        uses: actions/checkout@0123456789012345678901234567890123456789 unexpected`,
+		`        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e#mutable`,
+		"        ? \"us\\\n          es\"\n        : actions/setup-go@v7",
+		`        ? "us\`,
+		`      - ? "us\`,
+		`      - { ? "us\`,
 		`        "\u0075ses": actions/setup-go@v7`,
 		"        uses:\n          actions/setup-go@v7",
 		"        uses:\n          \"actions/setup-go@v7\"",
 	} {
 		if _, err := workflowLineReference(line); err == nil {
 			t.Errorf("active mutable or empty uses reference was not rejected: %s", line)
+		}
+		if _, violations := workflowReferenceViolations("unsupported.yml", line); len(violations) == 0 || !strings.HasPrefix(violations[0], "unsupported.yml:1:") {
+			t.Errorf("unsupported workflow form must fail with file:line: %s: %v", line, violations)
 		}
 	}
 	for _, line := range []string{
@@ -129,13 +175,10 @@ func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for line, text := range strings.Split(string(body), "\n") {
-			ref, err := workflowLineReference(text)
-			if err != nil {
-				t.Errorf("%s:%d: %v", filepath.Base(path), line+1, err)
-			} else if ref != "" {
-				checked++
-			}
+		count, violations := workflowReferenceViolations(filepath.Base(path), string(body))
+		checked += count
+		for _, violation := range violations {
+			t.Error(violation)
 		}
 	}
 	if checked == 0 {
