@@ -5,6 +5,7 @@ import (
 
 	"github.com/z-shell/zsh-lint/internal/analyzer"
 	"github.com/z-shell/zsh-lint/internal/diag"
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/expand"
 	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
@@ -51,12 +52,18 @@ import (
 //
 // Severity: Warning. The pattern is functional but misleading and can change
 // what nested code observes; deliberate compatibility shims are realistic, so
-// it is suppressible rather than an error.
+// it is suppressible rather than an error. An initialized function-local
+// OSTYPE in test source is Info: platform simulation deliberately changes what
+// nested code observes. Explicit test-fixture metadata takes precedence;
+// unconfigured source uses exact test/tests path components, ignoring case.
 //
 // False positives: Deliberate compatibility shims or test harnesses that fake
 // `ZSH_VERSION` or `OSTYPE` for downstream code are the rule's target behavior
-// made intentional; suppress them with a reason. The rule flags only a curated
-// allowlist of read-mostly shell-set parameters and stays silent for reads and
+// made intentional; initialized local OSTYPE in test source is informational,
+// while other intentional overrides may be suppressed with a reason. The
+// test-path fallback is a heuristic, not proof of intent. Production profiles,
+// top-level declarations and valueless locals retain Warning. The rule flags
+// only a curated allowlist of read-mostly shell-set parameters and stays silent for reads and
 // the conventionally mutated `path`, `fpath`, `PATH`, `REPLY`, and `match`.
 // The shell-special `status` and `pipestatus` cases remain included because
 // `local -h status=...` and `local -h pipestatus=(...)` can replace their
@@ -138,15 +145,60 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 		if _, shadowed := shadowedSpecialParams[name]; !shadowed {
 			continue
 		}
+		severity := diag.Warning
+		message := "Declaring shell-set parameter '" + name +
+			"' can override shell-managed state in this scope and nested code; use a different parameter name"
+		if name == "OSTYPE" && !optionScan.tied && testPlatformDeclaration(ctx, decl, assign) {
+			severity = diag.Info
+			message = "Local OSTYPE override in test source changes what nested code observes for platform simulation; keep the override scoped to the test"
+		}
 		ctx.Report(
 			start,
 			end,
 			rule.ID(),
-			diag.Warning,
-			"Declaring shell-set parameter '"+name+
-				"' can override shell-managed state in this scope and nested code; use a different parameter name",
+			severity,
+			message,
 		)
 	}
+}
+
+// Only an explicit initialization inside a function gets test guidance. The
+// existing declaration-mode scan has already rejected uncertain scope.
+func testPlatformDeclaration(ctx *analyzer.Context, decl *syntax.DeclClause, assign *syntax.Assign) bool {
+	if assign.Value == nil || assign.Append || ctx.File == nil || ctx.File.AST() == nil {
+		return false
+	}
+	if assign.Name == nil {
+		value, static := staticDeclarationWord(assign.Value)
+		if !static || !strings.HasPrefix(value, "OSTYPE=") {
+			return false
+		}
+	}
+	if ctx.Source.Configured() {
+		if ctx.Source.Profile != projectconfig.ProfileTestFixture {
+			return false
+		}
+	} else {
+		testPath := false
+		for _, segment := range strings.Split(strings.ReplaceAll(ctx.FilePath, `\`, "/"), "/") {
+			if strings.EqualFold(segment, "test") || strings.EqualFold(segment, "tests") {
+				testPath = true
+				break
+			}
+		}
+		if !testPath {
+			return false
+		}
+	}
+	inFunction := false
+	syntax.Walk(ctx.File.AST(), func(node syntax.Node) bool {
+		if function, ok := node.(*syntax.FuncDecl); ok && function.Body != nil &&
+			function.Body.Pos().Offset() <= decl.Pos().Offset() && decl.End().Offset() <= function.Body.End().Offset() {
+			inFunction = true
+		}
+		return !inFunction
+	})
+	return inFunction
 }
 
 // tiedParameterSeparator returns the optional third operand of typeset -T.
