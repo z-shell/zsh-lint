@@ -165,7 +165,10 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 // Only an explicit initialization inside a function gets test guidance. The
 // existing declaration-mode scan has already rejected uncertain scope.
 func testPlatformDeclaration(ctx *analyzer.Context, decl *syntax.DeclClause, assign *syntax.Assign) bool {
-	if assign.Value == nil || assign.Append || ctx.File == nil || ctx.File.AST() == nil {
+	if assign.Append || ctx.File == nil || ctx.File.AST() == nil {
+		return false
+	}
+	if assign.Name != nil && (assign.Naked || assign.Array != nil || assign.Index != nil) {
 		return false
 	}
 	if assign.Name == nil {

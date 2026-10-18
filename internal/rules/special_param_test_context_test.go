@@ -19,6 +19,8 @@ func TestSpecialParamShadowPlatformSimulation(t *testing.T) {
 		want    diag.Severity
 	}{
 		{"anonymous test platform", "() { local OSTYPE=darwin; }\n", "tests/platform.zsh", "", diag.Info},
+		{"empty test initialization", "() { local OSTYPE=; }\n", "tests/platform.zsh", "", diag.Info},
+		{"quoted empty test initialization", "() { local 'OSTYPE='; }\n", "tests/platform.zsh", "", diag.Info},
 		{"named test platform", "simulate() { typeset OSTYPE=freebsd14.0; }\n", "Test/platform.zsh", "", diag.Info},
 		{"declaration is the complete function body", "simulate() local OSTYPE=darwin\n", "tests/platform.zsh", "", diag.Info},
 		{"quoted test initialization", "() { local 'OSTYPE=darwin'; }\n", "tests/platform.zsh", "", diag.Info},
@@ -33,6 +35,8 @@ func TestSpecialParamShadowPlatformSimulation(t *testing.T) {
 		{"test substring", "() { local OSTYPE=darwin; }\n", "contest/platform.zsh", "", diag.Warning},
 		{"top-level test declaration", "typeset OSTYPE=darwin\n", "tests/platform.zsh", "", diag.Warning},
 		{"valueless test local", "() { local OSTYPE; }\n", "tests/platform.zsh", "", diag.Warning},
+		{"array test declaration", "() { local OSTYPE=(darwin); }\n", "tests/platform.zsh", "", diag.Warning},
+		{"indexed test declaration", "() { local OSTYPE[1]=darwin; }\n", "tests/platform.zsh", "", diag.Warning},
 		{"append is not initialization", "() { local OSTYPE+=darwin; }\n", "tests/platform.zsh", "", diag.Warning},
 		{"version test override unchanged", "() { local ZSH_VERSION=5.9.2; }\n", "tests/platform.zsh", "", diag.Warning},
 		{"status test override unchanged", "() { local -h status=7; }\n", "tests/platform.zsh", "", diag.Warning},
