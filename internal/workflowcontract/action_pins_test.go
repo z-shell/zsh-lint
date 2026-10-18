@@ -81,7 +81,9 @@ func workflowReferenceViolations(name, body string) (int, []string) {
 // immutableWorkflowReference checks ref shape, not commit provenance. Only
 // organization reusable workflows have the reviewed @main exception.
 func immutableWorkflowReference(ref string) bool {
-	ref = strings.Trim(ref, `"'`)
+	if len(ref) >= 2 && (ref[0] == '"' || ref[0] == '\'') && ref[len(ref)-1] == ref[0] {
+		ref = ref[1 : len(ref)-1]
+	}
 	if strings.HasPrefix(ref, "./") {
 		return true
 	}
@@ -136,6 +138,9 @@ func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
 		`        <<: *setup`,
 		`        uses: actions/checkout@0123456789012345678901234567890123456789 unexpected`,
 		`        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e#mutable`,
+		`        uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e'"`,
+		`        uses: 'actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"'`,
+		`        uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e''"`,
 		"        ? \"us\\\n          es\"\n        : actions/setup-go@v7",
 		`        ? "us\`,
 		`      - ? "us\`,
