@@ -1,6 +1,7 @@
 package workflowcontract
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,7 +10,30 @@ import (
 )
 
 var immutableActionSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
-var workflowUses = regexp.MustCompile(`^\s*(?:-\s*)?(?:uses|"uses"|'uses')\s*:\s*(\S*)`)
+var workflowUses = regexp.MustCompile(`^\s*(?:-\s*)?(?:uses|"uses"|'uses')\s*:\s*("[^"\\\r\n]*"|'[^'\r\n]*'|[^\s"'{}\[\],&#*!|>]+)\s*(?:#.*)?$`)
+var workflowUsesKey = regexp.MustCompile(`(?:^|[\s{,?])(?:uses|"uses"|'uses')\s*(?::|$)`)
+var workflowIndirection = regexp.MustCompile(`(?:^|[\s\[{},:])(?:[&*][\pL\pN_.-]+|![A-Za-z!][^\s]*)`)
+var escapedWorkflowKey = regexp.MustCompile(`(?:^|[\s{,?])"[^"\r\n]*\\[^"\r\n]*"\s*:`)
+
+// References must be single block-mapping scalars on the same line. Reject
+// unsupported uses representations and indirection rather than silently
+// omitting them. This is a conservative guard, not a YAML parser.
+func workflowLineReference(line string) (string, error) {
+	if strings.HasPrefix(strings.TrimSpace(line), "#") {
+		return "", nil
+	}
+	if workflowIndirection.MatchString(line) || escapedWorkflowKey.MatchString(line) {
+		return "", fmt.Errorf("YAML anchors, aliases, tags and escaped keys are unsupported by the reference guard")
+	}
+	if !workflowUsesKey.MatchString(line) {
+		return "", nil
+	}
+	match := workflowUses.FindStringSubmatch(line)
+	if match == nil || !immutableWorkflowReference(match[1]) {
+		return "", fmt.Errorf("uses must contain exactly one same-line immutable reference without flow mappings or indirection")
+	}
+	return match[1], nil
+}
 
 // immutableWorkflowReference checks ref shape, not commit provenance. Only
 // organization reusable workflows have the reviewed @main exception.
@@ -41,10 +65,37 @@ func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
 		`      - "uses" : "actions/setup-go@v7"`,
 		`      - 'uses' : 'actions/setup-go@v7'`,
 		`        uses:`,
+		`      - {name: setup, uses: "actions/setup-go@v7"}`,
+		`      - {"uses": actions/setup-go@v7}`,
+		`      - &setup {uses: actions/setup-go@v7}`,
+		`        uses: &action actions/setup-go@v7`,
+		`        uses: *action`,
+		`        uses: |-`,
+		`        uses: >-`,
+		`        uses: !<tag:yaml.org,2002:str> actions/setup-go@v7`,
+		`        ? uses`,
+		`      - {uses: actions/checkout@0123456789012345678901234567890123456789, uses: actions/setup-go@v7}`,
+		`      - *setup`,
+		`      - *setup.v1`,
+		`      - *λ`,
+		`        <<: *setup`,
+		`        uses: actions/checkout@0123456789012345678901234567890123456789 unexpected`,
+		`        "\u0075ses": actions/setup-go@v7`,
+		"        uses:\n          actions/setup-go@v7",
+		"        uses:\n          \"actions/setup-go@v7\"",
 	} {
-		match := workflowUses.FindStringSubmatch(line)
-		if match == nil || immutableWorkflowReference(match[1]) {
+		if _, err := workflowLineReference(line); err == nil {
 			t.Errorf("active mutable or empty uses reference was not rejected: %s", line)
+		}
+	}
+	for _, line := range []string{
+		`        uses: actions/checkout@0123456789012345678901234567890123456789 # v7`,
+		`        "uses": "actions/checkout@0123456789012345678901234567890123456789"`,
+		`      - 'uses': './.github/actions/local'`,
+		`    uses: z-shell/.github/.github/workflows/org-routing.yml@main`,
+	} {
+		if ref, err := workflowLineReference(line); err != nil || ref == "" {
+			t.Errorf("supported immutable reference rejected: %s: %v", line, err)
 		}
 	}
 	for _, tt := range []struct {
@@ -79,13 +130,11 @@ func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
 			t.Fatal(err)
 		}
 		for line, text := range strings.Split(string(body), "\n") {
-			match := workflowUses.FindStringSubmatch(text)
-			if match == nil {
-				continue
-			}
-			checked++
-			if !immutableWorkflowReference(match[1]) {
-				t.Errorf("%s:%d: uses reference must be immutable: %s", filepath.Base(path), line+1, match[1])
+			ref, err := workflowLineReference(text)
+			if err != nil {
+				t.Errorf("%s:%d: %v", filepath.Base(path), line+1, err)
+			} else if ref != "" {
+				checked++
 			}
 		}
 	}
