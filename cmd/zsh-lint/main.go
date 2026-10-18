@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,6 +22,9 @@ import (
 const usage = "usage: zsh-lint [--format=json] [--config PATH | --no-config] <file.zsh> [file.zsh ...]"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		os.Exit(runMCP(context.Background(), os.Args[2:], os.Stderr))
+	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 

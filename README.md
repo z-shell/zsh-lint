@@ -67,7 +67,7 @@ General shell linters such as ShellCheck reject Zsh scripts, so `zsh-lint` cover
 - **Go 1.27** or newer (when compiling from source or installing via `go install`).
 
 > [!NOTE]
-> `zsh-lint` neither sources nor executes the files it analyzes, and it does not call `zsh`. A native syntax check such as `zsh -f -n -- file.zsh` is a separate, recommended step.
+> Static linting neither sources nor executes the files it analyzes and does not require `zsh`. The optional MCP `zsh_syntax` tool invokes native Zsh; native checks require trusted input files, executable lookup and system startup configuration, not a security sandbox.
 
 ## Installation
 
@@ -120,6 +120,19 @@ zsh-lint script.zsh plugin.plugin.zsh
 | `--format=json` | string  | Emit machine-readable diagnostics in JSON format.                  |
 
 `--config` and `--no-config` are mutually exclusive.
+
+### MCP server
+
+Start the local stdio server from the directory against which relative file and configuration paths should resolve:
+
+```bash
+zsh-lint mcp
+zsh-lint mcp --zsh /path/to/zsh
+```
+
+Configure an MCP client to launch command `zsh-lint` with arguments `["mcp"]`; no HTTP listener or runtime registration is installed by the command. `zsh_lint` accepts `files` plus optional `config` or `no_config` and returns the same JSON diagnostics as `--format=json`. `zsh_syntax` accepts `files` and runs `zsh -f -n` plus `zcompile`, reporting each check's stderr and exit status. Both tools accept explicit file paths only, not inline source or directories.
+
+Zsh is found on PATH unless `--zsh PATH` selects the executable at server startup. Its absence affects only `zsh_syntax`. Native syntax is judged by empty stderr, not exit status alone, so valid negation such as `! true` is accepted. Compilation uses disposable temporary output, never a `.zwc` beside an input. These checks do not run the input program, but system `zshenv` still runs and native parsing is not a sandbox for hostile source. See the [MCP output contract](docs/project/output-contract.md#mcp-stdio-server) for result, error and protocol details.
 
 ### Diagnostic output
 
@@ -275,6 +288,7 @@ Annotated `vX.Y.Z` tags mark official releases and trigger automated publication
 Contributions follow the [Z-Shell Organization Guidelines](https://github.com/z-shell/.github).
 Distributed under the terms of the GNU General Public License v3.0.
 See [LICENSE](LICENSE) for details.
+The MCP integration uses the official Go SDK; its applicable MIT and Apache-2.0 terms are preserved in [the SDK license notice](third_party/licenses/modelcontextprotocol-go-sdk-LICENSE).
 
 ---
 
