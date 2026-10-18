@@ -16,7 +16,7 @@ var workflowIndirection = regexp.MustCompile(`(?:^|[\s\[{},:])(?:[&*][\pL\pN_.-]
 var escapedWorkflowKey = regexp.MustCompile(`(?:^|[\s{,?])"[^"\r\n]*\\[^"\r\n]*"\s*:`)
 var explicitWorkflowKey = regexp.MustCompile(`(?:^|[\s{,])\?(?:\s|$)`)
 var workflowExpression = regexp.MustCompile(`\$\{\{.*?\}\}`)
-var workflowBlockScalar = regexp.MustCompile(`:\s*[|>][1-9+-]*\s*(?:#.*)?$`)
+var workflowBlockScalar = regexp.MustCompile(`^\s*(?:-\s+)*(?:[A-Za-z_][A-Za-z0-9_-]*|"[^"\\]*"|'[^']*')\s*:\s*[|>][1-9+-]*(?:\s+#.*|\s*)$`)
 
 // References must be single block-mapping scalars on the same line. Reject
 // unsupported uses representations and indirection rather than silently
@@ -64,6 +64,15 @@ func workflowReferenceViolations(name, body string) (int, []string) {
 		}
 		if !strings.HasPrefix(trimmed, "#") && workflowBlockScalar.MatchString(text) {
 			blockIndent = indent
+			// A sequence dash precedes the mapping key, not scalar content.
+			// Sibling fields align with the key and must end scalar skipping.
+			prefix := text[indent:]
+			for strings.HasPrefix(prefix, "- ") {
+				prefix = prefix[1:]
+				spaces := len(prefix) - len(strings.TrimLeft(prefix, " "))
+				blockIndent += 1 + spaces
+				prefix = prefix[spaces:]
+			}
 		}
 	}
 	return checked, violations
@@ -92,6 +101,14 @@ func immutableWorkflowReference(ref string) bool {
 }
 
 func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
+	for _, body := range []string{
+		"steps:\n  - name: |\n      Set up Go\n    uses: actions/setup-go@v7\n",
+		"jobs: # label: |\n  build:\n    uses: actions/setup-go@v7\n",
+	} {
+		if _, violations := workflowReferenceViolations("boundary.yml", body); len(violations) == 0 {
+			t.Errorf("block scalar boundary hid a mutable sibling: %s", body)
+		}
+	}
 	ordinary := "    if: ${{ !cancelled() }}\n    run: |\n      for f in *.zsh; do :; done\n      echo 'uses: actions/setup-go@v7'\n    uses: actions/checkout@0123456789012345678901234567890123456789\n"
 	if checked, violations := workflowReferenceViolations("ordinary.yml", ordinary); checked != 1 || len(violations) != 0 {
 		t.Errorf("ordinary expression and shell block must preserve reference discovery: checked=%d violations=%v", checked, violations)
