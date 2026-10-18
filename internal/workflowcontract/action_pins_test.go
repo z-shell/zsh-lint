@@ -1,0 +1,119 @@
+package workflowcontract
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+var immutableActionSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+var workflowUses = regexp.MustCompile(`^\s*(?:-\s*)?uses:\s*(\S+)`)
+
+// immutableWorkflowReference checks ref shape, not commit provenance. Only
+// organization reusable workflows have the reviewed @main exception.
+func immutableWorkflowReference(ref string) bool {
+	ref = strings.Trim(ref, `"'`)
+	if strings.HasPrefix(ref, "./") {
+		return true
+	}
+	action, revision, ok := strings.Cut(ref, "@")
+	if !ok || action == "" {
+		return false
+	}
+	if immutableActionSHA.MatchString(revision) {
+		return true
+	}
+	const organizationWorkflows = "z-shell/.github/.github/workflows/"
+	if revision != "main" || !strings.HasPrefix(action, organizationWorkflows) {
+		return false
+	}
+	name := strings.TrimPrefix(action, organizationWorkflows)
+	return !strings.Contains(name, "/") && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml"))
+}
+
+func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
+	for _, tt := range []struct {
+		ref  string
+		want bool
+	}{
+		{"actions/checkout@0123456789012345678901234567890123456789", true},
+		{"actions/checkout@v7", false},
+		{"actions/checkout@main", false},
+		{"z-shell/.github/.github/workflows/org-routing.yml@main", true},
+		{"z-shell/.github/.github/workflows/org-routing.yml@v1", false},
+		{"z-shell/.github/actions/setup-zsh@main", false},
+		{"other/.github/.github/workflows/check.yml@main", false},
+		{"./.github/actions/local", true},
+	} {
+		if got := immutableWorkflowReference(tt.ref); got != tt.want {
+			t.Errorf("immutableWorkflowReference(%q) = %v, want %v", tt.ref, got, tt.want)
+		}
+	}
+
+	paths, err := filepath.Glob(repositoryFilePath(t, ".github", "workflows", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, path := range paths {
+		if !strings.HasSuffix(path, ".yml") && !strings.HasSuffix(path, ".yaml") {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for line, text := range strings.Split(string(body), "\n") {
+			match := workflowUses.FindStringSubmatch(text)
+			if match == nil {
+				continue
+			}
+			checked++
+			if !immutableWorkflowReference(match[1]) {
+				t.Errorf("%s:%d: uses reference must be immutable: %s", filepath.Base(path), line+1, match[1])
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no workflow uses references were checked")
+	}
+}
+
+// wikiActionPins keeps the allowed action identities without duplicating
+// Renovate-managed digests. The workflow remains the pin's single owner.
+func wikiActionPins(workflow string) (map[string]string, []string) {
+	allowed := map[string]bool{
+		"actions/create-github-app-token": true,
+		"actions/checkout":                true,
+		"actions/setup-go":                true,
+		"peter-evans/create-pull-request": true,
+	}
+	pins := make(map[string]string)
+	var violations []string
+	for _, line := range strings.Split(workflow, "\n") {
+		text := strings.TrimSpace(line)
+		if !strings.HasPrefix(text, "uses: ") {
+			continue
+		}
+		pin := strings.TrimPrefix(text, "uses: ")
+		ref := actionRef(pin)
+		action, revision, ok := strings.Cut(ref, "@")
+		if !ok || !allowed[action] || !immutableActionSHA.MatchString(revision) {
+			violations = append(violations, "wiki sync action must retain its allowed identity and immutable SHA: "+ref)
+			continue
+		}
+		if previous, found := pins[action]; found && previous != pin {
+			violations = append(violations, "wiki sync repeated action must use one pin: "+action)
+		} else {
+			pins[action] = pin
+		}
+	}
+	for action := range allowed {
+		if _, ok := pins[action]; !ok {
+			violations = append(violations, "wiki sync is missing pinned action: "+action)
+		}
+	}
+	return pins, violations
+}

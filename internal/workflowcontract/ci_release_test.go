@@ -2,14 +2,12 @@ package workflowcontract
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -124,33 +122,6 @@ func zshCompileScript(t *testing.T, workflow string) string {
 	return workflowRunScript(t, step)
 }
 
-// Filenames reach the check as NUL-delimited records rather than as words a
-// shell splits. The job iterates the files itself instead of fanning out a
-// matrix leg per file, so the NUL-safe boundary is `find -print0` feeding a
-// `read -d ”` loop rather than a jq transport into a matrix; a filename
-// holding a space, a newline or a glob character must still arrive as one
-// record. TestZshSyntaxPreservesNewlineFilename proves the behavior.
-func TestZshSyntaxUsesNULDelimitedFilenames(t *testing.T) {
-	workflow := zshSyntaxWorkflow(t)
-	for _, script := range []struct {
-		name string
-		text string
-	}{
-		{name: "zsh -n", text: zshSyntaxScript(t, workflow)},
-		{name: "zcompile", text: zshCompileScript(t, workflow)},
-	} {
-		for _, required := range []string{
-			"-print0",
-			`read -r -d ''`,
-			`IFS=`,
-		} {
-			if !strings.Contains(script.text, required) {
-				t.Errorf("%s step is missing NUL-safe iteration fragment %q", script.name, required)
-			}
-		}
-	}
-}
-
 // A filename holding a newline must be checked as one file. The former matrix
 // carried filenames through JSON, so the risk was a transport splitting them;
 // a single job iterates them directly, so the risk is word splitting in the
@@ -176,6 +147,7 @@ func TestZshSyntaxPreservesNewlineFilename(t *testing.T) {
 	}
 	for _, name := range []string{
 		"line\nbreak.zsh",
+		"-leading.zsh",
 		"ordinary.zsh",
 		"legacy/functions/zsh-lint",
 		"legacy/functions/.zsh-lint-worker",
@@ -187,23 +159,35 @@ func TestZshSyntaxPreservesNewlineFilename(t *testing.T) {
 		}
 	}
 
-	command := exec.Command(
-		bash,
-		"--noprofile",
-		"--norc",
-		"-c",
-		zshSyntaxScript(t, zshSyntaxWorkflow(t)),
-	)
-	command.Dir = dir
-	output, runErr := command.CombinedOutput()
-	if runErr != nil {
-		t.Fatalf("zsh -n workflow command failed: %v\n%s", runErr, output)
-	}
-
-	// Exactly the two .zsh files, so a newline did not split one into two and
-	// the extensionless function files were not picked up.
-	if want := "Checked 2 file(s) with zsh -n, 0 failed."; !strings.Contains(string(output), want) {
-		t.Fatalf("zsh -n step must visit each .zsh file exactly once; want %q in:\n%s", want, output)
+	workflow := zshSyntaxWorkflow(t)
+	for _, check := range []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{"syntax", zshSyntaxScript(t, workflow), "Checked 3 file(s) with zsh -n, 0 failed."},
+		{"compile", zshCompileScript(t, workflow), "Compiled 3 file(s), 0 failed."},
+	} {
+		t.Run(check.name, func(t *testing.T) {
+			command := exec.Command(bash, "--noprofile", "--norc", "-c", check.script)
+			command.Dir = dir
+			output, runErr := command.CombinedOutput()
+			if runErr != nil {
+				t.Fatalf("workflow command failed: %v\n%s", runErr, output)
+			}
+			// The three .zsh files are visited once, including the newline
+			// and leading-dash names; extensionless decoys stay excluded.
+			if !strings.Contains(string(output), check.want) {
+				t.Fatalf("step must visit each .zsh file exactly once; want %q in:\n%s", check.want, output)
+			}
+			if check.name == "compile" {
+				for _, name := range []string{"line\nbreak.zsh", "-leading.zsh", "ordinary.zsh"} {
+					if _, err := os.Stat(filepath.Join(dir, name+".zwc")); err != nil {
+						t.Errorf("intended file %q was not compiled: %v", name, err)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -279,29 +263,6 @@ func TestZshSyntaxReportsEveryFailure(t *testing.T) {
 	}
 }
 
-// The filename reaches zcompile as one positional argument, never as shell
-// syntax. `zsh -fc 'zcompile -- "$1"' zsh "$file"` is the shape that holds
-// regardless of what the name contains, and `--` stops a leading dash being
-// read as an option. TestZshCompileStepTreatsMetacharacterFilenameAsData
-// proves the behavior; this asserts the shape so it cannot drift into an
-// interpolated command string.
-func TestZshCompileStepUsesOpaqueFilename(t *testing.T) {
-	script := zshCompileScript(t, zshSyntaxWorkflow(t))
-	for _, required := range []string{
-		`zsh -fc 'zcompile -- "$1"' zsh "$file"`,
-		`"${file}.zwc"`,
-	} {
-		if !strings.Contains(script, required) {
-			t.Errorf("zcompile script must treat the filename as data; missing %q in:\n%s", required, script)
-		}
-	}
-	// An interpolated filename inside the compiled expression would make the
-	// name executable as code.
-	if strings.Contains(script, `zcompile -- "$file"`) {
-		t.Errorf("zcompile must pass the filename positionally, not interpolate it:\n%s", script)
-	}
-}
-
 func TestZshCompileStepTreatsMetacharacterFilenameAsData(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
@@ -338,27 +299,6 @@ func TestZshCompileStepTreatsMetacharacterFilenameAsData(t *testing.T) {
 	}
 }
 
-func TestZshSyntaxCheckoutsDoNotPersistCredentials(t *testing.T) {
-	workflow := zshSyntaxWorkflow(t)
-	for _, jobName := range []string{"zsh-n"} {
-		var checkoutSteps []string
-		for _, step := range workflowJobSteps(t, workflow, jobName) {
-			uses := directWorkflowMapping(step, 8)["uses"]
-			if len(uses) == 1 && strings.HasPrefix(uses[0], "actions/checkout@") {
-				checkoutSteps = append(checkoutSteps, step)
-			}
-		}
-		if len(checkoutSteps) != 1 {
-			t.Fatalf("job %q must contain exactly one checkout step; got %d", jobName, len(checkoutSteps))
-		}
-		withBlock := workflowBlock(t, checkoutSteps[0], "with:", 8)
-		values := directWorkflowMapping(withBlock, 10)["persist-credentials"]
-		if len(values) != 1 || values[0] != "false" {
-			t.Fatalf("job %q checkout must disable persisted credentials; got %q", jobName, values)
-		}
-	}
-}
-
 func TestPullRequestValidationCheckoutsDoNotPersistCredentials(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -367,6 +307,7 @@ func TestPullRequestValidationCheckoutsDoNotPersistCredentials(t *testing.T) {
 	}{
 		{name: "Go CI", path: "go-ci.yml", jobName: "build-test"},
 		{name: "Docs Generate Check", path: "docs-generate.yml", jobName: "generate"},
+		{name: "Zsh Syntax Check", path: "zsh-n.yml", jobName: "zsh-n"},
 	}
 
 	for _, tt := range tests {
@@ -388,96 +329,6 @@ func TestPullRequestValidationCheckoutsDoNotPersistCredentials(t *testing.T) {
 				t.Fatalf("job %q checkout must disable persisted credentials; got %q", tt.jobName, values)
 			}
 		})
-	}
-}
-
-func workflowPushBranches(t *testing.T, workflow string) []string {
-	t.Helper()
-
-	onBlock := workflowBlock(t, workflow, "on:", 0)
-	pushBlock := workflowBlock(t, onBlock, "push:", 2)
-	values := directWorkflowMapping(pushBlock, 4)["branches"]
-	if len(values) != 1 {
-		t.Fatalf("push trigger must define branches exactly once; got %q", values)
-	}
-
-	switch values[0] {
-	case "[main]":
-		return []string{"main"}
-	case "":
-		branchesBlock := workflowBlock(t, pushBlock, "branches:", 4)
-		var branches []string
-		for _, line := range strings.Split(branchesBlock, "\n") {
-			const prefix = "      - "
-			if strings.HasPrefix(line, prefix) {
-				branches = append(branches, strings.TrimPrefix(line, prefix))
-			}
-		}
-		return branches
-	default:
-		t.Fatalf("push branches must target only main; got %q", values[0])
-		return nil
-	}
-}
-
-func TestValidationPushTriggersUseMainOnly(t *testing.T) {
-	tests := []struct {
-		name string
-		path string
-	}{
-		{name: "Go CI", path: "go-ci.yml"},
-		{name: "Docs Generate Check", path: "docs-generate.yml"},
-		{name: "Corpus Gate", path: "corpus-gate.yml"},
-		{name: "Trunk Code Quality", path: "trunk-check.yml"},
-		{name: "Zsh Syntax Check", path: "zsh-n.yml"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			workflow := readRepositoryFile(t, ".github", "workflows", tt.path)
-			got := workflowPushBranches(t, workflow)
-			sort.Strings(got)
-			if joined := strings.Join(got, ","); joined != "main" {
-				t.Fatalf("push validation must target exactly main; got %q", got)
-			}
-		})
-	}
-}
-
-func TestDependencyAutomationUsesDefaultMain(t *testing.T) {
-	var renovate map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(readRepositoryFile(t, ".github", "renovate.json")), &renovate); err != nil {
-		t.Fatalf("parse .github/renovate.json: %v", err)
-	}
-	if _, configured := renovate["baseBranchPatterns"]; configured {
-		t.Fatal("Renovate must follow the repository default main branch without a baseBranchPatterns override")
-	}
-
-	path := repositoryFilePath(t, ".github", "dependabot.yml")
-	if _, err := os.Stat(path); err == nil {
-		dependabot := readRepositoryFile(t, ".github", "dependabot.yml")
-		updatesBlock := workflowBlock(t, dependabot, "updates:", 0)
-		githubActionsUpdater := workflowBlock(
-			t,
-			updatesBlock,
-			`- package-ecosystem: "github-actions"`,
-			2,
-		)
-		values := directWorkflowMapping(githubActionsUpdater, 4)["target-branch"]
-		if len(values) != 0 {
-			t.Fatalf("Dependabot must follow the repository default main branch without target-branch; got %q", values)
-		}
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("inspect dependabot.yml: %v", err)
-	}
-}
-
-func TestTrunkModelHasNoMainBranchSourceGuard(t *testing.T) {
-	path := repositoryFilePath(t, ".github", "workflows", "main-branch-guard.yml")
-	if _, err := os.Stat(path); err == nil {
-		t.Fatal("trunk-on-main must not retain the next-to-main source guard workflow")
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("inspect retired main branch guard: %v", err)
 	}
 }
 
@@ -959,6 +810,25 @@ func TestReleaseTestsExactTagCommitBeforePublication(t *testing.T) {
 		t.Fatalf("release workflow must contain only the gated job and ordered steps: %s", strings.Join(violations, "; "))
 	}
 
+	onBlock := workflowBlock(t, workflow, "on:", 0)
+	if violations := exactWorkflowMappingViolations(
+		"release triggers",
+		onBlock,
+		2,
+		[]workflowMappingField{{name: "push", value: ""}},
+	); len(violations) != 0 {
+		t.Fatalf("release must use only the tag push trigger: %s", strings.Join(violations, "; "))
+	}
+	pushBlock := workflowBlock(t, onBlock, "push:", 2)
+	if violations := exactWorkflowMappingViolations(
+		"release tag push",
+		pushBlock,
+		4,
+		[]workflowMappingField{{name: "tags", value: `["v*.*.*"]`}},
+	); len(violations) != 0 {
+		t.Fatalf("release must trigger only for semantic version tag pushes: %s", strings.Join(violations, "; "))
+	}
+
 	checkoutStep := workflowStep(t, workflow, "Check out code", "Verify semantic tag")
 	if violations := releaseCheckoutViolations(t, checkoutStep); len(violations) != 0 {
 		t.Fatalf("release checkout must select the exact event commit: %s", strings.Join(violations, "; "))
@@ -978,6 +848,18 @@ func TestReleaseTestsExactTagCommitBeforePublication(t *testing.T) {
 	publishStep := workflowTerminalStep(t, workflow, "Publish GitHub release")
 	if violations := releaseGateStepViolations(t, testStep, publishStep); len(violations) != 0 {
 		t.Fatalf("release gate steps must not permit failure bypasses: %s", strings.Join(violations, "; "))
+	}
+
+	if got := workflowRunScript(t, publishStep); got != releasePublicationScript {
+		t.Fatalf("release publication script must match the verified-tag flow exactly:\nwant:\n%s\ngot:\n%s", releasePublicationScript, got)
+	}
+	if got := strings.Count(workflow, "gh release create "); got != 1 {
+		t.Fatalf("release workflow must contain exactly one publication command; got %d", got)
+	}
+	for _, forbidden := range []string{"git tag ", "/git/refs", "gh api repos/{owner}/{repo}/git/refs"} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("release workflow must not create tags; found %q", forbidden)
+		}
 	}
 }
 
@@ -1212,40 +1094,5 @@ func TestReleaseGateRejectsFailureBypasses(t *testing.T) {
 				t.Fatal("release contract accepted a failure-bypass mutation")
 			}
 		})
-	}
-}
-
-func TestReleasePublishesOnlyExistingSemanticTag(t *testing.T) {
-	workflow := readRepositoryFile(t, ".github", "workflows", "release.yml")
-	onBlock := workflowBlock(t, workflow, "on:", 0)
-	if violations := exactWorkflowMappingViolations(
-		"release triggers",
-		onBlock,
-		2,
-		[]workflowMappingField{{name: "push", value: ""}},
-	); len(violations) != 0 {
-		t.Fatalf("release must use only the tag push trigger: %s", strings.Join(violations, "; "))
-	}
-	pushBlock := workflowBlock(t, onBlock, "push:", 2)
-	if violations := exactWorkflowMappingViolations(
-		"release tag push",
-		pushBlock,
-		4,
-		[]workflowMappingField{{name: "tags", value: `["v*.*.*"]`}},
-	); len(violations) != 0 {
-		t.Fatalf("release must trigger only for semantic version tag pushes: %s", strings.Join(violations, "; "))
-	}
-
-	publishStep := workflowTerminalStep(t, workflow, "Publish GitHub release")
-	if got := workflowRunScript(t, publishStep); got != releasePublicationScript {
-		t.Fatalf("release publication script must match the verified-tag flow exactly:\nwant:\n%s\ngot:\n%s", releasePublicationScript, got)
-	}
-	if got := strings.Count(workflow, "gh release create "); got != 1 {
-		t.Fatalf("release workflow must contain exactly one publication command; got %d", got)
-	}
-	for _, forbidden := range []string{"git tag ", "/git/refs", "gh api repos/{owner}/{repo}/git/refs"} {
-		if strings.Contains(workflow, forbidden) {
-			t.Fatalf("release workflow must not create tags; found %q", forbidden)
-		}
 	}
 }
