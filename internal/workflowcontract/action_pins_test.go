@@ -9,7 +9,7 @@ import (
 )
 
 var immutableActionSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
-var workflowUses = regexp.MustCompile(`^\s*(?:-\s*)?uses:\s*(\S+)`)
+var workflowUses = regexp.MustCompile(`^\s*(?:-\s*)?(?:uses|"uses"|'uses')\s*:\s*(\S*)`)
 
 // immutableWorkflowReference checks ref shape, not commit provenance. Only
 // organization reusable workflows have the reviewed @main exception.
@@ -34,6 +34,19 @@ func immutableWorkflowReference(ref string) bool {
 }
 
 func TestWorkflowRemoteReferencesAreImmutable(t *testing.T) {
+	for _, line := range []string{
+		`        uses: actions/setup-go@v7`,
+		`        "uses": actions/setup-go@v7`,
+		`        'uses': actions/setup-go@v7`,
+		`      - "uses" : "actions/setup-go@v7"`,
+		`      - 'uses' : 'actions/setup-go@v7'`,
+		`        uses:`,
+	} {
+		match := workflowUses.FindStringSubmatch(line)
+		if match == nil || immutableWorkflowReference(match[1]) {
+			t.Errorf("active mutable or empty uses reference was not rejected: %s", line)
+		}
+	}
 	for _, tt := range []struct {
 		ref  string
 		want bool
