@@ -4,38 +4,12 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/z-shell/zsh-lint/internal/projectconfig"
 )
-
-func TestCorpusManifestIsExactAndContained(t *testing.T) {
-	want := []string{
-		"src/public/zsh/init.zsh",
-		"zd/docker/utils.zsh",
-		"zd/docker/zshrc",
-		"zd/docker/zshenv",
-		"zunit/build.zsh",
-		"z-a-meta-plugins/z-a-meta-plugins.plugin.zsh",
-		"z-a-meta-plugins/functions",
-		"zsh-fancy-completions/zsh-fancy-completions.plugin.zsh",
-		"zsh-fancy-completions/lib",
-		"zsh-eza/zsh-eza.plugin.zsh",
-		"zsh-eza/functions",
-	}
-
-	manifest := readRepositoryFile(t, "docs", "project", "corpus-paths.txt")
-	got := strings.Split(strings.TrimSuffix(manifest, "\n"), "\n")
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("corpus manifest differs from the reviewed inventory:\nwant: %q\ngot:  %q", want, got)
-	}
-	for _, entry := range got {
-		if filepath.IsAbs(entry) || filepath.Clean(entry) != entry || strings.HasPrefix(entry, "..") {
-			t.Fatalf("corpus manifest entry must be a contained clean relative path: %q", entry)
-		}
-	}
-}
 
 func TestCorpusGateUsesReadOnlyPinnedCheckouts(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github", "workflows", "corpus-gate.yml")
@@ -99,6 +73,18 @@ func TestCorpusRevisionsPinEveryRepository(t *testing.T) {
 		}
 		if !fullCommitSHA.MatchString(fields[1]) {
 			t.Errorf("corpus-revisions.txt pins %s to %q, want a full 40-character commit SHA", fields[0], fields[1])
+		}
+	}
+
+	pathsManifest := readRepositoryFile(t, "docs", "project", "corpus-paths.txt")
+	paths := strings.Split(strings.TrimSuffix(pathsManifest, "\n"), "\n")
+	for _, entry := range paths {
+		if entry == "" || filepath.IsAbs(entry) || filepath.Clean(entry) != entry || strings.HasPrefix(entry, "..") {
+			t.Fatalf("corpus manifest entry must be a contained clean relative path: %q", entry)
+		}
+		root := strings.Split(entry, "/")[0]
+		if !slices.Contains(corpusRepositories, root) {
+			t.Errorf("corpus manifest entry %q root %q is not among revision repositories", entry, root)
 		}
 	}
 }

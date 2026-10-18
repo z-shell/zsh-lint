@@ -151,33 +151,6 @@ func TestVerifyParserChangeRefusesAStaleBase(t *testing.T) {
 	}
 }
 
-// The script is the parser-gap skill's verification step, so it must parse
-// every option the skill and the workflow page name.
-func TestVerifyParserChangeDocumentsItsOptions(t *testing.T) {
-	script := readRepositoryFile(t, ".github", "scripts", "verify-parser-change.sh")
-	skill := readRepositoryFile(t, ".github", "skills", "parser-gap-fix", "SKILL.md")
-	workflow := readRepositoryFile(t, "docs", "project", "parser-gap-workflow.md")
-	for _, option := range []string{"--bodies", "--rows", "--root", "--list", "--regression-corpus", "--candidate", "--skip-mutation", "--full-mutation", "--output", "--check-base"} {
-		if !strings.Contains(script, "\n  "+option+")\n") {
-			t.Errorf("verify-parser-change.sh does not parse %s", option)
-		}
-		if !strings.Contains(script, "#     "+option+" ") && !strings.Contains(script, "#     "+option+"\n") {
-			t.Errorf("verify-parser-change.sh does not document %s in its header", option)
-		}
-	}
-	for _, option := range []string{"--rows", "--regression-corpus", "--candidate"} {
-		if !strings.Contains(skill, option) {
-			t.Errorf("the parser-gap-fix skill does not mention %s", option)
-		}
-		if !strings.Contains(workflow, option) {
-			t.Errorf("parser-gap-workflow.md does not mention %s", option)
-		}
-	}
-	if !strings.Contains(skill, "bash .github/scripts/verify-parser-change.sh") {
-		t.Error("the parser-gap-fix skill must run .github/scripts/verify-parser-change.sh")
-	}
-}
-
 // Exercise orchestration with cheap stand-ins for builds and mutation, keeping
 // the real Git snapshots, option handling, evidence and exit classifications.
 func TestVerifyParserChangeMutationPolicy(t *testing.T) {

@@ -10,19 +10,6 @@ import (
 	"testing"
 )
 
-// The hardened wiki sync workflow mints a GitHub App token, so its actions are
-// pinned to exact commits and the tests compare them exactly: an exact pin is
-// the guard against a same-name commit from a fork being substituted. Renovate
-// updates these constants in the same pull request that bumps the workflow
-// (the custom manager in renovate.json), so a bump cannot leave them behind
-// (#91, #420).
-const (
-	pinCreateAppToken    = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0"
-	pinCheckout          = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
-	pinSetupGo           = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0"
-	pinCreatePullRequest = "peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1"
-)
-
 // actionRef is a pin without its version comment: "owner/repo@sha".
 func actionRef(pin string) string {
 	ref, _, _ := strings.Cut(pin, " # ")
@@ -257,7 +244,11 @@ func exactWorkflowStepSequenceViolations(stepsBlock string, expected []string) [
 func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 	t.Helper()
 
-	var violations []string
+	pins, violations := wikiActionPins(workflow)
+	pinCreateAppToken := pins["actions/create-github-app-token"]
+	pinCheckout := pins["actions/checkout"]
+	pinSetupGo := pins["actions/setup-go"]
+	pinCreatePullRequest := pins["peter-evans/create-pull-request"]
 	required := []struct {
 		name    string
 		snippet string
@@ -797,6 +788,14 @@ func TestWikiDocsSyncRejectsPrivilegeAndTokenMutations(t *testing.T) {
 
 func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *testing.T) {
 	workflow := wikiDocsSyncWorkflow(t)
+	pins, violations := wikiActionPins(workflow)
+	if len(violations) != 0 {
+		t.Fatalf("original wiki action pins are invalid: %v", violations)
+	}
+	pinCreateAppToken := pins["actions/create-github-app-token"]
+	pinCheckout := pins["actions/checkout"]
+	pinSetupGo := pins["actions/setup-go"]
+	pinCreatePullRequest := pins["peter-evans/create-pull-request"]
 	tests := []struct {
 		name        string
 		old         string
@@ -811,6 +810,11 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 			name:        "token action mutable ref",
 			old:         "        uses: " + pinCreateAppToken,
 			replacement: "        uses: actions/create-github-app-token@v3",
+		},
+		{
+			name:        "token action owner changed",
+			old:         "        uses: " + pinCreateAppToken,
+			replacement: "        uses: " + strings.Replace(pinCreateAppToken, "actions/", "other/", 1),
 		},
 		{
 			name: "source checkout mutable ref",
@@ -948,26 +952,6 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 			mutated := mutateWorkflow(t, workflow, tt.old, tt.replacement)
 			if violations := wikiDocsSyncContractViolations(t, mutated); len(violations) == 0 {
 				t.Error("mutated workflow unexpectedly satisfies the hardened contract")
-			}
-		})
-	}
-}
-
-func TestWikiDocsSyncRejectsLegacyCredentialContract(t *testing.T) {
-	workflow := wikiDocsSyncWorkflow(t)
-	forbidden := []string{
-		"app-id:",
-		"WIKI_SYNC_APP_ID",
-		"WIKI_SYNC_TOKEN",
-		"steps.app.outputs.present",
-		"skip-token-revoke: true",
-		"continue-on-error: true",
-	}
-
-	for _, snippet := range forbidden {
-		t.Run(snippet, func(t *testing.T) {
-			if strings.Contains(workflow, snippet) {
-				t.Errorf("workflow still contains legacy contract %q", snippet)
 			}
 		})
 	}

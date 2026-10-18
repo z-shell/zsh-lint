@@ -7,15 +7,6 @@
   ],
   "customManagers": [
     {
-      "description": "Exact action pins the hardened workflow contract tests compare against (#91, #420)",
-      "customType": "regex",
-      "managerFilePatterns": ["/^internal/workflowcontract/.+_test\\.go$/"],
-      "matchStrings": [
-        "\"(?<depName>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@(?<currentDigest>[0-9a-f]{40}) # (?<currentValue>v[0-9][0-9A-Za-z.+-]*)\""
-      ],
-      "datasourceTemplate": "github-tags"
-    },
-    {
       "description": "golangci-lint version in the Go CI lint step (#422)",
       "customType": "regex",
       "managerFilePatterns": ["/^\\.github/workflows/go-ci\\.yml$/"],
@@ -46,13 +37,6 @@
     }
   ],
   "packageRules": [
-    {
-      "description": "Bump the test pins in the same pull request as the workflows they mirror",
-      "matchManagers": ["custom.regex"],
-      "matchFileNames": ["internal/workflowcontract/**"],
-      "groupName": "github actions non-major updates",
-      "groupSlug": "github-actions-non-major"
-    },
     {
       "description": "Move every golangci-lint version in one pull request (#422)",
       "matchPackageNames": ["golangci/golangci-lint"],
