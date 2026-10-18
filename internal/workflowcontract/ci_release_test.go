@@ -37,7 +37,7 @@ func readRepositoryFile(t *testing.T, parts ...string) string {
 
 func zshSyntaxWorkflow(t *testing.T) string {
 	t.Helper()
-	return readRepositoryFile(t, ".github", "workflows", "zsh-n.yml")
+	return readRepositoryFile(t, ".github", "workflows", "go-ci.yml")
 }
 
 func workflowRunScript(t *testing.T, step string) string {
@@ -111,14 +111,14 @@ func workflowJobStep(t *testing.T, workflow, jobName, stepName string) string {
 func zshSyntaxScript(t *testing.T, workflow string) string {
 	t.Helper()
 
-	step := workflowJobStep(t, workflow, "zsh-n", `⚡ zsh -n`)
+	step := workflowJobStep(t, workflow, "build-test", `⚡ zsh -n`)
 	return workflowRunScript(t, step)
 }
 
 func zshCompileScript(t *testing.T, workflow string) string {
 	t.Helper()
 
-	step := workflowJobStep(t, workflow, "zsh-n", `⚡ zcompile`)
+	step := workflowJobStep(t, workflow, "build-test", `⚡ zcompile`)
 	return workflowRunScript(t, step)
 }
 
@@ -140,7 +140,7 @@ func TestZshSyntaxPreservesNewlineFilename(t *testing.T) {
 	// Extensionless function files and the JSON fixture are on disk to prove
 	// the check selects by the .zsh extension only.
 	dir := t.TempDir()
-	for _, subdir := range []string{"legacy/functions", "examples/plugin"} {
+	for _, subdir := range []string{"legacy/functions", "examples/plugin", "doc"} {
 		if err := os.MkdirAll(filepath.Join(dir, subdir), 0o700); err != nil {
 			t.Fatalf("create fixture directory %q: %v", subdir, err)
 		}
@@ -157,6 +157,9 @@ func TestZshSyntaxPreservesNewlineFilename(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("true\n"), 0o600); err != nil {
 			t.Fatalf("write fixture %q: %v", name, err)
 		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "doc", "excluded.zsh"), []byte("if true; then\n"), 0o600); err != nil {
+		t.Fatalf("write excluded documentation fixture: %v", err)
 	}
 
 	workflow := zshSyntaxWorkflow(t)
@@ -182,8 +185,8 @@ func TestZshSyntaxPreservesNewlineFilename(t *testing.T) {
 			}
 			if check.name == "compile" {
 				for _, name := range []string{"line\nbreak.zsh", "-leading.zsh", "ordinary.zsh"} {
-					if _, err := os.Stat(filepath.Join(dir, name+".zwc")); err != nil {
-						t.Errorf("intended file %q was not compiled: %v", name, err)
+					if _, err := os.Stat(filepath.Join(dir, name+".zwc")); !os.IsNotExist(err) {
+						t.Errorf("compilation must not leave output beside source %q: %v", name, err)
 					}
 				}
 			}
@@ -245,21 +248,31 @@ func TestZshSyntaxReportsEveryFailure(t *testing.T) {
 		}
 	}
 
-	command := exec.Command(bash, "--noprofile", "--norc", "-c", zshSyntaxScript(t, zshSyntaxWorkflow(t)))
-	command.Dir = dir
-	output, runErr := command.CombinedOutput()
-	if runErr == nil {
-		t.Fatalf("zsh -n step must fail when a file has a syntax error:\n%s", output)
-	}
-
-	// Both broken files are named, not just the first one reached.
-	for _, name := range []string{"broken-a.zsh", "broken-b.zsh"} {
-		if !strings.Contains(string(output), "::error file="+name) {
-			t.Errorf("zsh -n step must annotate %s; got:\n%s", name, output)
-		}
-	}
-	if want := "Checked 3 file(s) with zsh -n, 2 failed."; !strings.Contains(string(output), want) {
-		t.Errorf("zsh -n step must report the full tally; want %q in:\n%s", want, output)
+	workflow := zshSyntaxWorkflow(t)
+	for _, check := range []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{"syntax", zshSyntaxScript(t, workflow), "Checked 3 file(s) with zsh -n, 2 failed."},
+		{"compile", zshCompileScript(t, workflow), "Compiled 3 file(s), 2 failed."},
+	} {
+		t.Run(check.name, func(t *testing.T) {
+			command := exec.Command(bash, "--noprofile", "--norc", "-c", check.script)
+			command.Dir = dir
+			output, runErr := command.CombinedOutput()
+			if runErr == nil {
+				t.Fatalf("native step must fail when a file has a syntax error:\n%s", output)
+			}
+			for _, name := range []string{"broken-a.zsh", "broken-b.zsh"} {
+				if !strings.Contains(string(output), "::error file="+name) {
+					t.Errorf("native step must annotate %s; got:\n%s", name, output)
+				}
+			}
+			if !strings.Contains(string(output), check.want) {
+				t.Errorf("native step must report the full tally; want %q in:\n%s", check.want, output)
+			}
+		})
 	}
 }
 
@@ -291,12 +304,28 @@ func TestZshCompileStepTreatsMetacharacterFilenameAsData(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "injected")); !os.IsNotExist(err) {
 		t.Errorf("filename content executed as shell syntax; marker stat error: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, filename+".zwc")); err != nil {
-		t.Errorf("zcompile did not compile the intended filename: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, filename+".zwc")); !os.IsNotExist(err) {
+		t.Errorf("compilation must not leave output beside source: %v", err)
+	}
+	if !strings.Contains(string(output), "Compiled 1 file(s), 0 failed.") {
+		t.Errorf("zcompile did not verify output for the intended filename:\n%s", output)
 	}
 	if runErr != nil {
 		t.Errorf("zcompile workflow command failed: %v\n%s", runErr, output)
 	}
+	t.Run("successful command without compiled output fails", func(t *testing.T) {
+		bin := t.TempDir()
+		if err := os.WriteFile(filepath.Join(bin, "zsh"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		command := exec.Command(bash, "--noprofile", "--norc", "-c", zshCompileScript(t, zshSyntaxWorkflow(t)))
+		command.Dir = dir
+		command.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		output, runErr := command.CombinedOutput()
+		if runErr == nil || !strings.Contains(string(output), "zcompile produced no .zwc output") {
+			t.Fatalf("missing compiled output must fail despite command success: %v\n%s", runErr, output)
+		}
+	})
 }
 
 func TestPullRequestValidationCheckoutsDoNotPersistCredentials(t *testing.T) {
@@ -307,7 +336,6 @@ func TestPullRequestValidationCheckoutsDoNotPersistCredentials(t *testing.T) {
 	}{
 		{name: "Go CI", path: "go-ci.yml", jobName: "build-test"},
 		{name: "Docs Generate Check", path: "docs-generate.yml", jobName: "generate"},
-		{name: "Zsh Syntax Check", path: "zsh-n.yml", jobName: "zsh-n"},
 	}
 
 	for _, tt := range tests {
@@ -497,6 +525,21 @@ func TestGoCIBuildTestReportsOnEveryPullRequest(t *testing.T) {
 	if got := len(exactWorkflowLineSpans(workflow, "  build-test:")); got != 1 {
 		t.Fatalf("Go CI must retain the stable build-test job ID exactly once; got %d", got)
 	}
+	if values := directWorkflowMapping(onBlock, 2)["workflow_dispatch"]; len(values) != 1 || values[0] != "{}" {
+		t.Fatalf("Go CI must retain manual validation; got %q", values)
+	}
+	push := workflowBlock(t, onBlock, "push:", 2)
+	fields := directWorkflowMapping(push, 4)
+	if values := fields["branches"]; len(values) != 1 || values[0] != "[main]" {
+		t.Fatalf("Go CI must run on main pushes; got %q", values)
+	}
+	if values := fields["tags"]; len(values) != 1 || values[0] != `["v*.*.*"]` {
+		t.Fatalf("Go CI must preserve native validation on release-tag pushes; got %q", values)
+	}
+	paths := workflowBlock(t, push, "paths:", 4)
+	if got := len(exactWorkflowLineSpans(paths, `      - "**/*.zsh"`)); got != 1 {
+		t.Fatalf("Go CI must run for Zsh-only main pushes; got %d matching paths", got)
+	}
 }
 
 // Trunk judges only changed lines, so findings on main went unreported until a
@@ -532,56 +575,29 @@ func TestGoCIBuildTestLintsTheWholeModule(t *testing.T) {
 	}
 }
 
-// A matrix job reports one check run per leg, so zsh-n's contexts are named
-// after the discovered file paths ("zsh-n (./path/to/file.zsh)") and change
-// A ruleset's required_status_checks list cannot reference a moving name. The
-// workflow once fanned out a matrix leg per file, whose contexts
-// `zsh-n (<path>)` changed whenever a Zsh file was added, renamed or removed,
-// so a separate aggregating job existed purely to publish one stable name.
-//
-// A single job publishes that name directly, so the aggregate job is gone and
-// there is no leg whose failure could be swallowed; `needs` and `if: always()`
-// existed to stop a skipped aggregate from silently never reporting, and with
-// one job there is nothing to skip. What still must hold is that the stable
-// context name is present exactly once and reports on every pull request.
-func TestZshSyntaxExposesStableAggregateContext(t *testing.T) {
+// Native checks must fail the existing required build-test context, not report
+// a separate optional success or inherit a conditional/failure bypass.
+func TestGoCINativeChecksRunWithoutBypasses(t *testing.T) {
 	workflow := zshSyntaxWorkflow(t)
-
-	// The aggregate is only safe to require if it reports on every pull
-	// request. A pull_request.paths filter would silence it on a pull request
-	// touching no Zsh, leaving that pull request permanently pending against a
-	// required check.
-	onBlock := workflowBlock(t, workflow, "on:", 0)
-	if values := directWorkflowMapping(onBlock, 2)["pull_request"]; len(values) != 1 || values[0] != "{}" {
-		t.Fatalf("zsh-n pull_request trigger must be unfiltered so the aggregate always reports; got %q", values)
-	}
-
-	// Exactly one job, so no leg's result can be lost on the way to the
-	// required context.
-	jobsBlock := workflowBlock(t, workflow, "jobs:", 0)
-	jobNames := make([]string, 0, 1)
-	for _, line := range workflowLines(jobsBlock) {
-		text := line.text
-		if strings.HasPrefix(text, "  ") && !strings.HasPrefix(text, "   ") &&
-			strings.HasSuffix(strings.TrimSpace(text), ":") && !strings.HasPrefix(strings.TrimSpace(text), "#") {
-			jobNames = append(jobNames, strings.TrimSuffix(strings.TrimSpace(text), ":"))
+	setup := workflowJobStep(t, workflow, "build-test", "⚡ Set up Zsh")
+	previous := strings.Index(workflow, setup)
+	for _, name := range []string{"⚡ zsh -n", "⚡ zcompile"} {
+		step := workflowJobStep(t, workflow, "build-test", name)
+		if violations := exactWorkflowMappingViolations(name, step, 8,
+			[]workflowMappingField{{name: "run", value: "|"}, {name: "shell", value: "bash"}}); len(violations) != 0 {
+			t.Fatalf("native checks must run without condition or failure bypasses: %s", strings.Join(violations, "; "))
 		}
+		position := strings.Index(workflow, step)
+		if position <= previous {
+			t.Fatalf("%s must follow Zsh setup and the preceding native check", name)
+		}
+		previous = position
 	}
-	if len(jobNames) != 1 || jobNames[0] != "zsh-n" {
-		t.Fatalf("zsh-n.yml must define exactly one job named zsh-n so the required context cannot be skipped; got %q", jobNames)
-	}
-
-	// The name the ruleset requires, unchanged from the matrix era.
-	fields := directWorkflowMapping(workflowBlock(t, workflow, "zsh-n:", 2), 4)
-	if values := fields["name"]; len(values) != 1 || values[0] != "Zsh Syntax Check Complete" {
-		t.Errorf(
-			"zsh-n name must be %q because that is the context the ruleset requires; got %q",
-			"Zsh Syntax Check Complete", values,
-		)
-	}
-	// A matrix would reintroduce per-leg contexts and the moving-name problem.
-	if values := fields["strategy"]; len(values) != 0 {
-		t.Errorf("zsh-n must not use a matrix strategy; per-leg context names cannot be required: got %q", values)
+	fields := directWorkflowMapping(workflowBlock(t, workflow, "build-test:", 2), 4)
+	for _, field := range []string{"name", "if", "continue-on-error", "strategy"} {
+		if values := fields[field]; len(values) != 0 {
+			t.Errorf("native checks must retain unconditional build-test context without %s: %q", field, values)
+		}
 	}
 }
 
