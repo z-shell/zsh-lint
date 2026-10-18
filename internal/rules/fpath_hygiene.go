@@ -19,7 +19,9 @@ import (
 // directories (`bin/`, `tests/`), and user-specific paths including `~/`.
 // Configured analysis checks executed plugin and Zi annex sourced-library
 // entrypoints; unconfigured analysis also visits named functions, but skips
-// test directories. Function-local search paths are not caller mutations.
+// exact test/tests path components, ignoring case. Explicit configured profiles
+// take precedence over that path heuristic. Function-local search paths are not
+// caller mutations.
 //
 // Why: Sourced Zsh plugins must not destructively replace `fpath` (which removes
 // standard system and user function directories), add hardcoded user machine paths,
@@ -78,7 +80,7 @@ func (rule FpathHygiene) Analyze(ctx *analyzer.Context, node syntax.Node) {
 	}
 	if !ctx.Source.Configured() {
 		for _, segment := range strings.Split(strings.ReplaceAll(ctx.FilePath, `\`, "/"), "/") {
-			if segment == "tests" || segment == "test" {
+			if strings.EqualFold(segment, "tests") || strings.EqualFold(segment, "test") {
 				return
 			}
 		}

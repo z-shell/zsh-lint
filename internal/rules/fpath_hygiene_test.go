@@ -200,6 +200,10 @@ func TestFpathHygienePrecision(t *testing.T) {
 		{"case word still traversed", "case $(fpath=( /opt/functions )) in x) :;; esac\n", "plugin.zsh", 1},
 		{"global flag still uses an existing local", "f() { local -a fpath; typeset -ga fpath=( /opt/functions ); }\n", "plugin.zsh", 0},
 		{"unconfigured test setup", "fpath=( /test/functions )\n", "tests/setup.zsh", 0},
+		{"capitalized native test setup", "fpath=( /build/functions )\n", "vendor/zsh/Test/ztst.zsh", 0},
+		{"mixed-case tests setup", "fpath=( /build/functions )\n", "plugin/TeStS/setup.zsh", 0},
+		{"test substring is not a test directory", "fpath=( /build/functions )\n", "contest/setup.zsh", 1},
+		{"tests substring is not a test directory", "fpath=( /build/functions )\n", "latest/setup.zsh", 1},
 		{"windows test setup", "fpath=( /test/functions )\n", `plugin\tests\setup.zsh`, 0},
 		{"parameter pattern is not a directory", "fpath=( ${fpath:#/home/alice/functions} )\n", "plugin.zsh", 0},
 		{"parameter suffix is not a directory", "fpath=( ${fpath%/bin} )\n", "plugin.zsh", 0},
@@ -257,6 +261,36 @@ func TestFpathHygieneRangesAndSuppression(t *testing.T) {
 				t.Fatalf("suppressed diagnostics = %+v", got)
 			}
 		})
+	}
+}
+
+func TestFpathHygieneConfiguredTestPath(t *testing.T) {
+	for _, path := range []string{"test/setup.zsh", "tests/setup.zsh", "Test/setup.zsh", "TeStS/setup.zsh"} {
+		for _, profile := range []projectconfig.Profile{
+			projectconfig.ProfileSourcedLibrary,
+			projectconfig.ProfileTestFixture,
+			projectconfig.ProfileStandaloneExecutable,
+			projectconfig.ProfileAutoloadFunction,
+		} {
+			t.Run(path+"/"+string(profile), func(t *testing.T) {
+				file, err := parse.Parse(strings.NewReader("fpath=( /build/functions )\n"), path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := analyzer.New(FpathHygiene{}).AnalyzeSource(file, path,
+					configuredSource(projectconfig.KindPlugin, profile, ""))
+				want := 0
+				if profile == projectconfig.ProfileSourcedLibrary {
+					want = 1
+				}
+				if len(got) != want {
+					t.Fatalf("diagnostics = %+v, want %d", got, want)
+				}
+				if want == 1 && got[0].Severity != diag.Warning {
+					t.Fatalf("severity = %v, want Warning", got[0].Severity)
+				}
+			})
+		}
 	}
 }
 
