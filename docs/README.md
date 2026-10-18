@@ -44,6 +44,10 @@ The mutation-runner behavioral tests use the `integration` build tag so the defa
 Full verification requires both test commands; Go CI, release-tag tests and the parser verifier retain the integration lane.
 Vet and the golangci-lint configuration also include the integration tag.
 
+Go CI's required `build-test` job also runs native Zsh 5.9.2 syntax and compilation checks for every `.zsh` source outside directories named `doc`.
+Both checks reject failed or empty source discovery and report every failing file; compilation verifies nonempty output in temporary storage rather than writing beside sources.
+The job runs on every pull request, matching Go or Zsh changes on `main`, release-tag pushes and manual invocation.
+
 ## License
 
 Copyright (c) 2021 Z-Shell Community.

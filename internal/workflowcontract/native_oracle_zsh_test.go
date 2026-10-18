@@ -56,9 +56,9 @@ func TestSetupZshStepsRequestTheNativeOracleVersion(t *testing.T) {
 		}
 	}
 
-	// go-ci, zsh-n, discovery-survey and the two corpus-gate jobs. A lower
+	// go-ci, discovery-survey and the two corpus-gate jobs. A lower
 	// count means a step was renamed past the match and the check went vacuous.
-	if steps < 5 {
-		t.Fatalf("found %d setup-zsh step(s) under .github/workflows; want at least 5", steps)
+	if steps < 4 {
+		t.Fatalf("found %d setup-zsh step(s) under .github/workflows; want at least 4", steps)
 	}
 }

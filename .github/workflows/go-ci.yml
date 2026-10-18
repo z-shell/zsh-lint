@@ -4,8 +4,10 @@ name: Go CI
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
     paths:
       - "**/*.go"
+      - "**/*.zsh"
       - go.mod
       - go.sum
       - .golangci.yml
@@ -52,6 +54,66 @@ jobs:
         uses: z-shell/.github/actions/setup-zsh@aeae5bb865e3e4e00093573b102dec5ffe03e187 # main
         with:
           version: "5.9.2"
+      # Keep repository-wide native checks in the required build-test job.
+      # Report every failure and reject an empty source inventory.
+      - name: ⚡ zsh -n
+        run: |
+          set -uo pipefail
+          inventory=$(mktemp) || exit 1
+          trap 'rm -f -- "$inventory"' EXIT
+          if ! find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0 > "$inventory"; then
+            echo "::error::Zsh source discovery failed."
+            exit 1
+          fi
+          checked=0
+          failed=0
+          while IFS= read -r -d '' file; do
+            checked=$((checked + 1))
+            if ! output="$(zsh -n -- "$file" 2>&1)"; then
+              failed=$((failed + 1))
+              echo "::error file=${file#./}::zsh -n failed: ${output}"
+            fi
+          done < "$inventory"
+          echo "Checked ${checked} file(s) with zsh -n, ${failed} failed."
+          if [[ "${checked}" -eq 0 ]]; then
+            echo "::error::No Zsh files were discovered; the check would pass vacuously."
+            exit 1
+          fi
+          [[ "${failed}" -eq 0 ]]
+        shell: bash
+      # Verify each compiled output without leaving .zwc files in the checkout.
+      - name: ⚡ zcompile
+        run: |
+          set -uo pipefail
+          compile_dir=$(mktemp -d) || exit 1
+          trap 'rm -rf -- "$compile_dir"' EXIT
+          inventory="$compile_dir/sources"
+          if ! find . -type d -name 'doc' -prune -o -type f -name '*.zsh' -print0 > "$inventory"; then
+            echo "::error::Zsh source discovery failed."
+            exit 1
+          fi
+          compiled=0
+          failed=0
+          while IFS= read -r -d '' file; do
+            compiled=$((compiled + 1))
+            compiled_file="$compile_dir/$compiled.zwc"
+            if ! output="$(zsh -fc 'zcompile -- "$1" "$2"' zsh "$compiled_file" "$file" 2>&1)"; then
+              failed=$((failed + 1))
+              echo "::error file=${file#./}::zcompile failed: ${output}"
+              continue
+            fi
+            if [[ ! -s "$compiled_file" ]]; then
+              failed=$((failed + 1))
+              echo "::error file=${file#./}::zcompile produced no .zwc output"
+            fi
+          done < "$inventory"
+          echo "Compiled ${compiled} file(s), ${failed} failed."
+          if [[ "${compiled}" -eq 0 ]]; then
+            echo "::error::No Zsh files were discovered; the check would pass vacuously."
+            exit 1
+          fi
+          [[ "${failed}" -eq 0 ]]
+        shell: bash
       - name: 🧪 Test
         run: go test ./...
       - name: Test mutation-runner integration
