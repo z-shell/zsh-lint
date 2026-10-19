@@ -20,6 +20,23 @@ import (
 
 const mcpUsage = "usage: zsh-lint mcp [--zsh PATH]"
 
+// mcpHelp is printed to standard output for zsh-lint mcp --help or -h, which
+// exit 0 without starting the server.
+const mcpHelp = mcpUsage + `
+
+Serve Zsh analysis to an MCP client over stdio (newline-delimited JSON-RPC on
+standard input and output). Configure the client to run zsh-lint with the
+argument mcp. Relative paths resolve against the server working directory.
+
+Tools:
+  zsh_lint     static diagnostics for explicit files, as zsh-lint --format=json
+  zsh_syntax   native zsh -f -n and zcompile checks for explicit files
+
+Options:
+  --zsh PATH   native Zsh executable for zsh_syntax (default: zsh on PATH)
+  -h, --help   print this help
+`
+
 // lintInput deliberately mirrors the CLI rather than adding another rule or
 // source-discovery interface. Paths resolve against the server's directory.
 type lintInput struct {
@@ -48,13 +65,17 @@ type syntaxOutput struct {
 	Files []syntaxFile `json:"files"`
 }
 
-func runMCP(ctx context.Context, args []string, stderr io.Writer) int {
+func runMCP(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var binary singleValue
 	binary.name = "zsh"
 	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.Var(&binary, "zsh", "native Zsh executable (default: PATH lookup)")
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			_, _ = io.WriteString(stdout, mcpHelp)
+			return 0
+		}
 		_, _ = fmt.Fprintf(stderr, "zsh-lint mcp: %v\n%s\n", err, mcpUsage)
 		return 2
 	}
@@ -67,7 +88,7 @@ func runMCP(ctx context.Context, args []string, stderr io.Writer) int {
 		zsh = binary.value
 	}
 	server := newMCPServer(zsh, stderr)
-	if err := server.Run(ctx, &recoveringStdio{reader: os.Stdin, writer: os.Stdout}); err != nil {
+	if err := server.Run(ctx, &recoveringStdio{reader: os.Stdin, writer: stdout}); err != nil {
 		_, _ = fmt.Fprintf(stderr, "zsh-lint mcp: %v\n", err)
 		return 1
 	}
@@ -139,16 +160,20 @@ func lintTool(ctx context.Context, _ *mcp.CallToolRequest, input lintInput) (*mc
 	args = append(args, input.Files...)
 	var stdout, stderr bytes.Buffer
 	exit := run(args, &stdout, &stderr)
-	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: stdout.String()}}}
+	result := &mcp.CallToolResult{}
 	var output any
 	if stdout.Len() != 0 {
 		if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 			return nil, nil, fmt.Errorf("decode diagnostic output: %w", err)
 		}
+		result.Content = append(result.Content, &mcp.TextContent{Text: stdout.String()})
 	}
 	if stderr.Len() != 0 || exit == 2 {
-		// Preserve any partial CLI envelope alongside actionable execution errors.
-		result.Content = append(result.Content, &mcp.TextContent{Text: stderr.String()})
+		// Preserve any partial CLI envelope alongside actionable execution
+		// errors. Without an envelope the error text is the only block.
+		if stderr.Len() != 0 {
+			result.Content = append(result.Content, &mcp.TextContent{Text: stderr.String()})
+		}
 		result.SetError(fmt.Errorf("analysis failed: %s", strings.TrimSpace(stderr.String())))
 	}
 	return result, output, nil

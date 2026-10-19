@@ -19,11 +19,31 @@ import (
 	"github.com/z-shell/zsh-lint/internal/rules"
 )
 
-const usage = "usage: zsh-lint [--format=json] [--config PATH | --no-config] <file.zsh> [file.zsh ...]"
+const usage = "usage: zsh-lint [--format=json] [--config PATH | --no-config] <file.zsh> [file.zsh ...]\n" +
+	"       zsh-lint mcp [--zsh PATH]"
+
+// help is printed to standard output for --help or -h, which exit 0.
+const help = usage + `
+
+Analyze Zsh files without running them and report diagnostics.
+
+Options:
+  --format=json   print the version 1 JSON envelope instead of text
+  --config PATH   use this project configuration and disable discovery
+  --no-config     disable zsh-lint.json discovery and use the default rules
+  -h, --help      print this help
+
+Commands:
+  mcp             serve the zsh_lint and zsh_syntax tools to an MCP client
+                  over stdio; see zsh-lint mcp --help
+
+Exit status: 0 no findings at warning or above, 1 findings at warning or
+error or unreadable inputs, 2 usage or encoding errors.
+`
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
-		os.Exit(runMCP(context.Background(), os.Args[2:], os.Stderr))
+		os.Exit(runMCP(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
 	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -41,6 +61,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.Var(&configFlag, "config", "explicit project configuration path")
 	flags.BoolVar(&noConfig, "no-config", false, "disable automatic project configuration discovery")
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			_, _ = io.WriteString(stdout, help)
+			return 0
+		}
 		_, _ = fmt.Fprintf(stderr, "zsh-lint: %v\n%s\n", err, usage)
 		return 2
 	}
