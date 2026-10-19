@@ -224,6 +224,36 @@ func RecoverErrors(maximum int) ParserOption {
 	return func(p *Parser) { p.recoverErrorsMax = maximum }
 }
 
+// ZshNestedAssignTargets controls whether a [LangZsh] assignment target such
+// as `a[${b[(ie)${c[d]}]}]=()` keeps the braced expansions in the flagged
+// pattern of its nested `${...}` as typed word children (zsh-lint #735). It
+// is enabled by default. Disabling it restores the earlier raw pattern
+// reading, so a caller can fall back to that result when the typed reading
+// rejects a source.
+func ZshNestedAssignTargets(enabled bool) ParserOption {
+	return func(p *Parser) { p.zshNestedAssignOff = !enabled }
+}
+
+// ZshNestedAssignRead reports whether the last parse read the flagged
+// pattern of a nested assignment target with the typed reading that
+// [ZshNestedAssignTargets] controls. When it did not, disabling that reading
+// cannot change the result of the same parse.
+func (p *Parser) ZshNestedAssignRead() bool { return p.zshAssignRead }
+
+// zshInnerParser returns a parser for a reading nested in p, such as a
+// glob-group body check or a lookahead, with p's dialect and
+// nested-assignment setting (#735). The caller folds the inner parser's read
+// report back with zshFoldInner, so a typed read inside it reaches
+// ZshNestedAssignRead and the caller's raw fallback.
+func (p *Parser) zshInnerParser() *Parser {
+	return NewParser(Variant(p.lang), ZshNestedAssignTargets(!p.zshNestedAssignOff))
+}
+
+// zshFoldInner adds the typed reads of a parser zshInnerParser returned.
+func (p *Parser) zshFoldInner(inner *Parser) {
+	p.zshAssignRead = p.zshAssignRead || inner.zshAssignRead
+}
+
 // NewParser allocates a new [Parser] and applies any number of options.
 func NewParser(options ...ParserOption) *Parser {
 	p := &Parser{
@@ -571,8 +601,17 @@ type Parser struct {
 	// count them, nor in a `${...}` inside a short subscript, so
 	// zshShortIndex counts the short subscripts open around the lexer
 	// (zsh-lint #529).
-	zshBraceIndex bool
-	zshShortIndex int
+	zshBraceIndex  bool
+	zshShortIndex  int
+	zshAssignIndex bool // Set while an assignment target is read (#735).
+	// zshAssignBrace is set while an unquoted `${...}` subscript opened
+	// directly by the assignment target being read is parsed, so that only
+	// its flagged pattern keeps typed children; a command substitution
+	// clears it (#735). zshNestedAssignOff disables that reading, and
+	// zshAssignRead records that a parse used it.
+	zshAssignBrace     bool
+	zshNestedAssignOff bool
+	zshAssignRead      bool
 
 	// zshRec records every byte rune consumes while zshRecOn > 0, so that
 	// a `${...}` subscript can be checked as a whole once parsed, and
@@ -693,6 +732,9 @@ func (p *Parser) reset() {
 	p.zshCmdPos = true
 	p.zshWordsOnly = false
 	p.zshWordCont = false
+	p.zshAssignIndex = false
+	p.zshAssignBrace = false
+	p.zshAssignRead = false
 }
 
 // nextPos returns the position of the next rune, [Parser.r].
@@ -820,6 +862,8 @@ type saveState struct {
 	zshCmdPos      bool
 	zshWordsOnly   bool
 	zshWordCont    bool
+	zshAssignIndex bool
+	zshAssignBrace bool
 }
 
 func (p *Parser) preNested(quote quoteState) (s saveState) {
@@ -832,6 +876,8 @@ func (p *Parser) preNested(quote quoteState) (s saveState) {
 	s.zshCmdPos, p.zshCmdPos = p.zshCmdPos, true
 	s.zshWordsOnly, p.zshWordsOnly = p.zshWordsOnly, false
 	s.zshWordCont, p.zshWordCont = p.zshWordCont, false
+	s.zshAssignIndex, p.zshAssignIndex = p.zshAssignIndex, false
+	s.zshAssignBrace, p.zshAssignBrace = p.zshAssignBrace, false
 	return s
 }
 
@@ -843,6 +889,8 @@ func (p *Parser) postNested(s saveState) {
 	p.zshCmdPos = s.zshCmdPos
 	p.zshWordsOnly = s.zshWordsOnly
 	p.zshWordCont = s.zshWordCont
+	p.zshAssignIndex = s.zshAssignIndex
+	p.zshAssignBrace = s.zshAssignBrace
 }
 
 func unquotedWordBytes(w *Word) ([]byte, bool) {
@@ -1708,10 +1756,11 @@ func (p *Parser) zshGroupSubstCheck(sub *zshGroupSubst, lit []byte) {
 		}
 		body = unesc
 	}
-	bp := NewParser(Variant(p.lang))
+	bp := p.zshInnerParser()
 	// A body inside a short subscript is lexed inside it too (#529).
 	bp.zshShortIndex = p.zshShortIndex
 	f, err := bp.Parse(bytes.NewReader(body), "")
+	p.zshFoldInner(bp)
 	perr, ok := err.(ParseError)
 	if !ok {
 		if err != nil || sub.bquote {
@@ -2463,6 +2512,11 @@ zshPrefixLoop:
 		p.rune()
 		oldBrace := p.zshBraceIndex
 		p.zshBraceIndex = p.zshShortIndex == 0
+		// Only an unquoted subscript the assignment target opens itself
+		// keeps typed flag-pattern children (#735); a double-quoted one
+		// keeps the raw reading and its escape handling.
+		oldAssignBrace := p.zshAssignBrace
+		p.zshAssignBrace = p.zshAssignIndex && p.zshBraceIndex && !p.zshDquoteParam && !p.zshNestedAssignOff
 		var rec func()
 		if p.lang.in(LangZsh) && p.zshBraceIndex {
 			rec = p.zshRecordSubscript()
@@ -2476,6 +2530,7 @@ zshPrefixLoop:
 			rec()
 		}
 		p.zshBraceIndex = oldBrace
+		p.zshAssignBrace = oldAssignBrace
 	}
 	tokRune := p.r
 	p.pos = p.nextPos()
@@ -3068,7 +3123,7 @@ func (p *Parser) zshParamFlagArg(args int) bool {
 // group at its first `)`: Zsh's lexer accepts such a group, as in `${(j)x}`
 // or `${(s.x)w}`, and only paramsubst rejects it when the line runs.
 func (p *Parser) zshParamFlagsAhead() bool {
-	look := NewParser(Variant(p.lang))
+	look := p.zshInnerParser()
 	look.f = &File{}
 	look.r, look.w, look.bsp = p.r, p.w, p.bsp
 	look.offs, look.line, look.col = p.offs, p.line, p.col
@@ -3080,6 +3135,7 @@ func (p *Parser) zshParamFlagsAhead() bool {
 	var read bytes.Buffer
 	look.src = io.TeeReader(p.src, &read)
 	defer func() {
+		p.zshFoldInner(look)
 		if p.readErr == nil && look.readErr != nil {
 			// Preserve a terminal read error too: some readers refuse a
 			// second read after EOF, and non-EOF errors must not be lost.
@@ -3119,6 +3175,16 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// a `]` in the nested expansion still ends the argument, as before, and
 	// the flag-pattern adapter (#382) reads it.
 	argPos := p.nextPos()
+	// Typed children are kept only in an unquoted `${...}` subscript the
+	// assignment target opens itself, as in `a[${b[(ie)${c[d]}]}]=()`
+	// (#735). A direct target such as `a[(ie)...]=()`, one inside a command
+	// substitution, and a double-quoted nested one keep the raw pattern and
+	// its escape handling unchanged.
+	assign := p.zshAssignBrace && p.zshBraceIndex
+	if assign {
+		p.zshAssignRead = true
+	}
+	var parts []WordPart
 	braces := 0
 	inParam := 0
 	var braceOpen Pos
@@ -3163,7 +3229,35 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// before.
 	top, topParam, topParens, tick := 0, 0, 0, -1
 	var topOpen Pos
-	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || short > 0 || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || short > 0 || p.r != ','); p.rune() {
+	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || short > 0 || assign && top > 0 && braces == 0 || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || short > 0 || assign && top > 0 || p.r != ','); p.rune() {
+		// In an assignment index a nested expansion owns its delimiters.
+		// Reading it as raw pattern text stops at an inner `]` and leaves
+		// getAssign looking for `=` before its target has ended (#735).
+		// Keep the ordinary pattern bytes raw, but retain expansions as
+		// children so walking and printing see the same assignment.
+		for assign && sub == nil && short == 0 && braces == 0 && !litEscaped(p.litBs) &&
+			p.r == '$' && p.peek() == '{' {
+			if val := p.endLit(); val != "" {
+				parts = append(parts, p.lit(argPos, val))
+			}
+			p.pos = p.nextPos()
+			p.tok = p.regToken(p.r)
+			part := p.wordPart(false)
+			if part == nil || p.err != nil {
+				p.quote = old
+				return zf
+			}
+			parts = append(parts, part)
+			argPos = p.nextPos()
+			p.newLit(p.r)
+		}
+		// A typed child advanced p.r without the loop's rune step. Only
+		// an unowned delimiter ends the pattern; later raw substitutions
+		// still own their commas and brackets after parts becomes nonempty.
+		if len(parts) > 0 && (p.r == runeEOF || sub == nil && short == 0 &&
+			braces == 0 && quote == 0 && top == 0 && (p.r == ']' || p.r == ',')) {
+			break
+		}
 		if sub != nil {
 			switch {
 			case p.r != '[' && p.r != ']':
@@ -3219,6 +3313,8 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 					topOpen = p.nextPos()
 				}
 				top++
+			case assign && topParam == 0 && p.r == ']' && top > 0:
+				top--
 			// dquote_parse counts the parentheses too (#540).
 			case topParam == 0 && p.r == '(':
 				topParens++
@@ -3280,7 +3376,10 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 		p.posErr(braceOpen, "a `{` in a subscript must be closed before its `]`")
 	}
 	if val := p.endLit(); val != "" {
-		zf.X = p.wordOne(p.lit(argPos, val))
+		parts = append(parts, p.lit(argPos, val))
+	}
+	if len(parts) > 0 {
+		zf.X = &Word{Parts: parts}
 	}
 	// A flag argument cut at a nested subscript's `]` leaves its raw
 	// expansion braces in the containing lexical word (#382).
@@ -3864,7 +3963,10 @@ func (p *Parser) getAssign(needEqual bool) *Assign {
 		// hasValidIdent already checks p.r is '['
 		p.rune()
 		p.pos = posAddCol(p.pos, 1)
+		oldIndex := p.zshAssignIndex
+		p.zshAssignIndex = p.lang.in(LangZsh)
 		as.Index = p.eitherIndex()
+		p.zshAssignIndex = oldIndex
 		if p.spaced || p.stopToken() {
 			if needEqual {
 				p.followErr(as.Pos(), "a[b]", assgn)

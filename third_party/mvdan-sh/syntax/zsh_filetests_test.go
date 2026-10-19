@@ -10,6 +10,23 @@ import (
 // These fork-local rows share upstream's tree, print, printer-option, native
 // confirmation and fuzz-seed checks. Keep focused position and state tests too.
 var zshFileTests = []fileTestCase{
+	// An assignment index's nested flag pattern retains typed expansions (#735).
+	// https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Element-Assignment
+	fileTest(
+		[]string{`a[${b[(ie)${c[d]}]}]=()`},
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name: lit("a"),
+			Index: word(&ParamExp{Param: lit("b"), Index: &FlagsArithm{
+				Flags: lit("ie"),
+				X:     word(&ParamExp{Param: lit("c"), Index: litWord("d")}),
+			}}),
+			Array: &ArrayExpr{},
+		}}}, LangZsh),
+	),
+	fileTest(
+		[]string{`a[${b[(ie)${c[d]}]}=()`},
+		langErr2("1:20: `=` must follow a name", LangZsh),
+	),
 	// Declarations end at alternate-body braces too (#649).
 	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Reserved-Words
 	fileTest(

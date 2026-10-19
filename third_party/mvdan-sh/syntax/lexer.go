@@ -805,7 +805,7 @@ func (p *Parser) zshMathSubstAhead() (*Parser, bool) {
 	} else if _, ok := p.zshCmdParens[key]; ok {
 		return nil, false
 	}
-	look := NewParser(Variant(p.lang))
+	look := p.zshInnerParser()
 	look.f = &File{}
 	look.zshMathScan = true
 	look.zshCmdParens = p.zshCmdParens
@@ -819,6 +819,7 @@ func (p *Parser) zshMathSubstAhead() (*Parser, bool) {
 	var read bytes.Buffer
 	look.src = io.TeeReader(p.src, &read)
 	defer func() {
+		p.zshFoldInner(look)
 		if p.readErr == nil && look.readErr != nil {
 			// Preserve a terminal read error too: some readers refuse a
 			// second read after EOF, and non-EOF errors must not be lost.
@@ -924,7 +925,10 @@ func (look *Parser) zshMathNestedSubst() bool {
 	look.rune()
 	if look.r == '(' {
 		if sub, math := look.zshMathSubstAhead(); math {
+			// sub's reads are already folded into look; keep them.
+			read := look.zshAssignRead
 			*look = *sub
+			look.zshAssignRead = look.zshAssignRead || read
 			look.rune() // second closing `)`
 			look.rune()
 			return true

@@ -858,8 +858,11 @@ func substitutionBodyParses(body []byte) bool {
 	}
 	// An empty body needs no special case: `$()` is valid Zsh, and the parser
 	// reads empty input as an empty command list without error.
-	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh))
+	parser := syntax.NewParser(syntax.Variant(syntax.LangZsh), syntax.ZshNestedAssignTargets(!nestedAssignRaw.Load()))
 	_, err := parser.Parse(bytes.NewReader(body), "substitution")
+	if parser.ZshNestedAssignRead() {
+		nestedAssignReads.Add(1)
+	}
 	return err == nil
 }
 
