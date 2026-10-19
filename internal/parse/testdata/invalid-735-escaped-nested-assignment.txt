@@ -1,0 +1,3 @@
+# Issue #735: top-level assignment with an escaped expansion opener is invalid.
+# Manual: https://zsh.sourceforge.io/Doc/Release/Parameters.html#Subscript-Parsing
+a[${b[(ie)\${c[d]}]}]=()
