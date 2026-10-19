@@ -85,6 +85,12 @@ Report precision as true positives divided by all judged findings; documented fa
 For a rule that ships at Warning, precision must be at least 80% on that sample.
 If the corpus yields fewer than 20 findings, report the full population and its size and obtain an explicit maintainer exception for the smaller sample before merge.
 
+Zero emitted findings give an undefined precision denominator, not 100% precision or a passed 80% gate.
+An exception for the full smaller population permits only the named bounded change; it does not establish the overall goal in #612 or authorize deferred rule/configuration features.
+Report overlapping observations as the same findings, not independent samples, and exclude synthetic regression cases from the organization precision denominator.
+For configured evidence, record each input's resolved profile or fallback reason using the existing resolver; ancestor configuration presence alone does not establish configured membership.
+Keep the historical mixed-mode population as compatibility evidence and use the separate configured-only population for configured claims, following [diagnostic-diff verification](diagnostic-diff.md).
+
 The sample is review evidence, separate from the clean-corpus gate: retain legitimate false-positive examples for judging precision instead of suppressing them merely to make the corpus pass.
 
 ## False-positive policy

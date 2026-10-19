@@ -1,4 +1,4 @@
-// Standalone standard-library runner comparing analyzer diagnostic identities.
+// Diagnostic comparison runner using the project's configuration resolver.
 package main
 
 import (
@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/z-shell/zsh-lint/internal/projectconfig"
 )
 
 // EvidenceError indicates the comparison cannot establish trustworthy evidence.
@@ -50,9 +52,24 @@ type DiagnosticOutput struct {
 
 // InputsResult tracks hashes for input files and effective configurations.
 type InputsResult struct {
-	Files                  map[string]string `json:"files"`
-	Configurations         map[string]string `json:"configurations"`
-	EffectiveConfiguration map[string]string `json:"effective_configuration"`
+	Files                  map[string]string          `json:"files"`
+	Configurations         map[string]string          `json:"configurations"`
+	EffectiveConfiguration map[string]string          `json:"effective_configuration"`
+	Resolutions            map[string]InputResolution `json:"resolutions"`
+}
+
+// InputResolution distinguishes discovered configuration from active metadata.
+type InputResolution struct {
+	Configured              bool                      `json:"configured"`
+	DiscoveredConfiguration string                    `json:"discovered_configuration,omitempty"`
+	Profile                 projectconfig.Profile     `json:"profile,omitempty"`
+	Role                    projectconfig.SourceRole  `json:"role,omitempty"`
+	ConfigVersion           int                       `json:"config_version,omitempty"`
+	ProjectKind             projectconfig.ProjectKind `json:"project_kind,omitempty"`
+	ProjectIdentifier       string                    `json:"project_identifier,omitempty"`
+	MinimumZsh              string                    `json:"minimum_zsh,omitempty"`
+	SourceRoot              string                    `json:"source_root,omitempty"`
+	FallbackReason          string                    `json:"fallback_reason,omitempty"`
 }
 
 // RuleDelta tracks added and removed findings for a single rule.
@@ -274,7 +291,7 @@ func loadPopulation(manifestPath string, roots map[string]string) (string, []str
 	}
 
 	modeStr, ok := modeVal.(string)
-	if !ok || (modeStr != "no-config" && modeStr != "configured") {
+	if !ok || (modeStr != "no-config" && modeStr != "configured" && modeStr != "configured-only") {
 		return "", nil, nil, EvidenceError(fmt.Sprintf("invalid population manifest: %s", manifestPath))
 	}
 
@@ -369,7 +386,9 @@ func computeInputs(files map[string]string, configured bool) (*InputsResult, err
 		Files:                  make(map[string]string),
 		Configurations:         make(map[string]string),
 		EffectiveConfiguration: make(map[string]string),
+		Resolutions:            make(map[string]InputResolution),
 	}
+	configs := make(map[string]*projectconfig.Config)
 
 	for name, path := range files {
 		h, err := sha256File(path)
@@ -378,35 +397,70 @@ func computeInputs(files map[string]string, configured bool) (*InputsResult, err
 		}
 		result.Files[name] = h
 
-		if configured {
-			current := filepath.Dir(path)
-			var foundConfig string
-			for {
-				cfg := filepath.Join(current, "zsh-lint.json")
-				fi, err := os.Stat(cfg)
-				if err == nil && fi.Mode().IsRegular() {
-					foundConfig = cfg
-					break
-				}
-				parent := filepath.Dir(current)
-				if parent == current {
-					break
-				}
-				current = parent
-			}
-			if foundConfig == "" {
-				return nil, EvidenceError(fmt.Sprintf("configured input has no configuration: %s", name))
-			}
-			result.EffectiveConfiguration[name] = foundConfig
+		resolution := InputResolution{FallbackReason: "configuration-disabled"}
+		if !configured {
+			result.Resolutions[name] = resolution
+			continue
+		}
+		foundConfig, err := projectconfig.Discover(path)
+		if err != nil {
+			return nil, fmt.Errorf("discover %s: %w", name, err)
+		}
+		resolution = InputResolution{DiscoveredConfiguration: foundConfig, FallbackReason: "no-configuration"}
+		if foundConfig == "" {
+			result.Resolutions[name] = resolution
+			continue
+		}
+		config, ok := configs[foundConfig]
+		if !ok {
 			hCfg, err := sha256File(foundConfig)
 			if err != nil {
 				return nil, err
 			}
 			result.Configurations[foundConfig] = hCfg
+			config, err = projectconfig.Load(foundConfig)
+			if err != nil {
+				return nil, fmt.Errorf("configuration for %s: %w", name, err)
+			}
+			configs[foundConfig] = config
 		}
+		context, err := config.Resolve(path)
+		if err != nil {
+			if !projectconfig.IsUnmatchedSource(err) {
+				return nil, fmt.Errorf("configuration for %s: %w", name, err)
+			}
+			resolution.FallbackReason = "unmatched-source-root"
+		} else {
+			resolution.Configured = true
+			resolution.FallbackReason = ""
+			resolution.Profile = context.Profile
+			resolution.Role = context.Role
+			resolution.ConfigVersion = context.ConfigVersion
+			resolution.ProjectKind = context.ProjectKind
+			resolution.ProjectIdentifier = context.ProjectIdentifier
+			resolution.MinimumZsh = context.MinimumZsh
+			resolution.SourceRoot = context.SourceRoot
+			result.EffectiveConfiguration[name] = foundConfig
+		}
+		result.Resolutions[name] = resolution
 	}
 
 	return result, nil
+}
+
+func populationInputs(files map[string]string, mode string) (*InputsResult, error) {
+	inputs, err := computeInputs(files, mode != "no-config")
+	if err != nil {
+		return nil, err
+	}
+	if mode == "configured-only" {
+		for name, resolution := range inputs.Resolutions {
+			if !resolution.Configured {
+				return nil, EvidenceError(fmt.Sprintf("configured-only input %s uses fallback: %s", name, resolution.FallbackReason))
+			}
+		}
+	}
+	return inputs, nil
 }
 
 func equalInputs(a, b *InputsResult) bool {
@@ -415,7 +469,8 @@ func equalInputs(a, b *InputsResult) bool {
 	}
 	return reflect.DeepEqual(a.Files, b.Files) &&
 		reflect.DeepEqual(a.Configurations, b.Configurations) &&
-		reflect.DeepEqual(a.EffectiveConfiguration, b.EffectiveConfiguration)
+		reflect.DeepEqual(a.EffectiveConfiguration, b.EffectiveConfiguration) &&
+		reflect.DeepEqual(a.Resolutions, b.Resolutions)
 }
 
 func validateOutput(raw []byte, expectedFiles map[string]bool) (*DiagnosticOutput, error) {
@@ -790,8 +845,8 @@ func writeManifest(argv []string) int {
 		fmt.Fprintln(os.Stderr, "missing required manifest generation arguments")
 		return 2
 	}
-	if mode != "no-config" && mode != "configured" {
-		fmt.Fprintln(os.Stderr, "mode must be no-config or configured")
+	if mode != "no-config" && mode != "configured" && mode != "configured-only" {
+		fmt.Fprintln(os.Stderr, "mode must be no-config, configured or configured-only")
 		return 2
 	}
 
@@ -1108,6 +1163,26 @@ func runMain(argv []string) int {
 					"%s: %d -> %d diagnostics; parse errors %d -> %d; non-target-identical=%s",
 					pop.name, baseSummary.Diagnostics, candSummary.Diagnostics, basePE, candPE, ntiStr,
 				))
+				configuredCount := 0
+				for _, resolution := range pop.initial.Resolutions {
+					if resolution.Configured {
+						configuredCount++
+					}
+				}
+				lines = append(lines, fmt.Sprintf("  mode=%s; configured=%d; unconfigured=%d", pop.mode, configuredCount, len(pop.initial.Resolutions)-configuredCount))
+				if pop.mode == "configured" {
+					lines = append(lines, "  Historical mixed-mode compatibility evidence, not a configured-only population.")
+				}
+				for _, lane := range []struct {
+					name     string
+					warnings int
+				}{{"base", baseSummary.Warnings}, {"candidate", candSummary.Warnings}} {
+					if lane.warnings == 0 {
+						lines = append(lines, fmt.Sprintf("  %s Warning precision: undefined (zero findings); the 80%% goal is not established.", lane.name))
+					} else {
+						lines = append(lines, fmt.Sprintf("  %s: %d Warning findings require judgments; diagnostic counts do not establish precision.", lane.name, lane.warnings))
+					}
+				}
 
 				var sortedRules []string
 				for r := range perRule {
@@ -1234,7 +1309,7 @@ func runMain(argv []string) int {
 			report["error"] = err.Error()
 			return finish()
 		}
-		initInputs, err := computeInputs(files, mode == "configured")
+		initInputs, err := populationInputs(files, mode)
 		if err != nil {
 			report["error"] = err.Error()
 			return finish()
@@ -1311,7 +1386,7 @@ func runMain(argv []string) int {
 		}
 
 		for _, l := range lanes {
-			checkInputs, err := computeInputs(pop.files, pop.mode == "configured")
+			checkInputs, err := populationInputs(pop.files, pop.mode)
 			if err != nil || !equalInputs(checkInputs, pop.initial) {
 				report["error"] = fmt.Sprintf("inputs changed before %s/%s", pop.name, l.lane)
 				return finish()
@@ -1389,7 +1464,7 @@ func runMain(argv []string) int {
 				return finish()
 			}
 
-			checkInputs, err = computeInputs(pop.files, pop.mode == "configured")
+			checkInputs, err = populationInputs(pop.files, pop.mode)
 			if err != nil || !equalInputs(checkInputs, pop.initial) {
 				report["error"] = fmt.Sprintf("inputs changed during %s/%s", pop.name, l.lane)
 				return finish()
@@ -1408,7 +1483,7 @@ func runMain(argv []string) int {
 		return finish()
 	}
 	for _, pop := range populations {
-		checkInputs, err := computeInputs(pop.files, pop.mode == "configured")
+		checkInputs, err := populationInputs(pop.files, pop.mode)
 		if err != nil || !equalInputs(checkInputs, pop.initial) {
 			report["error"] = fmt.Sprintf("inputs changed during verification: %s", pop.name)
 			return finish()

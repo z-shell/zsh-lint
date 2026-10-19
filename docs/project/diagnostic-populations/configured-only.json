@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "mode": "configured-only",
+  "files": [
+    "org:annexes/z-a-meta-plugins/z-a-meta-plugins.plugin.zsh",
+    "org:annexes/z-a-meta-plugins/functions/_z_a_meta_plugins_meta_cmd",
+    "org:annexes/z-a-meta-plugins/functions/_z_a_meta_plugins_before_load_handler",
+    "org:annexes/z-a-meta-plugins/functions/_z_a_meta_plugins_meta_cmd_help_handler",
+    "org:core/src/public/zsh/init.zsh",
+    "org:core/src/public/zsh/snippets/welcome.zsh",
+    "org:core/src/public/zsh/snippets/color.zsh",
+    "org:tools/zunit/build.zsh",
+    "org:env/zd/docker/utils.zsh",
+    "org:plugins/zsh-eza/zsh-eza.plugin.zsh",
+    "org:plugins/zsh-eza/tests/setup.zsh",
+    "org:plugins/zsh-eza/tests/helpers.zsh",
+    "org:plugins/zsh-eza/functions/_zsh_eza_init",
+    "org:plugins/zsh-fancy-completions/zsh-fancy-completions.plugin.zsh",
+    "org:plugins/zsh-fancy-completions/lib/compatibility.zsh",
+    "org:plugins/zsh-fancy-completions/lib/completion.zsh",
+    "org:plugins/zsh-fancy-completions/lib/doctor.zsh",
+    "org:plugins/zsh-fancy-completions/lib/hosts.zsh",
+    "org:plugins/zsh-fancy-completions/lib/state.zsh",
+    "org:plugins/zsh-fancy-completions/lib/widgets.zsh",
+    "org:plugins/zsh-fancy-completions/tests/bench-hosts.zsh",
+    "org:plugins/zsh-fancy-completions/tests/cases/hosts.zsh",
+    "org:plugins/zsh-fancy-completions/tests/cases/lifecycle.zsh"
+  ]
+}

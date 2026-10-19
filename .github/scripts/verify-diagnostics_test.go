@@ -190,6 +190,149 @@ func TestShellSetupReusesToolsAndRejectsCorruptArchives(t *testing.T) {
 	}
 }
 
+func TestInputEvidenceDistinguishesUnmatchedConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "outside.zsh")
+	config := filepath.Join(dir, "zsh-lint.json")
+	if err := os.WriteFile(source, []byte("print ok\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte(`{"version":2,"project":{"kind":"tool","minimum_zsh":"5.9","identifier":"fixture"},"sources":[{"root":"src","profile":"standalone-executable"}]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := computeInputs(map[string]string{"r:outside.zsh": source}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inputs.EffectiveConfiguration["r:outside.zsh"] != "" {
+		t.Fatal("unmatched input must not claim an effective configuration")
+	}
+	if inputs.Configurations[config] == "" {
+		t.Fatal("discovered but unmatched configuration must retain its hash")
+	}
+}
+
+func TestInputResolutionEvidence(t *testing.T) {
+	valid := `{"version":2,"project":{"kind":"tool","minimum_zsh":"5.9","identifier":"fixture"},"sources":[{"root":"src","profile":"sourced-library"},{"root":"src/completions","profile":"autoload-function","role":"completion"}]}`
+	for _, tc := range []struct {
+		name, config, nested, source, profile, reason string
+		discover, wantError                           bool
+	}{
+		{name: "mapped", config: valid, source: "src/a.zsh", discover: true, profile: "sourced-library"},
+		{name: "specific-root", config: valid, source: "src/completions/_a", discover: true, profile: "autoload-function"},
+		{name: "no-configuration", source: "a.zsh", discover: true, reason: "no-configuration"},
+		{name: "unmatched", config: valid, source: "a.zsh", discover: true, reason: "unmatched-source-root"},
+		{name: "invalid", config: `{}`, source: "src/a.zsh", discover: true, wantError: true},
+		{name: "duplicate-key", config: strings.Replace(valid, `"version":2`, `"version":2,"version":2`, 1), source: "src/a.zsh", discover: true, wantError: true},
+		{name: "disabled-ignores-invalid", config: `{}`, source: "src/a.zsh", reason: "configuration-disabled"},
+		{name: "nearest-unmatched", config: valid, nested: valid, source: "src/a.zsh", discover: true, reason: "unmatched-source-root"},
+		{name: "nearest-invalid", config: valid, nested: `{}`, source: "src/a.zsh", discover: true, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			source := filepath.Join(dir, filepath.FromSlash(tc.source))
+			if err := os.MkdirAll(filepath.Dir(source), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(source, []byte("print ok\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			config := filepath.Join(dir, "zsh-lint.json")
+			if tc.config != "" {
+				if err := os.WriteFile(config, []byte(tc.config), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.nested != "" {
+				config = filepath.Join(filepath.Dir(source), "zsh-lint.json")
+				if err := os.WriteFile(config, []byte(tc.nested), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			inputs, err := computeInputs(map[string]string{"r:input": source}, tc.discover)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("invalid configuration must fail evidence")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(inputs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var evidence struct {
+				Resolutions map[string]map[string]any `json:"resolutions"`
+			}
+			if err := json.Unmarshal(data, &evidence); err != nil {
+				t.Fatal(err)
+			}
+			resolution := evidence.Resolutions["r:input"]
+			if resolution == nil {
+				t.Fatal("missing per-input resolution evidence")
+			}
+			if tc.reason != "" {
+				if resolution["configured"] != false || resolution["fallback_reason"] != tc.reason || inputs.EffectiveConfiguration["r:input"] != "" {
+					t.Fatalf("incorrect fallback evidence: %s", data)
+				}
+			} else {
+				if resolution["configured"] != true || resolution["profile"] != tc.profile || resolution["config_version"] != float64(2) || resolution["project_identifier"] != "fixture" || resolution["project_kind"] != "tool" || resolution["minimum_zsh"] != "5.9" || inputs.EffectiveConfiguration["r:input"] != config {
+					t.Fatalf("incorrect configured evidence: %s", data)
+				}
+				if tc.name == "specific-root" && (resolution["source_root"] != "src/completions" || resolution["role"] != "completion") {
+					t.Fatalf("most-specific completion metadata lost: %s", data)
+				}
+			}
+			if tc.discover && tc.config != "" {
+				if resolution["discovered_configuration"] != config || inputs.Configurations[config] == "" {
+					t.Fatalf("nearest configuration provenance missing: %s", data)
+				}
+			} else if len(inputs.Configurations) != 0 {
+				t.Fatalf("unexpected configuration hashes: %s", data)
+			}
+		})
+	}
+}
+
+func TestConfiguredOnlyPopulationRejectsFallback(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "a.zsh")
+	if err := os.WriteFile(source, []byte("print ok\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{"r:a.zsh": source}
+	for _, config := range []string{"", `{"version":2,"project":{"kind":"tool","minimum_zsh":"5.9","identifier":"fixture"},"sources":[{"root":"src","profile":"standalone-executable"}]}`} {
+		if config != "" {
+			if err := os.WriteFile(filepath.Join(dir, "zsh-lint.json"), []byte(config), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := populationInputs(files, "configured-only"); err == nil || !strings.Contains(err.Error(), "uses fallback") {
+			t.Fatalf("strict population must reject fallback, got %v", err)
+		}
+		if _, err := populationInputs(files, "configured"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "zsh-lint.json"), []byte(`{"version":2,"project":{"kind":"tool","minimum_zsh":"5.9","identifier":"fixture"},"sources":[{"root":".","profile":"standalone-executable"}]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := populationInputs(files, "configured-only")
+	if err != nil || !inputs.Resolutions["r:a.zsh"].Configured {
+		t.Fatalf("mapped strict population rejected: %v", err)
+	}
+	before, err := populationInputs(files, "configured-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.Resolutions["r:a.zsh"] = InputResolution{FallbackReason: "unmatched-source-root"}
+	if equalInputs(before, inputs) {
+		t.Fatal("changed resolution must invalidate input evidence")
+	}
+}
+
 func TestManifestRegenerationPreservesMembershipAndOrder(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "one.zsh"), []byte("print one\n"), 0644); err != nil {
@@ -616,6 +759,10 @@ func TestComparisonRunsBothLanesAndRejectsStderrAndDrift(t *testing.T) {
 
 	behaviors := []string{
 		"pass",
+		"pass-unmapped",
+		"pass-no-config",
+		"pass-configured-only",
+		"reject-configured-only",
 		"stderr",
 		"malformed",
 		"drift",
@@ -634,11 +781,22 @@ func TestComparisonRunsBothLanesAndRejectsStderrAndDrift(t *testing.T) {
 				t.Fatal(err)
 			}
 			config := filepath.Join(dir, "zsh-lint.json")
-			if err := os.WriteFile(config, []byte("{}"), 0644); err != nil {
+			configData := `{"version":2,"project":{"kind":"tool","minimum_zsh":"5.9","identifier":"fixture"},"sources":[{"root":".","profile":"standalone-executable"}]}`
+			if behavior == "pass-unmapped" || behavior == "reject-configured-only" {
+				configData = strings.Replace(configData, `"root":"."`, `"root":"src"`, 1)
+			}
+			if err := os.WriteFile(config, []byte(configData), 0644); err != nil {
 				t.Fatal(err)
 			}
 			manifest := filepath.Join(dir, "population.json")
-			manifestData := fmt.Sprintf(`{"version": 1, "mode": "configured", "files": ["r:%s"]}`, filepath.Base(source))
+			mode := "configured"
+			if behavior == "pass-no-config" {
+				mode = "no-config"
+			}
+			if strings.HasSuffix(behavior, "configured-only") {
+				mode = "configured-only"
+			}
+			manifestData := fmt.Sprintf(`{"version": 1, "mode": %q, "files": ["r:%s"]}`, mode, filepath.Base(source))
 			if err := os.WriteFile(manifest, []byte(manifestData), 0644); err != nil {
 				t.Fatal(err)
 			}
@@ -671,7 +829,7 @@ func TestComparisonRunsBothLanesAndRejectsStderrAndDrift(t *testing.T) {
 			status := runMain(args)
 
 			expected := 2
-			if behavior == "pass" {
+			if strings.HasPrefix(behavior, "pass") {
 				expected = 0
 			} else if behavior == "other-rule" {
 				expected = 1
@@ -697,7 +855,7 @@ func TestComparisonRunsBothLanesAndRejectsStderrAndDrift(t *testing.T) {
 				t.Fatalf("expected error evidence, got %v", report["status"])
 			}
 
-			if behavior == "pass" {
+			if strings.HasPrefix(behavior, "pass") {
 				pops := report["populations"].(map[string]any)
 				testPop := pops["test"].(map[string]any)
 				if testPop["input_hashes_identical"] != true {
@@ -706,6 +864,44 @@ func TestComparisonRunsBothLanesAndRejectsStderrAndDrift(t *testing.T) {
 				base := testPop["base"].(map[string]any)
 				if base["parse_errors"].(float64) != 0 {
 					t.Fatalf("expected parse_errors 0, got %v", base["parse_errors"])
+				}
+				inputs := testPop["inputs"].(map[string]any)
+				resolution := inputs["resolutions"].(map[string]any)["r:a.zsh"].(map[string]any)
+				wantConfigured := behavior == "pass" || behavior == "pass-configured-only"
+				if resolution["configured"] != wantConfigured {
+					t.Fatalf("wrong resolution in report: %v", resolution)
+				}
+				if behavior == "pass-unmapped" && resolution["fallback_reason"] != "unmatched-source-root" {
+					t.Fatalf("missing fallback: %v", resolution)
+				}
+				summary, err := os.ReadFile(filepath.Join(evidenceDir, "summary.md"))
+				if err != nil || !strings.Contains(string(summary), "Warning precision: undefined (zero findings)") || !strings.Contains(string(summary), "80% goal is not established") {
+					t.Fatalf("zero findings must not pass precision: %s (%v)", summary, err)
+				}
+				if mode == "configured" && !strings.Contains(string(summary), "Historical mixed-mode compatibility evidence") {
+					t.Fatalf("legacy mode must be labelled: %s", summary)
+				}
+				commandsData, err := os.ReadFile(filepath.Join(evidenceDir, "commands.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var commands []CommandRow
+				if err := json.Unmarshal(commandsData, &commands); err != nil {
+					t.Fatal(err)
+				}
+				var invocations [][]string
+				for _, command := range commands {
+					if command.Args[0] == fixtureScript {
+						invocations = append(invocations, command.Args[1:])
+					}
+				}
+				wantArgs := []string{"--format=json"}
+				if mode == "no-config" {
+					wantArgs = append(wantArgs, "--no-config")
+				}
+				wantArgs = append(wantArgs, source)
+				if !reflect.DeepEqual(invocations, [][]string{wantArgs, wantArgs}) {
+					t.Fatalf("population invocation changed: %v", invocations)
 				}
 			}
 		})
