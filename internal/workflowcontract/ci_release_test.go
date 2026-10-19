@@ -831,9 +831,41 @@ func releaseWorkflowBoundaryViolations(t *testing.T, workflow string) []string {
 			"name: Check out code",
 			"name: Verify semantic tag",
 			"name: Set up Go",
+			"name: Set up Zsh",
 			"name: Test tagged commit",
 			"name: Publish GitHub release",
 		},
+	)...)
+	return violations
+}
+
+// releaseSetupZshViolations requires the release job to install the same
+// pinned Zsh as Go CI's build-test job. Under CI, the native-confirmation
+// tests fail rather than skip when zsh is missing (#744).
+func releaseSetupZshViolations(t *testing.T, setupStep string) []string {
+	t.Helper()
+
+	goCI := readRepositoryFile(t, ".github", "workflows", "go-ci.yml")
+	goCIUses := regexp.MustCompile(`(?m)^        uses: (z-shell/\.github/actions/setup-zsh@[0-9a-f]{40} # main)$`).FindAllStringSubmatch(goCI, -1)
+	if len(goCIUses) != 1 {
+		t.Fatalf("go-ci.yml must contain exactly one pinned setup-zsh step; got %d", len(goCIUses))
+	}
+	var violations []string
+	violations = append(violations, exactWorkflowMappingViolations(
+		"release Zsh setup step",
+		setupStep,
+		8,
+		[]workflowMappingField{
+			{name: "uses", value: goCIUses[0][1]},
+			{name: "with", value: ""},
+		},
+	)...)
+	withBlock := workflowBlock(t, setupStep, "with:", 8)
+	violations = append(violations, exactWorkflowMappingViolations(
+		"release Zsh setup inputs",
+		withBlock,
+		10,
+		[]workflowMappingField{{name: "version", value: `"` + nativeOracleZshVersion + `"`}},
 	)...)
 	return violations
 }
@@ -873,9 +905,14 @@ func TestReleaseTestsExactTagCommitBeforePublication(t *testing.T) {
 		t.Fatalf("semantic tag verification must not permit condition or failure bypasses: %s", strings.Join(violations, "; "))
 	}
 
-	setupStep := workflowStep(t, workflow, "Set up Go", "Test tagged commit")
+	setupStep := workflowStep(t, workflow, "Set up Go", "Set up Zsh")
 	if violations := releaseSetupGoViolations(t, setupStep); len(violations) != 0 {
 		t.Fatalf("release Go setup must use the deterministic toolchain: %s", strings.Join(violations, "; "))
+	}
+
+	zshStep := workflowStep(t, workflow, "Set up Zsh", "Test tagged commit")
+	if violations := releaseSetupZshViolations(t, zshStep); len(violations) != 0 {
+		t.Fatalf("release Zsh setup must match Go CI: %s", strings.Join(violations, "; "))
 	}
 
 	testStep := workflowStep(t, workflow, "Test tagged commit", "Publish GitHub release")
@@ -944,9 +981,47 @@ func TestReleaseRejectsBoundaryExpansion(t *testing.T) {
 	}
 }
 
+func TestReleaseSetupZshRejectsDecoys(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github", "workflows", "release.yml")
+	setupStep := workflowStep(t, workflow, "Set up Zsh", "Test tagged commit")
+	pinned := regexp.MustCompile(`setup-zsh@[0-9a-f]{40} # main`).FindString(setupStep)
+	if pinned == "" {
+		t.Fatal("release Zsh setup has no pinned setup-zsh reference")
+	}
+	tests := []struct {
+		name        string
+		old         string
+		replacement string
+	}{
+		{name: "skipped step", old: "        with:\n", replacement: "        if: false\n        with:\n"},
+		{name: "runner package version", old: `          version: "` + nativeOracleZshVersion + `"`, replacement: `          version: "5.9"`},
+		{name: "mutable ref", old: pinned, replacement: "setup-zsh@main"},
+		{name: "failure ignored", old: "        with:\n", replacement: "        continue-on-error: true\n        with:\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mutated := strings.Replace(setupStep, tt.old, tt.replacement, 1)
+			if mutated == setupStep {
+				t.Fatal("release Zsh setup mutation anchor was not found")
+			}
+			if violations := releaseSetupZshViolations(t, mutated); len(violations) == 0 {
+				t.Fatal("release Zsh setup contract accepted a mutation")
+			}
+		})
+	}
+
+	removed := strings.Replace(workflow, setupStep, "", 1)
+	if removed == workflow {
+		t.Fatal("release Zsh setup step was not found")
+	}
+	if violations := releaseWorkflowBoundaryViolations(t, removed); len(violations) == 0 {
+		t.Fatal("release workflow contract accepted a release job without Zsh")
+	}
+}
+
 func TestReleaseSetupGoRejectsVersionDecoy(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github", "workflows", "release.yml")
-	setupStep := workflowStep(t, workflow, "Set up Go", "Test tagged commit")
+	setupStep := workflowStep(t, workflow, "Set up Go", "Set up Zsh")
 	mutated := strings.Replace(
 		setupStep,
 		`        with:

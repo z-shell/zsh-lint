@@ -46,6 +46,12 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27"
+      # Under CI the native-confirmation tests fail rather than skip without
+      # zsh, so install the same pinned Zsh as Go CI's build-test job.
+      - name: Set up Zsh
+        uses: z-shell/.github/actions/setup-zsh@aeae5bb865e3e4e00093573b102dec5ffe03e187 # main
+        with:
+          version: "5.9.2"
       - name: Test tagged commit
         run: go test -tags=integration -count=1 ./...
       - name: Publish GitHub release
