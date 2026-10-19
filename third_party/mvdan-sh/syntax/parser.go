@@ -573,7 +573,7 @@ type Parser struct {
 	// (zsh-lint #529).
 	zshBraceIndex  bool
 	zshShortIndex  int
-	zshAssignIndex bool // Assignment targets retain typed flag-pattern expansions (#735).
+	zshAssignIndex bool // Set while an assignment target is read; see zshSubFlags (#735).
 
 	// zshRec records every byte rune consumes while zshRecOn > 0, so that
 	// a `${...}` subscript can be checked as a whole once parsed, and
@@ -3124,6 +3124,11 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// a `]` in the nested expansion still ends the argument, as before, and
 	// the flag-pattern adapter (#382) reads it.
 	argPos := p.nextPos()
+	// Typed children are kept only in a `${...}` subscript nested in an
+	// assignment target, as in `a[${b[(ie)${c[d]}]}]=()` (#735). A direct
+	// target such as `a[(ie)...]=()` keeps the raw pattern and its
+	// escape handling unchanged.
+	assign := p.zshAssignIndex && p.zshBraceIndex
 	var parts []WordPart
 	braces := 0
 	inParam := 0
@@ -3169,13 +3174,13 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// before.
 	top, topParam, topParens, tick := 0, 0, 0, -1
 	var topOpen Pos
-	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || short > 0 || p.zshAssignIndex && top > 0 && braces == 0 || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || short > 0 || p.zshAssignIndex && top > 0 || p.r != ','); p.rune() {
+	for p.newLit(p.r); p.r != runeEOF && (p.r != ']' || short > 0 || assign && top > 0 && braces == 0 || sub != nil && (!sub.bquote || p.zshBraceIndex || litEscaped(p.litBs) || bqBrackets > 0)) && (braces > 0 || quote != 0 || sub != nil || short > 0 || assign && top > 0 || p.r != ','); p.rune() {
 		// In an assignment index a nested expansion owns its delimiters.
 		// Reading it as raw pattern text stops at an inner `]` and leaves
 		// getAssign looking for `=` before its target has ended (#735).
 		// Keep the ordinary pattern bytes raw, but retain expansions as
 		// children so walking and printing see the same assignment.
-		for p.zshAssignIndex && sub == nil && short == 0 && braces == 0 && !litEscaped(p.litBs) &&
+		for assign && sub == nil && short == 0 && braces == 0 && !litEscaped(p.litBs) &&
 			p.r == '$' && p.peek() == '{' {
 			if val := p.endLit(); val != "" {
 				parts = append(parts, p.lit(argPos, val))
@@ -3235,7 +3240,7 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 			// parse reports it.
 			p.posErr(p.nextPos(), "`}` can only be used to close a block")
 		}
-		if (p.zshBraceIndex || p.zshShortIndex > 0 || p.zshAssignIndex) && short == 0 && !litEscaped(p.litBs) {
+		if (p.zshBraceIndex || p.zshShortIndex > 0) && short == 0 && !litEscaped(p.litBs) {
 			// A nested `${...}` has its own subscripts: topParam counts
 			// the ones open, in double quotes too, where inParam below is
 			// not kept.
@@ -3253,7 +3258,7 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 					topOpen = p.nextPos()
 				}
 				top++
-			case p.zshAssignIndex && topParam == 0 && p.r == ']' && top > 0:
+			case assign && topParam == 0 && p.r == ']' && top > 0:
 				top--
 			// dquote_parse counts the parentheses too (#540).
 			case topParam == 0 && p.r == '(':
