@@ -44,7 +44,7 @@ The original interactive Zi/`.zshrc` plugin was removed from the tree; the Go an
 ## Branch model
 
 - `main` is the development branch; short-lived feature and fix branches start from and target `main`.
-- Use `feature-<id>`, `bug-<id>`, or `hotfix-<id>` branch names.
+- Name branches by the pattern `commit-lint.yml` enforces: `feature-<issue>`, `bug-<issue>` or `hotfix-<issue>` with an optional `-<slug>`, or `<type>/<slug>` ([pull-request runbook](https://github.com/z-shell/.github/blob/main/runbooks/pull-requests.md#1-before-the-branch)).
 - Merge reviewed pull requests into `main` with squash merge.
 - Annotated `vX.Y.Z` tags are the publication boundary.
 
