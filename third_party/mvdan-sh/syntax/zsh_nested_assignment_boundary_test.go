@@ -38,6 +38,12 @@ func TestZshNestedAssignmentBoundaries(t *testing.T) {
 		`a[(ie)${c}$(print xy)]=()`,
 		`a[${b[(ie)${c}\[x\]]}]=()`,
 		`a[${b[(ie)${c[d]}\[x\]]}]=()`,
+		// A target nested inside a command substitution is still owned.
+		`a[${b[$(a[${d[(ie)${c[e]}]}]=())]}]=()`,
+		// Owned nested patterns without a typed child end at their own `]`.
+		`a[${b[(ie)x]}]=()`,
+		`a[${b[(ie)[xy]]}]=()`,
+		`a[${b[(ie)x]}${c[(ie)y]}]=()`,
 	} {
 		t.Run(src, func(t *testing.T) {
 			src += "\n"
@@ -60,6 +66,49 @@ func TestZshNestedAssignmentBoundaries(t *testing.T) {
 			t.Run("native-source", confirmParse(src, "zsh", false))
 			t.Run("native-printed", confirmParse(printed.String(), "zsh", false))
 		})
+	}
+}
+
+// Disabling the typed reading restores the raw pattern of the nested
+// subscript, which ends the target at its first inner `]` (#735).
+func TestZshNestedAssignTargetsDisabled(t *testing.T) {
+	p := NewParser(Variant(LangZsh), ZshNestedAssignTargets(false))
+	if _, err := p.Parse(strings.NewReader("a[${b[(ie)${c[d]}]}]=()\n"), ""); err == nil {
+		t.Fatal("raw reading accepted the nested assignment target")
+	}
+	if _, err := p.Parse(strings.NewReader("a[${b[1]}]=x\n"), ""); err != nil {
+		t.Fatalf("raw reading rejected a plain nested target: %v", err)
+	}
+	if _, err := NewParser(Variant(LangZsh)).Parse(strings.NewReader("a[${b[(ie)${c[d]}]}]=()\n"), ""); err != nil {
+		t.Fatalf("typed reading is not the default: %v", err)
+	}
+}
+
+// ZshNestedAssignRead reports the typed reading only for the last parse that
+// entered an owned nested target's flagged pattern (#735).
+func TestZshNestedAssignRead(t *testing.T) {
+	p := NewParser(Variant(LangZsh))
+	for _, tc := range []struct {
+		src  string
+		read bool
+	}{
+		{"a[${b[(ie)${c[d]}]}]=()\n", true},
+		{"a[${b[(ie)x]}]=()\n", true},
+		{"a[${b[(ie)${c[d]}]}=()\n", true},
+		{"a[(ie)${c}]=()\n", false},
+		{"a[\"${b[(ie)${c}]}\"]=()\n", false},
+		{"a[${b[$(a[(ie)${c}]=())]}]=()\n", false},
+		{"print ${b[(ie)${c[d]}]}\n", false},
+	} {
+		_, _ = p.Parse(strings.NewReader(tc.src), "")
+		if got := p.ZshNestedAssignRead(); got != tc.read {
+			t.Errorf("%q: ZshNestedAssignRead() = %v, want %v", tc.src, got, tc.read)
+		}
+	}
+	off := NewParser(Variant(LangZsh), ZshNestedAssignTargets(false))
+	_, _ = off.Parse(strings.NewReader("a[${b[(ie)${c[d]}]}]=()\n"), "")
+	if off.ZshNestedAssignRead() {
+		t.Error("disabled typed reading reported as read")
 	}
 }
 

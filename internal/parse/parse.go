@@ -16,6 +16,8 @@ import (
 	"bytes"
 	"io"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/z-shell/zsh-lint/third_party/mvdan-sh/syntax"
 )
@@ -91,13 +93,35 @@ func (f *File) MathFunctionCalls() []MathFunctionCall {
 	return f.mathFunctionCalls
 }
 
+// nestedAssignRaw selects the earlier raw reading of nested assignment
+// targets such as `a[${b[(ie)${c[d]}]}]=()` instead of typed children
+// (#735). Parse tries the typed reading first; when that rejects a file, it
+// parses the file again with nestedAssignRaw set and returns that result, so
+// a file the raw reading accepts is never rejected because of the typed one,
+// and a rejected file reports the raw reading's error. The raw pass holds
+// nestedAssignMu for writing, so a concurrent Parse never runs its typed
+// pass under the raw setting. nestedAssignReads counts parses that used the
+// typed reading; a rejected file whose pass left it unchanged was read the
+// raw way throughout, so the second pass is skipped. A concurrent Parse can
+// only add a needless second pass, never skip a needed one.
+var (
+	nestedAssignMu    sync.RWMutex
+	nestedAssignRaw   atomic.Bool
+	nestedAssignReads atomic.Int64
+)
+
 func parseTree(src []byte, name string) (*syntax.File, error) {
 	treeParses.Add(1)
 	parser := syntax.NewParser(
 		syntax.KeepComments(true),
 		syntax.Variant(syntax.LangZsh),
+		syntax.ZshNestedAssignTargets(!nestedAssignRaw.Load()),
 	)
-	return parser.Parse(bytes.NewReader(src), name)
+	tree, err := parser.Parse(bytes.NewReader(src), name)
+	if parser.ZshNestedAssignRead() {
+		nestedAssignReads.Add(1)
+	}
+	return tree, err
 }
 
 // Parse parses a single Zsh source read from r, using name in error
@@ -107,6 +131,22 @@ func Parse(r io.Reader, name string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
+	reads := nestedAssignReads.Load()
+	nestedAssignMu.RLock()
+	file, err := parseSource(src, name)
+	nestedAssignMu.RUnlock()
+	if err == nil || nestedAssignReads.Load() == reads {
+		return file, err
+	}
+	nestedAssignMu.Lock()
+	defer nestedAssignMu.Unlock()
+	nestedAssignRaw.Store(true)
+	defer nestedAssignRaw.Store(false)
+	return parseSource(src, name)
+}
+
+// parseSource is one complete front-end pass over src.
+func parseSource(src []byte, name string) (*File, error) {
 	tree, anonymousInvocations, err := parseFull(src, name)
 	if err != nil {
 		return nil, err

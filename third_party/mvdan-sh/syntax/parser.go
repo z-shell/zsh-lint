@@ -224,6 +224,22 @@ func RecoverErrors(maximum int) ParserOption {
 	return func(p *Parser) { p.recoverErrorsMax = maximum }
 }
 
+// ZshNestedAssignTargets controls whether a [LangZsh] assignment target such
+// as `a[${b[(ie)${c[d]}]}]=()` keeps the braced expansions in the flagged
+// pattern of its nested `${...}` as typed word children (zsh-lint #735). It
+// is enabled by default. Disabling it restores the earlier raw pattern
+// reading, so a caller can fall back to that result when the typed reading
+// rejects a source.
+func ZshNestedAssignTargets(enabled bool) ParserOption {
+	return func(p *Parser) { p.zshNestedAssignOff = !enabled }
+}
+
+// ZshNestedAssignRead reports whether the last parse read the flagged
+// pattern of a nested assignment target with the typed reading that
+// [ZshNestedAssignTargets] controls. When it did not, disabling that reading
+// cannot change the result of the same parse.
+func (p *Parser) ZshNestedAssignRead() bool { return p.zshAssignRead }
+
 // NewParser allocates a new [Parser] and applies any number of options.
 func NewParser(options ...ParserOption) *Parser {
 	p := &Parser{
@@ -573,7 +589,15 @@ type Parser struct {
 	// (zsh-lint #529).
 	zshBraceIndex  bool
 	zshShortIndex  int
-	zshAssignIndex bool // Set while an assignment target is read; see zshSubFlags (#735).
+	zshAssignIndex bool // Set while an assignment target is read (#735).
+	// zshAssignBrace is set while an unquoted `${...}` subscript opened
+	// directly by the assignment target being read is parsed, so that only
+	// its flagged pattern keeps typed children; a command substitution
+	// clears it (#735). zshNestedAssignOff disables that reading, and
+	// zshAssignRead records that a parse used it.
+	zshAssignBrace     bool
+	zshNestedAssignOff bool
+	zshAssignRead      bool
 
 	// zshRec records every byte rune consumes while zshRecOn > 0, so that
 	// a `${...}` subscript can be checked as a whole once parsed, and
@@ -695,6 +719,8 @@ func (p *Parser) reset() {
 	p.zshWordsOnly = false
 	p.zshWordCont = false
 	p.zshAssignIndex = false
+	p.zshAssignBrace = false
+	p.zshAssignRead = false
 }
 
 // nextPos returns the position of the next rune, [Parser.r].
@@ -823,6 +849,7 @@ type saveState struct {
 	zshWordsOnly   bool
 	zshWordCont    bool
 	zshAssignIndex bool
+	zshAssignBrace bool
 }
 
 func (p *Parser) preNested(quote quoteState) (s saveState) {
@@ -836,6 +863,7 @@ func (p *Parser) preNested(quote quoteState) (s saveState) {
 	s.zshWordsOnly, p.zshWordsOnly = p.zshWordsOnly, false
 	s.zshWordCont, p.zshWordCont = p.zshWordCont, false
 	s.zshAssignIndex, p.zshAssignIndex = p.zshAssignIndex, false
+	s.zshAssignBrace, p.zshAssignBrace = p.zshAssignBrace, false
 	return s
 }
 
@@ -848,6 +876,7 @@ func (p *Parser) postNested(s saveState) {
 	p.zshWordsOnly = s.zshWordsOnly
 	p.zshWordCont = s.zshWordCont
 	p.zshAssignIndex = s.zshAssignIndex
+	p.zshAssignBrace = s.zshAssignBrace
 }
 
 func unquotedWordBytes(w *Word) ([]byte, bool) {
@@ -2468,6 +2497,11 @@ zshPrefixLoop:
 		p.rune()
 		oldBrace := p.zshBraceIndex
 		p.zshBraceIndex = p.zshShortIndex == 0
+		// Only an unquoted subscript the assignment target opens itself
+		// keeps typed flag-pattern children (#735); a double-quoted one
+		// keeps the raw reading and its escape handling.
+		oldAssignBrace := p.zshAssignBrace
+		p.zshAssignBrace = p.zshAssignIndex && p.zshBraceIndex && !p.zshDquoteParam && !p.zshNestedAssignOff
 		var rec func()
 		if p.lang.in(LangZsh) && p.zshBraceIndex {
 			rec = p.zshRecordSubscript()
@@ -2481,6 +2515,7 @@ zshPrefixLoop:
 			rec()
 		}
 		p.zshBraceIndex = oldBrace
+		p.zshAssignBrace = oldAssignBrace
 	}
 	tokRune := p.r
 	p.pos = p.nextPos()
@@ -3124,11 +3159,15 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// a `]` in the nested expansion still ends the argument, as before, and
 	// the flag-pattern adapter (#382) reads it.
 	argPos := p.nextPos()
-	// Typed children are kept only in a `${...}` subscript nested in an
-	// assignment target, as in `a[${b[(ie)${c[d]}]}]=()` (#735). A direct
-	// target such as `a[(ie)...]=()` keeps the raw pattern and its
-	// escape handling unchanged.
-	assign := p.zshAssignIndex && p.zshBraceIndex
+	// Typed children are kept only in an unquoted `${...}` subscript the
+	// assignment target opens itself, as in `a[${b[(ie)${c[d]}]}]=()`
+	// (#735). A direct target such as `a[(ie)...]=()`, one inside a command
+	// substitution, and a double-quoted nested one keep the raw pattern and
+	// its escape handling unchanged.
+	assign := p.zshAssignBrace && p.zshBraceIndex
+	if assign {
+		p.zshAssignRead = true
+	}
 	var parts []WordPart
 	braces := 0
 	inParam := 0
