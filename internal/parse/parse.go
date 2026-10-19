@@ -75,12 +75,11 @@ func (f *File) AssignAlwaysExpansions() []*syntax.ParamExp {
 }
 
 // SecondSubscripts returns the parameter expansions written with more than
-// one subscript, `${name[a][b]}` (issue #215), with the subscripts after the
-// first. mvdan/sh (through v3.14.1) has one index per expansion, so the
-// compatibility front end keeps the first subscript in the tree's Index and
-// records the rest here; consumers that need them must inspect this metadata.
-// The returned slice is independent; its nodes are shared with the immutable
-// parse result.
+// one subscript, `${name[a][b]}` (issues #215, #252), with the subscripts
+// after the first. They are typed children of each expansion
+// (syntax.ParamExp.LaterIndexes), so a walk of the tree already reaches
+// them; this list is a convenience view in walk order. The returned slice is
+// independent; its nodes are shared with the immutable parse result.
 func (f *File) SecondSubscripts() []SecondSubscript {
 	return append([]SecondSubscript(nil), f.secondSubscripts...)
 }
@@ -175,7 +174,7 @@ func parseSource(src []byte, name string) (*File, error) {
 		lines:                strings.Split(text, "\n"),
 		anonymousInvocations: anonymousInvocations,
 		assignAlways:         bindAssignAlwaysExpansions(tree, src),
-		secondSubscripts:     bindSecondSubscripts(tree, src),
+		secondSubscripts:     collectSecondSubscripts(tree),
 		mathFunctionCalls:    bindMathFunctionCalls(tree, src),
 	}, nil
 }

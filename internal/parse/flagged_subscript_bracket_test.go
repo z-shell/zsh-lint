@@ -109,23 +109,17 @@ func TestParseFlaggedSubscriptBracketPositions(t *testing.T) {
 // soleFlagsArithm returns the one FlagsArithm the file holds, failing if there
 // is not exactly one, so a test cannot pass by finding some other subscript.
 //
-// A flagged subscript that follows a first one is detached from the tree into
-// SecondSubscripts, which syntax.Walk does not reach, so both are searched.
+// A flagged subscript that follows a first one is a typed later subscript of
+// its expansion, which syntax.Walk reaches like the first (#252).
 func soleFlagsArithm(t *testing.T, file *File) *syntax.FlagsArithm {
 	t.Helper()
 	var found []*syntax.FlagsArithm
-	collect := func(node syntax.Node) bool {
+	syntax.Walk(file.AST(), func(node syntax.Node) bool {
 		if flagged, ok := node.(*syntax.FlagsArithm); ok {
 			found = append(found, flagged)
 		}
 		return true
-	}
-	syntax.Walk(file.AST(), collect)
-	for _, second := range file.SecondSubscripts() {
-		for _, subscript := range second.Subscripts {
-			syntax.Walk(subscript, collect)
-		}
-	}
+	})
 	if len(found) != 1 {
 		t.Fatalf("FlagsArithm nodes = %d, want 1", len(found))
 	}

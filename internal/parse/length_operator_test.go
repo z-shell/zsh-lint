@@ -166,9 +166,8 @@ func TestLengthOperatorDoesNotWidenExistencePrefix(t *testing.T) {
 	}
 }
 
-// A second subscript under a length prefix reports this adapter's error text
-// but belongs to parseSecondSubscript. It must keep working, and the
-// expansion must still carry its length.
+// A second subscript under a length prefix is a typed later subscript of
+// the expansion, which must still carry its length (#252).
 func TestLengthOperatorLeavesSecondSubscriptAlone(t *testing.T) {
 	t.Parallel()
 	src := []byte("print ${#a[1][2]}\n")
@@ -176,7 +175,7 @@ func TestLengthOperatorLeavesSecondSubscriptAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	found := bindSecondSubscripts(tree, src)
+	found := collectSecondSubscripts(tree)
 	if len(found) != 1 {
 		t.Fatalf("second subscripts = %d, want 1", len(found))
 	}

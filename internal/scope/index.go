@@ -41,6 +41,11 @@ func (m *Map) Index(node syntax.Node) {
 			m.currentFunc = prev
 			return false // We already walked the children
 
+		// A command substitution runs in a subshell, so its declarations
+		// stay inside it (see enclosingSubst).
+		case *syntax.CmdSubst:
+			m.substs = append(m.substs, x)
+
 		// Handle variable assignments: foo=bar
 		case *syntax.Assign:
 			m.indexArrayAssignment(x)

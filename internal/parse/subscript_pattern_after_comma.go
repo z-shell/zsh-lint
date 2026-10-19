@@ -40,6 +40,9 @@ func parseSubscriptPatternAfterComma(src []byte, name string, firstErr error) (*
 	}
 	site, ok := locatePatternAfterComma(src, seed)
 	if !ok {
+		site, ok = locateLaterSubscriptAfterFlags(src, seed)
+	}
+	if !ok {
 		return nil, firstErr
 	}
 	masked := bytes.Clone(src)
@@ -70,12 +73,15 @@ func patternAfterCommaError(text string) bool {
 
 // patternAfterCommaSite is one `name[(flags)pattern,expression]` subscript:
 // the offset of its `,`, the span of the expression after it, and the mask
-// that turns that expression into one literal.
+// that turns that expression into one literal. For a later subscript after a
+// flagged one, `name[(flags)pattern][expression]`, later is set and comma is
+// the offset of the later subscript's `[`.
 type patternAfterCommaSite struct {
 	comma int
 	start int
 	end   int
 	edits []patternEdit
+	later bool
 }
 
 // locatePatternAfterComma locates the flagged subscript whose expression after
@@ -109,40 +115,81 @@ func locatePatternAfterComma(src []byte, seed int) (patternAfterCommaSite, bool)
 	return patternAfterCommaSite{}, false
 }
 
+// locateLaterSubscriptAfterFlags locates the subscript written directly
+// after a flagged one, `name[(flags)pattern][expression]`, whose expression
+// holds the error at seed (#252). Zsh applies it to the value the flagged
+// subscript returns, so it reads the expression by that value's type, which
+// the parser cannot know, as it cannot for the expression after a flagged
+// pattern's `,`; the same literal reading applies. Before later subscripts
+// became typed children, the second-subscript mask rewrote these sources into
+// that comma form.
+func locateLaterSubscriptAfterFlags(src []byte, seed int) (patternAfterCommaSite, bool) {
+	for i := seed - 1; i > 0; i-- {
+		if src[i] == '\n' {
+			return patternAfterCommaSite{}, false
+		}
+		if src[i] != '(' || src[i-1] != '[' || i < 2 || !isIdentByte(src[i-2]) {
+			continue
+		}
+		patternStart, ok := flagPatternStart(src, i-1)
+		if !ok {
+			continue
+		}
+		end, closer, ok := flagPatternEnd(src, patternStart)
+		if !ok || closer != ']' || end+1 >= seed || src[end+1] != '[' {
+			continue
+		}
+		site, ok := scanPatternAfterComma(src, end+1)
+		if !ok || seed > site.end {
+			continue
+		}
+		site.later = true
+		return site, true
+	}
+	return patternAfterCommaSite{}, false
+}
+
 // flagPatternComma walks a flagged pattern from start to the `,` that ends
 // it, counting bracket expressions the way scanFlagPatternBrackets does. It
 // reports false when the pattern ends at `]` without a `,`, or holds anything
 // whose extent the scanner cannot decide.
 func flagPatternComma(src []byte, start int) (int, bool) {
+	end, closer, ok := flagPatternEnd(src, start)
+	return end, ok && closer == ','
+}
+
+// flagPatternEnd walks a flagged pattern from start to the `,` or `]` that
+// ends it, as flagPatternComma describes, and returns its offset and byte.
+func flagPatternEnd(src []byte, start int) (int, byte, bool) {
 	depth := 0
 	for i := start; i < len(src); {
 		b := src[i]
 		switch {
 		case b == '\\':
 			if i+1 >= len(src) || src[i+1] == '\n' {
-				return 0, false
+				return 0, 0, false
 			}
 			i += 2
 		case b == '\n', b == '`', b == '}' && depth == 0:
-			return 0, false
+			return 0, 0, false
 		case b == '$' && i+1 < len(src) && (src[i+1] == '{' || src[i+1] == '('):
-			return 0, false
+			return 0, 0, false
 		case b == '[':
 			depth++
 			i++
 		case b == ']':
 			if depth == 0 {
-				return 0, false
+				return i, b, true
 			}
 			depth--
 			i++
 		case b == ',' && depth == 0:
-			return i, true
+			return i, b, true
 		default:
 			i++
 		}
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 // scanPatternAfterComma walks the expression after the `,` at comma to the `]`
@@ -223,6 +270,9 @@ func scanPatternAfterComma(src []byte, comma int) (patternAfterCommaSite, bool) 
 // pattern and whose right operand is one literal spanning exactly the masked
 // expression.
 func (site patternAfterCommaSite) verify(tree *syntax.File) bool {
+	if site.later {
+		return site.verifyLater(tree)
+	}
 	found := false
 	syntax.Walk(tree, func(node syntax.Node) bool {
 		if found {
@@ -247,4 +297,41 @@ func (site patternAfterCommaSite) verify(tree *syntax.File) bool {
 		return !found
 	})
 	return found
+}
+
+// verifyLater reports whether the retry read a later-subscript site as one
+// literal spanning exactly the masked expression, held as the expansion's
+// later subscript directly after a flagged one.
+func (site patternAfterCommaSite) verifyLater(tree *syntax.File) bool {
+	found := false
+	syntax.Walk(tree, func(node syntax.Node) bool {
+		if found {
+			return false
+		}
+		exp, ok := node.(*syntax.ParamExp)
+		if !ok {
+			return true
+		}
+		previous := exp.Index
+		for _, index := range exp.LaterIndexes {
+			if _, flagged := previous.(*syntax.FlagsArithm); flagged && literalSpans(index, site.start, site.end) {
+				found = true
+				return false
+			}
+			previous = index
+		}
+		return true
+	})
+	return found
+}
+
+// literalSpans reports whether expr is a word of one literal whose value
+// spans exactly start to end.
+func literalSpans(expr syntax.ArithmExpr, start, end int) bool {
+	word, ok := expr.(*syntax.Word)
+	if !ok || len(word.Parts) != 1 {
+		return false
+	}
+	lit, ok := word.Parts[0].(*syntax.Lit)
+	return ok && int(lit.ValuePos.Offset()) == start && int(lit.ValueEnd.Offset()) == end
 }

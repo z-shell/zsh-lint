@@ -105,6 +105,7 @@ func Walk(node Node, f func(Node) bool) {
 		walkNilable(node.NestedParam, f)
 		walkNilable(node.ArithmName, f)
 		walkNilable(node.Index, f)
+		walkList(node.LaterIndexes, f)
 		if node.Slice != nil {
 			walkNilable(node.Slice.Offset, f)
 			walkNilable(node.Slice.Length, f)

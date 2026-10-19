@@ -379,9 +379,9 @@ func TestParseRepeatKeepsLaterMetadataOnSourceBytes(t *testing.T) {
 	if loops := repeatClauses(file.AST()); len(loops) != 3 {
 		t.Fatalf("repeat loops = %d, want 3", len(loops))
 	}
-	// The tree holds the closest typed shapes; the metadata carries `::=` and
-	// the second subscript.
-	want := "repeat 2; do\n\tprint hi\ndone\n() { print $1; }\nprint ${x:=1} ${a[1]}\n" +
+	// The tree holds the closest typed shapes; the metadata carries `::=`,
+	// and the second subscript is a typed child of its expansion (#252).
+	want := "repeat 2; do\n\tprint hi\ndone\n() { print $1; }\nprint ${x:=1} ${a[1][2]}\n" +
 		"repeat 3; do () { print $1; }; done\nprint x\nrepeat 4; do () { print $1; }; done\nprint y\n"
 	if got := renderTree(t, file.AST()); got != want {
 		t.Errorf("rendered tree = %q, want %q", got, want)

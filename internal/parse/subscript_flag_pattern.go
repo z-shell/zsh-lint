@@ -351,14 +351,9 @@ func positionalPatternDecidable(pattern []byte) bool {
 // `(flags)` group. A flagged pattern stands in two places: at the start of a
 // subscript, `name[(i)pat]`, and after a range's `,`, `${a[1,(i)pat]}`
 // (zshparam, Subscript Flags, where a range endpoint is itself a subscript
-// expression and may carry flags).
-//
-// The range form is also the shape the second-subscript adapter's mask
-// produces, since it rewrites the `][` boundary as `, `. Accepting it here is
-// what lets the two adapters compose on `${a[b][(i)[x]]}` (issue #250), and it
-// is not a concession to that mask: the form fails identically without any
-// second subscript, so this is the grammar position, not the mask, being
-// handled.
+// expression and may carry flags). Either may be a later subscript,
+// `${a[b][(i)[x]]}`, which the parser keeps as the expansion's own child
+// (issues #250, #252).
 //
 // flagPatternStart reads the flags from paren+1 either way, so both openers
 // are reported through the byte before the `(`.
@@ -366,13 +361,11 @@ func isFlagGroupOpener(src []byte, paren int) bool {
 	if paren < 1 {
 		return false
 	}
-	// `name[(flags)`: the subscript's own opener. The byte before the `[` is
-	// a name character, or the `}` of a nested expansion the subscript
-	// applies to, `${${a[b]}[(i)pat]}`.
+	// `name[(flags)`: the subscript's own opener.
 	if src[paren-1] == '[' {
-		return paren >= 2 && (isIdentByte(src[paren-2]) || src[paren-2] == '}')
+		return paren >= 2 && subscriptBase(src, paren-2)
 	}
-	// `,(flags)` or, after the second-subscript mask, `, (flags)`.
+	// `,(flags)`, or `, (flags)` with blanks after the comma.
 	i := paren - 1
 	for i > 0 && (src[i] == ' ' || src[i] == '	') {
 		i--
@@ -380,10 +373,51 @@ func isFlagGroupOpener(src []byte, paren int) bool {
 	return src[i] == ',' && commaInsideSubscript(src, i)
 }
 
+// subscriptBase reports whether the byte at end can stand directly before a
+// subscript's `[`: a name character, the `}` of a nested expansion the
+// subscript applies to, `${${a[b]}[(i)pat]}`, or the `]` that closes an
+// earlier subscript of the same expansion, `${a[b][(i)pat]}`, which Zsh
+// applies to that subscript's result (#252). The earlier subscript must
+// itself stand on such a base; its brackets are matched on the same line.
+func subscriptBase(src []byte, end int) bool {
+	for {
+		switch {
+		case isIdentByte(src[end]) || src[end] == '}':
+			return true
+		case src[end] != ']':
+			return false
+		}
+		open := matchingOpenBracket(src, end)
+		if open < 1 {
+			return false
+		}
+		end = open - 1
+	}
+}
+
+// matchingOpenBracket returns the offset of the `[` that the `]` at closer
+// matches on the same line, or -1.
+func matchingOpenBracket(src []byte, closer int) int {
+	depth := 0
+	for i := closer - 1; i >= 0; i-- {
+		switch src[i] {
+		case '\n':
+			return -1
+		case ']':
+			depth++
+		case '[':
+			if depth == 0 {
+				return i
+			}
+			depth--
+		}
+	}
+	return -1
+}
+
 // commaInsideSubscript reports whether the `,` at comma stands inside a
-// subscript, by walking back to the `[` that opens it on the same line. The
-// byte before that `[` is a name character, or the `}` of a nested expansion
-// the subscript applies to, matching the opener test above.
+// subscript, by walking back to the `[` that opens it on the same line and
+// testing what stands before that `[` as the opener test above does.
 //
 // Without this an arithmetic comma followed by a parenthesized operand,
 // `$(( a, (b) ))`, would answer the opener test on position alone.
@@ -400,7 +434,7 @@ func commaInsideSubscript(src []byte, comma int) bool {
 				depth--
 				continue
 			}
-			return isIdentByte(src[i-1]) || src[i-1] == '}'
+			return subscriptBase(src, i-1)
 		}
 	}
 	return false

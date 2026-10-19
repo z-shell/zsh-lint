@@ -37,16 +37,15 @@ var structuralOracleKnownDifferences = map[string]string{
 	"ok-here-string-in-always-block.zsh":         "tree: always keyword lost (#273)",
 	"ok-quote-in-double-quoted-substitution.zsh": "tree: always keyword lost (#273)",
 	"ok-try-always.zsh":                          "tree: always keyword lost (#273)",
+	// A hyphenated key in a double-quoted subscript is read as arithmetic and
+	// printed with blanks around each `-`.
+	"ok-multi-subscript.zsh": "tree: double-quoted subscript key read as arithmetic",
 	// The construct is held in parse.File metadata, which the printer does
 	// not see.
 	"ok-alternate-for-then-anonymous-args-in-function.zsh": "metadata: File.AnonymousInvocations",
 	"ok-anonymous-function-arguments.zsh":                  "metadata: File.AnonymousInvocations",
 	"ok-assign-always.zsh":                                 "metadata: File.AssignAlwaysExpansions",
-	"ok-flag-pattern-bracket-before-operator.zsh":          "metadata: File.SecondSubscripts",
-	"ok-flag-pattern-quoted-nested-key.zsh":                "metadata: File.SecondSubscripts",
-	"ok-flag-pattern-subscripted-expansion.zsh":            "metadata: File.SecondSubscripts",
-	"ok-flagged-second-subscript-bracket.zsh":              "metadata: File.SecondSubscripts",
-	"ok-multi-subscript.zsh":                               "metadata: File.SecondSubscripts",
+	"ok-flag-pattern-bracket-before-operator.zsh":          "metadata: File.AnonymousInvocations",
 	"ok-math-function-call-group.zsh":                      "metadata: File.MathFunctionCalls",
 	"ok-math-function-call-ternary.zsh":                    "metadata: File.MathFunctionCalls",
 	"ok-math-function-call.zsh":                            "metadata: File.MathFunctionCalls",

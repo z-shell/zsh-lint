@@ -43,6 +43,34 @@ func TestRoundtripZsh(t *testing.T) {
 	qt.Assert(t, qt.Equals(sb.String(), src))
 }
 
+// The subscripts after the first survive typed JSON as typed children (#252).
+func TestRoundtripZshLaterSubscripts(t *testing.T) {
+	t.Parallel()
+
+	src := "echo ${a[1][(r)x][2,3]}\n"
+	node, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(src), "")
+	qt.Assert(t, qt.IsNil(err))
+
+	var buf bytes.Buffer
+	qt.Assert(t, qt.IsNil(typedjson.Encode(&buf, node)))
+	node2, err := typedjson.Decode(&buf)
+	qt.Assert(t, qt.IsNil(err))
+
+	var later []syntax.ArithmExpr
+	syntax.Walk(node2, func(node syntax.Node) bool {
+		if exp, ok := node.(*syntax.ParamExp); ok {
+			later = exp.LaterIndexes
+		}
+		return true
+	})
+	qt.Assert(t, qt.HasLen(later, 2))
+	_, flagged := later[0].(*syntax.FlagsArithm)
+	qt.Assert(t, qt.IsTrue(flagged))
+	sb := new(strings.Builder)
+	qt.Assert(t, qt.IsNil(syntax.NewPrinter().Print(sb, node2)))
+	qt.Assert(t, qt.Equals(sb.String(), src))
+}
+
 // Parsed delimiter semantics survive typed JSON, while old JSON and manually
 // constructed nodes keep their ordinary quote-removal behavior (#702).
 func TestRoundtripHeredocStop(t *testing.T) {

@@ -293,6 +293,11 @@ When an upstream AST has no field for a native construct, the parser result may 
 This exception requires the adapter gate and byte-preserving retry above, plus a stable association with the owning AST node.
 Consumers must inspect the typed metadata rather than recover masked source text.
 
+Rule evaluation, scope indexing, rules that walk the tree themselves and suppression collection all traverse `File.AST()` with `syntax.Walk`; only a rule that names a metadata list, as `fpath_hygiene.go` names `File.AnonymousInvocations`, reads it.
+A child that can hold commands, expansions or comments therefore belongs in the tree, where each of those passes reaches it exactly once, in its own scope and suppression context; metadata may describe nodes the tree already holds, but is never the only home of such a child ([#252](https://github.com/z-shell/zsh-lint/issues/252)).
+Later subscripts, `${name[a][b]}`, are fork children for this reason, and a declaration inside a command substitution stays in that substitution's scope.
+The words of an anonymous function invocation are the remaining detached children, owned by [#366](https://github.com/z-shell/zsh-lint/issues/366).
+
 A construct with no upstream node at all gets its own node in the parser fork rather than a synthesized upstream shape.
 `repeat` was once synthesized as a `WhileClause` whose condition statement was the count, and a rule that walked the tree itself read that count as a command (#281); the fork's `RepeatClause` holds the count as a word.
 
@@ -302,8 +307,9 @@ Each construct's mechanism is documented where it is implemented:
 | -------------------------------------------------------- | ------------ | --------------------------------------------------------------- | ---------------------------------------------------------------- |
 | Anonymous function invocation words                      | release #165 | `File.AnonymousInvocations`                                     | `parse.go` (`AnonymousInvocation`), `anonymous_function_args.go` |
 | `${name::=word}`                                         | #216         | `:=` operator plus `File.AssignAlwaysExpansions`                | `assign_always.go`                                               |
-| `${name[a][b]}`                                          | #215         | first subscript in `Index`, the rest in `File.SecondSubscripts` | `second_subscript.go`                                            |
+| `${name[a][b]}`                                          | #215, #252   | fork `ParamExp.LaterIndexes`, listed by `File.SecondSubscripts` | parser fork, `third_party/mvdan-sh/FORK.md`                      |
 | `${name[(r)pattern,expr]}`                               | #277         | standard tree                                                   | `subscript_pattern_after_comma.go`                               |
+| `${name[(r)pattern][expr]}`                              | #252         | literal `Word` in `ParamExp.LaterIndexes`                       | `subscript_pattern_after_comma.go`                               |
 | `repeat count sublist`                                   | #208, #281   | fork `RepeatClause`                                             | parser fork, `third_party/mvdan-sh/FORK.md`                      |
 | `for`, `select`, `if`, `while` short and alternate forms | #211, #459   | standard `ForClause`, `IfClause` and `WhileClause`              | parser fork, `third_party/mvdan-sh/FORK.md`                      |
 | `${$(( expr ))}`                                         | #361         | standard `ArithmExp`                                            | `nested_arithmetic.go` (`resolveNestedArithmetic`)               |

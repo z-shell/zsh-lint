@@ -42,6 +42,23 @@ func TestIsDeclaredNumeric(t *testing.T) {
 		{`f() { unset n; }; integer n; print $n`, true},
 		{`integer n; unset m; print $n`, true},
 		{`integer n; print -r -- unset n; print $n`, true},
+		// A command substitution runs in a subshell: its declarations and
+		// unsets count only inside it (#252).
+		{`x=$(integer n); print $n`, false},
+		{"x=`integer n`; print $n", false},
+		{`print ${a[$(integer n)]}; print $n`, false},
+		{`print ${a[1][$(integer n)]}; print $n`, false},
+		{`print $(integer n)$n`, false},
+		{`x=$(integer n); y=$(print $n)`, false},
+		{`x=$(y=$(integer n); print $n)`, false},
+		{`x=$(integer n; print $n)`, true},
+		{`x=$(integer n; y=$(print $n))`, true},
+		{`integer n; x=$(print $n)`, true},
+		{`integer n; x=$(unset n); print $n`, true},
+		{`x=$(integer n; unset n; print $n)`, false},
+		{`f() { x=$(integer n); print $n; }`, false},
+		{`integer n; x=$(:); print $n`, true},
+		{`x=$(:); integer n; print $n`, true},
 	}
 	for _, test := range tests {
 		t.Run(test.src, func(t *testing.T) {
