@@ -55,7 +55,9 @@ import (
 // intentionally omit an empty argument or expand a value guaranteed to be
 // non-empty; suppress those cases with a reason. Array advice uses only earlier
 // declarations in the same lexical function or file scope, without resolving
-// dynamic caller scope or declarations in other files.
+// dynamic caller scope or declarations in other files. A declaration or unset
+// inside a command substitution counts only within that substitution, which
+// runs in a subshell.
 //
 // Suppression: Use
 // `# zsh-lint disable=quoting/unquoted-var -- <reason>` on the finding line or

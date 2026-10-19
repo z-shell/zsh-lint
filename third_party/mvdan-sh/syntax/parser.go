@@ -613,6 +613,13 @@ type Parser struct {
 	zshNestedAssignOff bool
 	zshAssignRead      bool
 
+	// zshFlagCutAt is the `]` a subscript flag argument of a `${...}` last
+	// stopped at while a `[` of its own text was still open. Zsh counts
+	// those brackets, so that `]` does not close the subscript, and a `[`
+	// after it is pattern text rather than a later subscript (zsh-lint
+	// #252); the flag-pattern adapters (#382) read what follows.
+	zshFlagCutAt Pos
+
 	// zshRec records every byte rune consumes while zshRecOn > 0, so that
 	// a `${...}` subscript can be checked as a whole once parsed, and
 	// zshIndexEnd is the length of zshRec just before the `]` that index
@@ -735,6 +742,7 @@ func (p *Parser) reset() {
 	p.zshAssignIndex = false
 	p.zshAssignBrace = false
 	p.zshAssignRead = false
+	p.zshFlagCutAt = Pos{}
 }
 
 // nextPos returns the position of the next rune, [Parser.r].
@@ -2508,29 +2516,13 @@ zshPrefixLoop:
 		if !p.lang.in(LangZsh) && pe.Param != nil && !ValidName(pe.Param.Value) {
 			p.posErr(p.nextPos(), "cannot index a special parameter name")
 		}
-		p.pos = p.nextPos()
-		p.rune()
-		oldBrace := p.zshBraceIndex
-		p.zshBraceIndex = p.zshShortIndex == 0
-		// Only an unquoted subscript the assignment target opens itself
-		// keeps typed flag-pattern children (#735); a double-quoted one
-		// keeps the raw reading and its escape handling.
-		oldAssignBrace := p.zshAssignBrace
-		p.zshAssignBrace = p.zshAssignIndex && p.zshBraceIndex && !p.zshDquoteParam && !p.zshNestedAssignOff
-		var rec func()
-		if p.lang.in(LangZsh) && p.zshBraceIndex {
-			rec = p.zshRecordSubscript()
+		pe.Index = p.paramExpIndex()
+		// Zsh applies a subscript written directly after another one to
+		// the result of the first, as in ${a[1][2]} (zsh-lint #252),
+		// unless the `]` before it was a flag argument's premature stop.
+		for p.lang.in(LangZsh) && p.r == '[' && !p.zshFlagCutBefore() {
+			pe.LaterIndexes = append(pe.LaterIndexes, p.paramExpIndex())
 		}
-		if p.lang.in(LangZsh) && !p.zshDquoteParam {
-			pe.Index = p.zshParamIndex()
-		} else {
-			pe.Index = p.eitherIndex()
-		}
-		if rec != nil {
-			rec()
-		}
-		p.zshBraceIndex = oldBrace
-		p.zshAssignBrace = oldAssignBrace
 	}
 	tokRune := p.r
 	p.pos = p.nextPos()
@@ -2543,9 +2535,8 @@ zshPrefixLoop:
 		return pe
 	}
 	// Zsh measures the result of suffix operators, rather than only the name.
-	// A second subscript still belongs to the front end's subscript adapter.
 	_, quotedLength := pe.NestedParam.(*DblQuoted)
-	if p.tok != _EOF && (pe.Length && (!p.lang.in(LangZsh) || p.tok == leftBrack || quotedLength) || pe.Width || pe.IsSet) {
+	if p.tok != _EOF && (pe.Length && (!p.lang.in(LangZsh) || quotedLength) || pe.Width || pe.IsSet) {
 		p.curErr("cannot combine multiple parameter expansion operators")
 	}
 	// Zsh's colon-slash form replaces only a whole-string pattern match,
@@ -2671,6 +2662,44 @@ zshPrefixLoop:
 	restoreBraces()
 	pe.Rbrace = p.matched(pe.Dollar, dollBrace, rightBrace)
 	return pe
+}
+
+// zshFlagCutBefore reports whether the `]` just before p.r is where a
+// subscript flag argument stopped with a `[` of its own still open (see
+// zshFlagCutAt).
+func (p *Parser) zshFlagCutBefore() bool {
+	return p.zshFlagCutAt.IsValid() && p.zshFlagCutAt.Offset()+1 == p.nextPos().Offset()
+}
+
+// paramExpIndex reads one `[...]` subscript of a braced parameter expansion,
+// starting at its `[`. Every subscript of the expansion is read the same way,
+// so a later subscript, as in ${a[1][2]}, keeps the first one's lexing.
+func (p *Parser) paramExpIndex() ArithmExpr {
+	p.pos = p.nextPos()
+	p.rune()
+	oldBrace := p.zshBraceIndex
+	p.zshBraceIndex = p.zshShortIndex == 0
+	// Only an unquoted subscript the assignment target opens itself
+	// keeps typed flag-pattern children (#735); a double-quoted one
+	// keeps the raw reading and its escape handling.
+	oldAssignBrace := p.zshAssignBrace
+	p.zshAssignBrace = p.zshAssignIndex && p.zshBraceIndex && !p.zshDquoteParam && !p.zshNestedAssignOff
+	var rec func()
+	if p.lang.in(LangZsh) && p.zshBraceIndex {
+		rec = p.zshRecordSubscript()
+	}
+	var index ArithmExpr
+	if p.lang.in(LangZsh) && !p.zshDquoteParam {
+		index = p.zshParamIndex()
+	} else {
+		index = p.eitherIndex()
+	}
+	if rec != nil {
+		rec()
+	}
+	p.zshBraceIndex = oldBrace
+	p.zshAssignBrace = oldAssignBrace
+	return index
 }
 
 // paramNameStart reports whether a parameter name can begin after a prefix rune
@@ -3360,6 +3389,9 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	// no `}`: the word text after the `]` must close the `[` bytes still
 	// open, as the flag-pattern adapters then read it, before the word
 	// ends (#538).
+	if top > 0 && topParam == 0 && p.r == ']' && p.zshBraceIndex {
+		p.zshFlagCutAt = p.nextPos()
+	}
 	if top > 0 && topParam == 0 && p.r == ']' && (p.zshBraceIndex && p.peek() == '}' || !p.zshBraceIndex && !p.zshShortCloses(top, topParens, &tick)) {
 		p.posErr(topOpen, "a `[` in a subscript flag argument must be closed before the subscript's `]`")
 	}

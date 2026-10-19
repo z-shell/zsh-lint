@@ -26,6 +26,12 @@ func TestIsDeclaredArray(t *testing.T) {
 		{`typeset -A opts; print $opts`, false},
 		{`f() { local -a opts; g() { :; }; print $opts; }`, true},
 		{`f() { local -a opts; g() { print $opts; }; }`, false},
+		// Declarations inside a command substitution stay inside it (#252).
+		{`x=$(typeset -a opts); print $opts`, false},
+		{`x=$(opts=(a)); print $opts`, false},
+		{`print $(typeset -a opts)$opts`, false},
+		{`x=$(typeset -a opts; print $opts)`, true},
+		{`typeset -a opts; x=$(print $opts)`, true},
 	}
 	for _, test := range tests {
 		t.Run(test.src, func(t *testing.T) {

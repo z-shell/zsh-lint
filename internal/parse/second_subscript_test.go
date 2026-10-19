@@ -43,6 +43,8 @@ func TestParseSecondSubscript(t *testing.T) {
 		{name: "expansion index", src: "print ${a[b][${i}]}\n", param: "a", first: "b", subscripts: []string{"${i}"}},
 		{name: "nested subscript", src: "print ${a[b][$line[1]]}\n", param: "a", first: "b", subscripts: []string{"$line[1]"}},
 		{name: "flagged second subscript", src: "print ${a[b][(r)x*]}\n", param: "a", first: "b", subscripts: []string{"(r)x*"}},
+		{name: "bracket pattern before a later subscript", src: "print ${a[(i)[x]][2]}\n", param: "a", first: "(i)[x]", subscripts: []string{"2"}},
+		{name: "flagged subscripts throughout", src: "print ${a[(i)x][(r)[y]][1]}\n", param: "a", first: "(i)x", subscripts: []string{"(r)[y]", "1"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,13 +192,40 @@ func TestSecondSubscriptLeavesNativeCommaAlone(t *testing.T) {
 	}
 }
 
+// A flag argument that holds an unflagged `$y[1]` is cut at that `]` while
+// its own `[` is open, so the `[` after it is pattern text, not a later
+// subscript: the flag-pattern adapter keeps `$y[1][2]` as one pattern and
+// no expansion gains later subscripts (#252).
+func TestSecondSubscriptNotOpenedAfterFlagPatternCut(t *testing.T) {
+	for _, src := range []string{
+		"print ${x[(r)$y[1][2]]}\n",
+		"print \"${x[(r)$y[1][2]]}\"\n",
+		"z=${x[(r)$y[1][2]]}\n",
+	} {
+		t.Run(src, func(t *testing.T) {
+			file, err := Parse(strings.NewReader(src), "second-subscript.zsh")
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if seconds := file.SecondSubscripts(); len(seconds) != 0 {
+				t.Fatalf("SecondSubscripts() = %+v, want none", seconds)
+			}
+			if got := wordSource(src, soleFlagsArithm(t, file).X); got != "$y[1][2]" {
+				t.Fatalf("pattern = %q, want $y[1][2]", got)
+			}
+		})
+	}
+}
+
 func TestSecondSubscriptRejectsInvalidSources(t *testing.T) {
+	// An unterminated later subscript is reported at its own `[`, which the
+	// parser now reads as a subscript of the expansion (#252).
 	tests := []struct {
 		fixture string
 		text    string
 		col     uint
 	}{
-		{"testdata/invalid-215-unterminated-second-subscript.txt", "reached `}` without matching `[` with `]`", 10},
+		{"testdata/invalid-215-unterminated-second-subscript.txt", "reached `}` without matching `[` with `]`", 13},
 		{"testdata/invalid-215-double-close-before-second-subscript.txt", "not a valid parameter expansion operator: `]`", 13},
 	}
 	for _, tt := range tests {
@@ -238,9 +267,9 @@ func TestSecondSubscriptPreservesLaterErrorPosition(t *testing.T) {
 	assertSecondSubscriptError(t, err, "`if` statement must end with `fi`", 2, 1)
 }
 
-// The printed tree is the closest typed shape: the first subscript stays in
-// the expansion and every later one lives only in the metadata.
-func TestSecondSubscriptPrintsFirstSubscriptOnly(t *testing.T) {
+// The printed tree keeps every subscript: later ones are typed children of
+// the expansion, which the printer writes after the first (#252).
+func TestSecondSubscriptPrintsEverySubscript(t *testing.T) {
 	file, err := Parse(strings.NewReader("print ${a[b][1,50]:-x}\n"), "second-subscript.zsh")
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -249,7 +278,38 @@ func TestSecondSubscriptPrintsFirstSubscriptOnly(t *testing.T) {
 	if err := syntax.NewPrinter().Print(&rendered, file.AST()); err != nil {
 		t.Fatalf("print: %v", err)
 	}
-	if got := rendered.String(); !strings.Contains(got, "${a[b]:-x}") {
-		t.Fatalf("printed = %q, want ${a[b]:-x}", got)
+	if got := rendered.String(); got != "print ${a[b][1,50]:-x}\n" {
+		t.Fatalf("printed = %q, want ${a[b][1,50]:-x}", got)
+	}
+}
+
+// Every later subscript is reached once by a walk of the tree itself, so a
+// consumer of File.AST needs no separate pass over SecondSubscripts (#252).
+func TestSecondSubscriptsAreTreeChildren(t *testing.T) {
+	src := "print ${a[1][${b[2][3]}][4]} \"${c[d][$(e)]}\"\n"
+	file, err := Parse(strings.NewReader(src), "second-subscript.zsh")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	visits := make(map[syntax.Node]int)
+	syntax.Walk(file.AST(), func(node syntax.Node) bool {
+		if node != nil {
+			visits[node]++
+		}
+		return true
+	})
+	seconds := file.SecondSubscripts()
+	if len(seconds) != 3 {
+		t.Fatalf("SecondSubscripts() = %d entries, want 3", len(seconds))
+	}
+	for _, second := range seconds {
+		if visits[second.Expansion] != 1 {
+			t.Errorf("expansion %s visited %d times, want 1", nodeText(src, second.Expansion), visits[second.Expansion])
+		}
+		for _, subscript := range second.Subscripts {
+			if visits[subscript] != 1 {
+				t.Errorf("subscript %s visited %d times, want 1", nodeText(src, subscript), visits[subscript])
+			}
+		}
 	}
 }

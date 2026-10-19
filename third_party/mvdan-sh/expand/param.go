@@ -55,7 +55,7 @@ func (cfg *Config) paramExp(pe *syntax.ParamExp) (string, error) {
 	cfg.curParam = pe
 	defer func() { cfg.curParam = oldParam }()
 
-	if pe.Param == nil || pe.Repl != nil && pe.Repl.Whole { // Zsh-only forms
+	if pe.Param == nil || pe.Repl != nil && pe.Repl.Whole || len(pe.LaterIndexes) > 0 { // Zsh-only forms
 		return "", fmt.Errorf("unsupported")
 	}
 	name := pe.Param.Value

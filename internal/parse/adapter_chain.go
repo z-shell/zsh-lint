@@ -37,7 +37,6 @@ func adapterChain() []adapterAttempt {
 	return []adapterAttempt{
 		parseNestedConditionalAlternation,
 		parseAssociativeSubscript,
-		parseSecondSubscript,
 		parseSubscriptFlagBracketPattern,
 		parseSubscriptPatternAfterComma,
 		parseTryAlways,

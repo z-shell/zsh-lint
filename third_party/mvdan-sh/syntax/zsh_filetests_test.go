@@ -27,6 +27,28 @@ var zshFileTests = []fileTestCase{
 		[]string{`a[${b[(ie)${c[d]}]}=()`},
 		langErr2("1:20: `=` must follow a name", LangZsh),
 	),
+	// Each subscript after the first applies to the result of the one
+	// before it, and stays a typed child of the expansion (#252).
+	// https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Subscripts
+	fileTest(
+		[]string{"${a[1][2][3]}"},
+		langFile(&ParamExp{Param: lit("a"), Index: litWord("1"), LaterIndexes: []ArithmExpr{litWord("2"), litWord("3")}}, LangZsh),
+	),
+	fileTest(
+		[]string{`"${#a[b][1,50]}"`},
+		langFile(dblQuoted(&ParamExp{Length: true, Param: lit("a"), Index: litWord("b"), LaterIndexes: []ArithmExpr{
+			&BinaryArithm{Op: Comma, X: litWord("1"), Y: litWord("50")},
+		}}), LangZsh),
+	),
+	fileTest(
+		[]string{"${a[b][$(c)]:-d}"},
+		langFile(&ParamExp{
+			Param:        lit("a"),
+			Index:        litWord("b"),
+			LaterIndexes: []ArithmExpr{word(cmdSubst(litStmt("c")))},
+			Exp:          &Expansion{Op: DefaultUnsetOrNull, Word: litWord("d")},
+		}, LangZsh),
+	),
 	// Declarations end at alternate-body braces too (#649).
 	// https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Reserved-Words
 	fileTest(

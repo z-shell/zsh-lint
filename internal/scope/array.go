@@ -10,11 +10,12 @@ type arrayDeclaration struct {
 	name     string
 	pos      syntax.Pos
 	function *syntax.FuncDecl
+	subst    *syntax.CmdSubst
 }
 
 func (m *Map) indexArrayAssignment(assign *syntax.Assign) {
 	if assign != nil && assign.Name != nil && assign.Array != nil && assign.Index == nil {
-		m.arrays = append(m.arrays, arrayDeclaration{assign.Name.Value, assign.Pos(), m.currentFunc})
+		m.arrays = append(m.arrays, arrayDeclaration{assign.Name.Value, assign.Pos(), m.currentFunc, m.enclosingSubst(assign.Pos())})
 	}
 }
 
@@ -45,17 +46,20 @@ func (m *Map) indexArrayDeclaration(decl *syntax.DeclClause) {
 			continue
 		}
 		if name != "" && assign.Index == nil && (array || assign.Array != nil) {
-			m.arrays = append(m.arrays, arrayDeclaration{name, assign.Pos(), m.currentFunc})
+			m.arrays = append(m.arrays, arrayDeclaration{name, assign.Pos(), m.currentFunc, m.enclosingSubst(assign.Pos())})
 		}
 	}
 }
 
 // IsDeclaredArray reports an earlier array declaration in the same lexical
-// function or file scope. It deliberately does not infer dynamic caller scope.
+// function or file scope. A declaration inside a command substitution applies
+// only within that substitution. It deliberately does not infer dynamic
+// caller scope.
 func (m *Map) IsDeclaredArray(name string, pos syntax.Pos) bool {
 	function := m.enclosingFunction(pos)
 	for _, declaration := range m.arrays {
-		if declaration.name == name && declaration.function == function && declaration.pos.Offset() < pos.Offset() {
+		if declaration.name == name && declaration.function == function && declaration.pos.Offset() < pos.Offset() &&
+			reaches(declaration.subst, pos) {
 			return true
 		}
 	}

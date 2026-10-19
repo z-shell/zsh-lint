@@ -752,6 +752,11 @@ type ParamExp struct {
 
 	Index ArithmExpr // ${a[i]}, ${a["k"]}, or a ${a[i,j]} slice with [LangZsh]
 
+	// LaterIndexes are the subscripts written after Index, in source order,
+	// as in ${a[1][2]} with [LangZsh]. Each one applies to the result of
+	// the subscript before it.
+	LaterIndexes []ArithmExpr
+
 	// Only one of these is set at a time.
 	// TODO(v4): consider joining these in a single "expansion" field/type,
 	// because it should be impossible for multiple to be set at once,
