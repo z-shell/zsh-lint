@@ -3191,7 +3191,11 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 			argPos = p.nextPos()
 			p.newLit(p.r)
 		}
-		if len(parts) > 0 && (p.r == runeEOF || top == 0 && (p.r == ']' || p.r == ',')) {
+		// A typed child advanced p.r without the loop's rune step. Only
+		// an unowned delimiter ends the pattern; later raw substitutions
+		// still own their commas and brackets after parts becomes nonempty.
+		if len(parts) > 0 && (p.r == runeEOF || sub == nil && short == 0 &&
+			braces == 0 && quote == 0 && top == 0 && (p.r == ']' || p.r == ',')) {
 			break
 		}
 		if sub != nil {

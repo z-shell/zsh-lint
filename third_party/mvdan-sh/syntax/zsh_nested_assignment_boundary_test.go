@@ -33,6 +33,10 @@ func TestZshNestedAssignmentBoundaries(t *testing.T) {
 		`a[${b[(ie)[xy]${c[d]}]}]=()`,
 		`a[${b[(ie)${c[d]},3]}]=()`,
 		`a[(ie)${c[d]}]=()`,
+		`a[(ie)${c}$(print x,y)]=()`,
+		`a[${b[(ie)${c}$(print x,y)]}]=()`,
+		`a[(ie)${c}$(print '[x]')]=()`,
+		`a[(ie)${c}$(print xy)]=()`,
 	} {
 		t.Run(src, func(t *testing.T) {
 			src += "\n"
