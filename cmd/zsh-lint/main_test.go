@@ -51,6 +51,39 @@ func TestRunUsageErrors(t *testing.T) {
 	}
 }
 
+func TestRunHelp(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"--help", "file.zsh"}} {
+		var stdout, stderr bytes.Buffer
+		if exit := run(args, &stdout, &stderr); exit != 0 {
+			t.Errorf("run(%q) exit = %d, want 0", args, exit)
+		}
+		if stderr.Len() != 0 {
+			t.Errorf("run(%q) stderr = %q, want empty", args, stderr.String())
+		}
+		for _, want := range []string{
+			"usage: zsh-lint [--format=json]",
+			"zsh-lint mcp [--zsh PATH]",
+			"--format",
+			"--config",
+			"--no-config",
+		} {
+			if !strings.Contains(stdout.String(), want) {
+				t.Errorf("run(%q) stdout = %q, want %q", args, stdout.String(), want)
+			}
+		}
+	}
+}
+
+func TestRunUsageNamesMCP(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if exit := run(nil, &stdout, &stderr); exit != 2 {
+		t.Fatalf("run() exit = %d, want 2", exit)
+	}
+	if !strings.Contains(stderr.String(), "zsh-lint mcp [--zsh PATH]") {
+		t.Errorf("stderr = %q, want the mcp usage", stderr.String())
+	}
+}
+
 func TestRunPreservesUnconfiguredBehavior(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "script.zsh")

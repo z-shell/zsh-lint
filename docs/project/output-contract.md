@@ -62,11 +62,11 @@ Suppression is implemented in the analyzer (`internal/suppress`, #65); the intro
 
 ## Exit codes
 
-Unchanged by the format flag: `0` no findings at `warning` or above, `1` findings at `warning`/`error` (including `parse/error`) or unreadable inputs, `2` usage or encoding errors.
+Unchanged by the format flag: `0` no findings at `warning` or above, `1` findings at `warning`/`error` (including `parse/error`) or unreadable inputs, `2` usage or encoding errors. `-h` or `--help` prints usage and options to stdout and exits `0` without analyzing input; other usage errors still print usage to stderr and exit `2`.
 
 ## MCP stdio server
 
-`zsh-lint mcp [--zsh PATH]` exposes exactly `zsh_lint` and `zsh_syntax` over newline-delimited JSON-RPC 2.0 on stdin/stdout. Stdout contains protocol messages only; server logging goes to stderr. There is no HTTP listener, configuration write or automatic MCP-client registration. EOF closes the server normally. Startup usage errors exit 2; a transport failure exits 1.
+`zsh-lint mcp [--zsh PATH]` exposes exactly `zsh_lint` and `zsh_syntax` over newline-delimited JSON-RPC 2.0 on stdin/stdout. Stdout contains protocol messages only; server logging goes to stderr. There is no HTTP listener, configuration write or automatic MCP-client registration. EOF closes the server normally. `-h` or `--help` prints usage to stdout and exits 0 without starting the server. Startup usage errors exit 2; a transport failure exits 1.
 
 The official Go SDK v1.8.0 provides lifecycle and tool dispatch, including `initialize`, `notifications/initialized`, `tools/list` and `tools/call`. It supports protocol revisions from `2024-11-05` through `2026-07-28`, including `2025-11-25` initialization. Recoverable malformed frames return a JSON-RPC parse or invalid-request error and leave the session usable. Each inbound line is bounded to 16 MiB; an oversized frame terminates the connection. Tool input schemas reject unknown fields.
 
@@ -78,7 +78,7 @@ Arguments are an object with required `files` (a nonempty array of nonempty file
 
 The default searches for `zsh-lint.json` upward from each file; the overrides match CLI `--config` and `--no-config`. Files in one call are analyzed together, preserving configured project-rule scope. Successful `structuredContent` is the unchanged version 1 envelope above; its first text content block is the exact CLI JSON, including its trailing newline. Diagnostic ordering, suppression and parser failures are unchanged. Findings, including `parse/error`, are successful tool results, not protocol or execution errors.
 
-Unreadable or non-regular inputs, configuration errors and other execution failures return `isError: true` with actionable text. When the CLI produces partial diagnostics on a configuration-discovery failure, the result retains that envelope alongside the error. Unknown methods and tools or malformed method parameters return JSON-RPC errors. Neither kind of error crashes a healthy session.
+Unreadable or non-regular inputs, configuration errors and other execution failures return `isError: true` with actionable text. When the CLI produces partial diagnostics on a configuration-discovery failure, the result retains that envelope as the first content block and `structuredContent`, with the error text after it. Without diagnostics, the error text is the only content block. Unknown methods and tools or malformed method parameters return JSON-RPC errors. Neither kind of error crashes a healthy session.
 
 ### `zsh_syntax`
 

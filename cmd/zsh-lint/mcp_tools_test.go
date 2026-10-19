@@ -228,13 +228,80 @@ func TestMCPPartialConfigurationFailurePreservesDiagnostics(t *testing.T) {
 	if result["isError"] != true || !reflect.DeepEqual(result["structuredContent"], expected) {
 		t.Fatalf("partial result = %v, want error plus %v", result, expected)
 	}
+	content := textBlocks(t, result)
+	if len(content) != 2 || content[0] != stdout.String() || content[1] != stderr.String() {
+		t.Fatalf("partial content = %q, want the envelope then the error", content)
+	}
+}
+
+// textBlocks returns the text of each content block of a tool result.
+func textBlocks(t *testing.T, result map[string]any) []string {
+	t.Helper()
+	blocks, ok := result["content"].([]any)
+	if !ok {
+		t.Fatalf("content = %v, want a list", result["content"])
+	}
+	texts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		item, ok := block.(map[string]any)
+		if !ok || item["type"] != "text" {
+			t.Fatalf("content block = %v, want text", block)
+		}
+		text, _ := item["text"].(string)
+		texts = append(texts, text)
+	}
+	return texts
+}
+
+func TestMCPConfigurationErrorsCarryOnlyActionableText(t *testing.T) {
+	root := t.TempDir()
+	good := filepath.Join(root, "good.zsh")
+	writeFile(t, good, "print ok\n")
+	client := startMCP(t)
+	for _, test := range []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"missing config", map[string]any{"files": []string{good}, "config": filepath.Join(root, "missing.json")}, "zsh-lint: configuration: "},
+		{"empty config", map[string]any{"files": []string{good}, "config": ""}, "requires a non-empty path"},
+		{"conflicting config", map[string]any{"files": []string{good}, "config": "anything.json", "no_config": true}, "mutually exclusive"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := toolResult(t, client, "zsh_lint", test.args)
+			content := textBlocks(t, result)
+			if result["isError"] != true || len(content) != 1 || !strings.Contains(content[0], test.want) {
+				t.Fatalf("result = %v, want one error block containing %q", result, test.want)
+			}
+			if _, ok := result["structuredContent"]; ok {
+				t.Fatalf("structuredContent = %v, want none without a diagnostic envelope", result["structuredContent"])
+			}
+		})
+	}
 }
 
 func TestMCPUsage(t *testing.T) {
 	for _, args := range [][]string{{"--bad"}, {"file"}, {"--zsh="}, {"--zsh=one", "--zsh=two"}} {
-		var stderr bytes.Buffer
-		if code := runMCP(context.Background(), args, &stderr); code != 2 || !strings.Contains(stderr.String(), mcpUsage) {
-			t.Errorf("args %v: code %d stderr %q", args, code, stderr.String())
+		var stdout, stderr bytes.Buffer
+		if code := runMCP(context.Background(), args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), mcpUsage) || stdout.Len() != 0 {
+			t.Errorf("args %v: code %d stdout %q stderr %q", args, code, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestMCPHelp(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"-h"}} {
+		var stdout, stderr bytes.Buffer
+		if code := runMCP(context.Background(), args, &stdout, &stderr); code != 0 {
+			t.Errorf("args %v: code %d, want 0; stderr %q", args, code, stderr.String())
+		}
+		if stderr.Len() != 0 {
+			t.Errorf("args %v: stderr %q, want empty", args, stderr.String())
+		}
+		for _, want := range []string{mcpUsage, "--zsh PATH", "zsh_lint", "zsh_syntax", "stdio"} {
+			if !strings.Contains(stdout.String(), want) {
+				t.Errorf("args %v: stdout %q, want %q", args, stdout.String(), want)
+			}
 		}
 	}
 }

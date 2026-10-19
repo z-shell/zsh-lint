@@ -118,6 +118,7 @@ zsh-lint script.zsh plugin.plugin.zsh
 | `--config PATH` | string  | Explicit project configuration path; disables discovery.           |
 | `--no-config`   | boolean | Disable automatic `zsh-lint.json` discovery and use default rules. |
 | `--format=json` | string  | Emit machine-readable diagnostics in JSON format.                  |
+| `-h`, `--help`  | boolean | Print usage and options to standard output and exit 0.             |
 
 `--config` and `--no-config` are mutually exclusive.
 
@@ -128,6 +129,7 @@ Start the local stdio server from the directory against which relative file and 
 ```bash
 zsh-lint mcp
 zsh-lint mcp --zsh /path/to/zsh
+zsh-lint mcp --help
 ```
 
 Configure an MCP client to launch command `zsh-lint` with arguments `["mcp"]`; no HTTP listener or runtime registration is installed by the command. `zsh_lint` accepts `files` plus optional `config` or `no_config` and returns the same JSON diagnostics as `--format=json`. `zsh_syntax` accepts `files` and runs `zsh -f -n` plus `zcompile`, reporting each check's stderr and exit status. Both tools accept explicit file paths only, not inline source or directories.
