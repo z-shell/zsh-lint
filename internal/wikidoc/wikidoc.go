@@ -142,11 +142,14 @@ func normalizeRuleProseEscapes(body string) string {
 	return strings.Join(lines, "\n")
 }
 
+// unescapeRulePunctuation removes gomarkdoc's escapes from rule prose, except
+// where the escaped character would otherwise start Markdown syntax: brackets
+// would form links, and * or _ would delimit emphasis, as in "*_functions".
 func unescapeRulePunctuation(line string) string {
 	var out strings.Builder
 	for i := 0; i < len(line); i++ {
 		if line[i] == '\\' && i+1 < len(line) && isASCIIPunctuation(line[i+1]) &&
-			line[i+1] != '[' && line[i+1] != ']' {
+			!strings.ContainsRune("[]*_", rune(line[i+1])) {
 			i++
 		}
 		out.WriteByte(line[i])

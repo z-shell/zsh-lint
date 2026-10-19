@@ -399,6 +399,22 @@ func TestRuleReferenceProducesUserFacingRules(t *testing.T) {
 	}
 }
 
+func TestRuleReferenceKeepsEmphasisEscapesInProse(t *testing.T) {
+	const raw = "## type Example\n\n" +
+		"ID: \\`plugin/example\\`\n\n" +
+		"Summary: Reports an append to a \\*\\_functions array without \\`\\*\\_plugin\\_unload\\`. " +
+		"Unconfigured analysis checks only \\*.plugin.zsh entrypoints.\n"
+	got, err := wikidoc.RuleReference(raw, "v1.2.3", "0123456789abcdef0123456789abcdef01234567")
+	if err != nil {
+		t.Fatalf("RuleReference returned unexpected error: %v", err)
+	}
+	want := "**Summary:** Reports an append to a \\*\\_functions array without `*_plugin_unload`. " +
+		"Unconfigured analysis checks only \\*.plugin.zsh entrypoints."
+	if !strings.Contains(got, want) {
+		t.Errorf("RuleReference output is missing %q:\n%s", want, got)
+	}
+}
+
 func TestRuleReferenceRejectsInvalidMetadataAndEmptyRules(t *testing.T) {
 	const commit = "0123456789abcdef0123456789abcdef01234567"
 	tests := []struct {

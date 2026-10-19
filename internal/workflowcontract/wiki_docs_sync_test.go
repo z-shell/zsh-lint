@@ -276,7 +276,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		{"published source commit", `-source-commit "$stable_commit"`},
 		{"verified commit output", "pull-request-commits-verified"},
 		{"stable operation report", "sync-pr-operation=${PR_OPERATION:-none}"},
-		{"fixed branch", "branch: docs-sync/zsh-lint"},
+		{"fixed branch", "branch: docs/zsh-lint-reference"},
 		{"main base", "base: main"},
 		{"signed commits", "sign-commits: true"},
 		{"branch cleanup", "delete-branch: true"},
@@ -364,7 +364,10 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		"top-level permissions",
 		permissionsBlock,
 		2,
-		[]workflowMappingField{{name: "contents", value: "read"}},
+		[]workflowMappingField{
+			{name: "contents", value: "read"},
+			{name: "pull-requests", value: "read"},
+		},
 	)...)
 	concurrencyBlock := workflowBlock(t, workflow, "concurrency:", 0)
 	violations = append(violations, exactWorkflowMappingViolations(
@@ -493,6 +496,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		[]workflowMappingField{
 			{name: "path", value: "zsh-lint"},
 			{name: "fetch-depth", value: "0"},
+			{name: "persist-credentials", value: "false"},
 		},
 	)...)
 
@@ -577,6 +581,12 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 		`        run: |
           stable_tag="$(gh release view --repo z-shell/zsh-lint --json tagName --jq .tagName)"
           stable_commit="$(git rev-parse "${stable_tag}^{commit}")"
+          source_pull_request="$(gh api "repos/z-shell/zsh-lint/commits/${stable_commit}/pulls" \
+            --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"${stable_commit}\")][0].number // empty")"
+          if [[ ! "$source_pull_request" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::warning::No merged pull request produced ${stable_commit}; the sync PR body has no issue reference."
+            source_pull_request=""
+          fi
           release_tree="$RUNNER_TEMP/zsh-lint-release"
           mkdir -p "$release_tree"
           git archive "$stable_tag" | tar -x -C "$release_tree"
@@ -592,6 +602,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
             -source-commit "$stable_commit"
           echo "version=$stable_tag" >> "$GITHUB_OUTPUT"
           echo "commit=$stable_commit" >> "$GITHUB_OUTPUT"
+          echo "source-pull-request=$source_pull_request" >> "$GITHUB_OUTPUT"
 
 `,
 	)...)
@@ -623,7 +634,7 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			{name: "add-paths", value: "community/04_zsh_lint/08_rule_reference.mdx"},
 			{name: "sign-commits", value: "true"},
 			{name: "base", value: "main"},
-			{name: "branch", value: "docs-sync/zsh-lint"},
+			{name: "branch", value: "docs/zsh-lint-reference"},
 			{name: "title", value: `"docs(zsh-lint): sync generated reference"`},
 			{name: "commit-message", value: `"docs(zsh-lint): sync generated reference from zsh-lint"`},
 			{name: "body", value: "|"},
@@ -638,7 +649,8 @@ func wikiDocsSyncContractViolations(t *testing.T, workflow string) []string {
 			"            Automated reference sync from `z-shell/zsh-lint`.\n"+
 			"            Generated from published rule documentation. Do not hand-edit the marked region.\n"+
 			"            Published source: ${{ steps.reference.outputs.version }}\n"+
-			"            Source commit: ${{ steps.reference.outputs.commit }}\n",
+			"            Source commit: ${{ steps.reference.outputs.commit }}\n"+
+			"            Refs z-shell/zsh-lint#${{ steps.reference.outputs.source-pull-request }}\n",
 	)...)
 
 	if got := strings.Count(workflow, "${{ steps.app-token.outputs.token }}"); got != 2 {
@@ -763,9 +775,21 @@ func TestWikiDocsSyncRejectsPrivilegeAndTokenMutations(t *testing.T) {
 				"          persist-credentials: false",
 		},
 		{
-			name:        "persist credentials true",
-			old:         "persist-credentials: false",
-			replacement: "persist-credentials: true",
+			name: "wiki checkout persists credentials",
+			old: "          token: ${{ steps.app-token.outputs.token }}\n" +
+				"          persist-credentials: false",
+			replacement: "          token: ${{ steps.app-token.outputs.token }}\n" +
+				"          persist-credentials: true",
+		},
+		{
+			name:        "source checkout persists credentials",
+			old:         "          fetch-depth: 0\n          persist-credentials: false",
+			replacement: "          fetch-depth: 0\n          persist-credentials: true",
+		},
+		{
+			name:        "top-level pull requests write",
+			old:         "  pull-requests: read",
+			replacement: "  pull-requests: write",
 		},
 		{
 			name: "pull request token miswire",
@@ -872,24 +896,24 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name: "unnamed action step inserted",
-			old: "          path: zsh-lint\n" +
-				"          fetch-depth: 0\n\n" +
+			old: "          fetch-depth: 0\n" +
+				"          persist-credentials: false\n\n" +
 				"      - name: Check out wiki (main)",
-			replacement: "          path: zsh-lint\n" +
-				"          fetch-depth: 0\n\n" +
+			replacement: "          fetch-depth: 0\n" +
+				"          persist-credentials: false\n\n" +
 				"      - uses: attacker/action@1111111111111111111111111111111111111111\n\n" +
 				"      - name: Check out wiki (main)",
 		},
 		{
 			name:        "unnamed terminal run step appended",
-			old:         "          fi\n",
-			replacement: "          fi\n      - run: echo attacker\n",
+			old:         "            exit 1\n          fi\n",
+			replacement: "            exit 1\n          fi\n      - run: echo attacker\n",
 		},
 		{
 			name: "bare unnamed run step inserted",
-			old: "          echo \"commit=$stable_commit\" >> \"$GITHUB_OUTPUT\"\n\n" +
+			old: "          echo \"source-pull-request=$source_pull_request\" >> \"$GITHUB_OUTPUT\"\n\n" +
 				"      - name: Open or update sync PR",
-			replacement: "          echo \"commit=$stable_commit\" >> \"$GITHUB_OUTPUT\"\n\n" +
+			replacement: "          echo \"source-pull-request=$source_pull_request\" >> \"$GITHUB_OUTPUT\"\n\n" +
 				"      -\n" +
 				"        run: echo attacker\n\n" +
 				"      - name: Open or update sync PR",
@@ -940,10 +964,25 @@ func TestWikiDocsSyncRejectsTriggerIdentityActionAndVerificationMutations(t *tes
 		},
 		{
 			name: "pull request body private key interpolation",
-			old:  "            Source commit: ${{ steps.reference.outputs.commit }}\n          delete-branch: true",
-			replacement: "            Source commit: ${{ steps.reference.outputs.commit }}\n" +
+			old:  "            Refs z-shell/zsh-lint#${{ steps.reference.outputs.source-pull-request }}\n          delete-branch: true",
+			replacement: "            Refs z-shell/zsh-lint#${{ steps.reference.outputs.source-pull-request }}\n" +
 				"            Private key: ${{ secrets['WIKI_SYNC_APP_PRIVATE_KEY'] }}\n" +
 				"          delete-branch: true",
+		},
+		{
+			name:        "pull request body loses the issue reference",
+			old:         "            Refs z-shell/zsh-lint#${{ steps.reference.outputs.source-pull-request }}\n",
+			replacement: "",
+		},
+		{
+			name:        "branch outside the organization pattern",
+			old:         "          branch: docs/zsh-lint-reference",
+			replacement: "          branch: docs-sync/zsh-lint",
+		},
+		{
+			name:        "source pull request lookup accepts any associated pull request",
+			old:         "select(.merged_at != null and .merge_commit_sha == \\\"${stable_commit}\\\")",
+			replacement: "select(.merged_at != null)",
 		},
 	}
 
