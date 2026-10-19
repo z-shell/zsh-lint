@@ -41,6 +41,12 @@ func TestDirectAssignmentTargetKeepsRawPattern(t *testing.T) {
 		`a["${b[(ie)${c}\[x\]]}"]=()`,
 		`a["${b[(ie)x\]]}"]=()`,
 		`a["${b[(ie)${c[d]}]}"]=()`,
+		// A glob-group command body is read by an inner parser, which
+		// must keep the raw fallback too.
+		`print x($(a[${b[(ie)${c::=x}]}]=()))`,
+		`a[${b[(ie)x]}]=(); print x($(a[${b[(ie)${c::=x}]}]=()))`,
+		`a[${b[(ie)${c::=x}]}]=()`,
+		`print x($(a[${b[1]}]=()))`,
 	} {
 		t.Run(src, func(t *testing.T) {
 			file, err := Parse(strings.NewReader(src+"\n"), "direct.zsh")

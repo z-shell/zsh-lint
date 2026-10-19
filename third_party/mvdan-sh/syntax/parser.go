@@ -240,6 +240,20 @@ func ZshNestedAssignTargets(enabled bool) ParserOption {
 // cannot change the result of the same parse.
 func (p *Parser) ZshNestedAssignRead() bool { return p.zshAssignRead }
 
+// zshInnerParser returns a parser for a reading nested in p, such as a
+// glob-group body check or a lookahead, with p's dialect and
+// nested-assignment setting (#735). The caller folds the inner parser's read
+// report back with zshFoldInner, so a typed read inside it reaches
+// ZshNestedAssignRead and the caller's raw fallback.
+func (p *Parser) zshInnerParser() *Parser {
+	return NewParser(Variant(p.lang), ZshNestedAssignTargets(!p.zshNestedAssignOff))
+}
+
+// zshFoldInner adds the typed reads of a parser zshInnerParser returned.
+func (p *Parser) zshFoldInner(inner *Parser) {
+	p.zshAssignRead = p.zshAssignRead || inner.zshAssignRead
+}
+
 // NewParser allocates a new [Parser] and applies any number of options.
 func NewParser(options ...ParserOption) *Parser {
 	p := &Parser{
@@ -1742,10 +1756,11 @@ func (p *Parser) zshGroupSubstCheck(sub *zshGroupSubst, lit []byte) {
 		}
 		body = unesc
 	}
-	bp := NewParser(Variant(p.lang))
+	bp := p.zshInnerParser()
 	// A body inside a short subscript is lexed inside it too (#529).
 	bp.zshShortIndex = p.zshShortIndex
 	f, err := bp.Parse(bytes.NewReader(body), "")
+	p.zshFoldInner(bp)
 	perr, ok := err.(ParseError)
 	if !ok {
 		if err != nil || sub.bquote {
@@ -3108,7 +3123,7 @@ func (p *Parser) zshParamFlagArg(args int) bool {
 // group at its first `)`: Zsh's lexer accepts such a group, as in `${(j)x}`
 // or `${(s.x)w}`, and only paramsubst rejects it when the line runs.
 func (p *Parser) zshParamFlagsAhead() bool {
-	look := NewParser(Variant(p.lang))
+	look := p.zshInnerParser()
 	look.f = &File{}
 	look.r, look.w, look.bsp = p.r, p.w, p.bsp
 	look.offs, look.line, look.col = p.offs, p.line, p.col
@@ -3120,6 +3135,7 @@ func (p *Parser) zshParamFlagsAhead() bool {
 	var read bytes.Buffer
 	look.src = io.TeeReader(p.src, &read)
 	defer func() {
+		p.zshFoldInner(look)
 		if p.readErr == nil && look.readErr != nil {
 			// Preserve a terminal read error too: some readers refuse a
 			// second read after EOF, and non-EOF errors must not be lost.
