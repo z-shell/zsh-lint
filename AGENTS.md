@@ -121,3 +121,9 @@ Use the lint command the setup script prints; it derives the toolchain from `go.
 Tests that need `zsh` skip without it, so install it before trusting a local pass.
 
 Go 1.27 (`GOTOOLCHAIN=auto` auto-fetches the toolchain; CI pins the same version explicitly).
+
+The fork's upstream `TestParseConfirm` (`third_party/mvdan-sh/syntax`) runs each case through the runner's real shells, so a crash there can be environmental: `a | b &` once ended in a `zsh` segmentation fault in #458 and passed on rerun.
+When only `TestParseConfirm` fails, with a signal rather than a verdict mismatch, on an input the change cannot affect, rerun the failed job once and say so in the pull request's review; a verdict mismatch is a real failure.
+
+The project aims at a fully featured, reliable and fast linter, and accepts long checks that make it better, such as full mutation campaigns and benchmark replays.
+When a step runs long, state what it proves and why a cheaper check would not, instead of proposing to trim it.

@@ -55,6 +55,9 @@ It replaces these two manual checks:
     zsh -f -n <file>                      # must pass: the gap is real Zsh
 
 `-judge` reads `zsh -f -n` by its standard error, not its exit status, since `! true` exits 1 without a diagnostic.
+The `⚡ zsh -n` step in `.github/workflows/go-ci.yml` still judges every tracked `.zsh` file by exit status, so a corpus fixture must not hold a top-level negated command; keep such rows in Go tests ([#322](https://github.com/z-shell/zsh-lint/pull/322)).
+Record a native decision with `zsh -f -n FILE` on the exact fixture bytes, never with `-c`: `for i in a b print $i` is a parse error under `-c`, yet the same line in a file with its trailing newline passes, read as a word list and an empty body at end of file ([#327](https://github.com/z-shell/zsh-lint/issues/327)).
+Before calling a loop short form invalid, check whether Zsh can read it as a longer condition or word list plus an empty body.
 Read the reduced source before filing it: the reducer keeps the smallest source with the same message and position, which can be a narrower or different construct than the one in the real file.
 A fixture that `zsh -n` rejects is a broken script, not a parser gap; never commit one to the native-valid survey corpus.
 
