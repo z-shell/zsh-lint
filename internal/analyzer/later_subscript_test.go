@@ -28,6 +28,7 @@ func TestLaterSubscriptExecutableChildren(t *testing.T) {
 		{name: "length prefix", src: `print -r -- ${#a[1][$(eval "$code")]}`, evals: []string{`eval "$code"`}},
 		{name: "backquoted command", src: "print -r -- ${a[1][`eval x`]}", evals: []string{"eval x"}},
 		{name: "assignment value", src: `x=${a[1][$(eval "$code")]}`, evals: []string{`eval "$code"`}},
+		{name: "after a literal later subscript", src: `print -r -- ${a[(r)x][^b]}; eval "$code"`, evals: []string{`eval "$code"`}},
 		{name: "quoted literal first subscript", src: `print -r -- ${a['$(eval "$code")']}`},
 		{name: "quoted literal later subscript", src: `print -r -- ${a[1]['$(eval "$code")']}`},
 	}

@@ -57,6 +57,8 @@ func TestIsDeclaredNumeric(t *testing.T) {
 		{`integer n; x=$(unset n); print $n`, true},
 		{`x=$(integer n; unset n; print $n)`, false},
 		{`f() { x=$(integer n); print $n; }`, false},
+		{`integer n; x=$(:); print $n`, true},
+		{`x=$(:); integer n; print $n`, true},
 	}
 	for _, test := range tests {
 		t.Run(test.src, func(t *testing.T) {

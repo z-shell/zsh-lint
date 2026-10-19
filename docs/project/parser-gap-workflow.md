@@ -309,6 +309,7 @@ Each construct's mechanism is documented where it is implemented:
 | `${name::=word}`                                         | #216         | `:=` operator plus `File.AssignAlwaysExpansions`                | `assign_always.go`                                               |
 | `${name[a][b]}`                                          | #215, #252   | fork `ParamExp.LaterIndexes`, listed by `File.SecondSubscripts` | parser fork, `third_party/mvdan-sh/FORK.md`                      |
 | `${name[(r)pattern,expr]}`                               | #277         | standard tree                                                   | `subscript_pattern_after_comma.go`                               |
+| `${name[(r)pattern][expr]}`                              | #252         | literal `Word` in `ParamExp.LaterIndexes`                       | `subscript_pattern_after_comma.go`                               |
 | `repeat count sublist`                                   | #208, #281   | fork `RepeatClause`                                             | parser fork, `third_party/mvdan-sh/FORK.md`                      |
 | `for`, `select`, `if`, `while` short and alternate forms | #211, #459   | standard `ForClause`, `IfClause` and `WhileClause`              | parser fork, `third_party/mvdan-sh/FORK.md`                      |
 | `${$(( expr ))}`                                         | #361         | standard `ArithmExp`                                            | `nested_arithmetic.go` (`resolveNestedArithmetic`)               |
