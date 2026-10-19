@@ -19,6 +19,8 @@ on:
 
 permissions:
   contents: read
+  # Reads the pull request that produced the published tag's commit.
+  pull-requests: read
 
 concurrency:
   group: wiki-docs-sync
@@ -51,6 +53,7 @@ jobs:
         with:
           path: zsh-lint
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check out wiki (main)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -75,6 +78,12 @@ jobs:
         run: |
           stable_tag="$(gh release view --repo z-shell/zsh-lint --json tagName --jq .tagName)"
           stable_commit="$(git rev-parse "${stable_tag}^{commit}")"
+          source_pull_request="$(gh api "repos/z-shell/zsh-lint/commits/${stable_commit}/pulls" \
+            --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"${stable_commit}\")][0].number // empty")"
+          if [[ ! "$source_pull_request" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::warning::No merged pull request produced ${stable_commit}; the sync PR body has no issue reference."
+            source_pull_request=""
+          fi
           release_tree="$RUNNER_TEMP/zsh-lint-release"
           mkdir -p "$release_tree"
           git archive "$stable_tag" | tar -x -C "$release_tree"
@@ -90,6 +99,7 @@ jobs:
             -source-commit "$stable_commit"
           echo "version=$stable_tag" >> "$GITHUB_OUTPUT"
           echo "commit=$stable_commit" >> "$GITHUB_OUTPUT"
+          echo "source-pull-request=$source_pull_request" >> "$GITHUB_OUTPUT"
 
       - name: Open or update sync PR
         id: sync-pr
@@ -97,13 +107,13 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
           path: wiki
-          # docs-sync/zsh-lint is a fixed automation-branch exception to the
-          # wiki's human feature-ID naming convention. A fixed branch lets a
-          # later run update the existing PR rather than open a duplicate.
+          # A fixed <type>/<slug> branch satisfies the organization branch
+          # pattern and lets a later run update the existing PR rather than
+          # open a duplicate.
           add-paths: community/04_zsh_lint/08_rule_reference.mdx
           sign-commits: true
           base: main
-          branch: docs-sync/zsh-lint
+          branch: docs/zsh-lint-reference
           title: "docs(zsh-lint): sync generated reference"
           commit-message: "docs(zsh-lint): sync generated reference from zsh-lint"
           body: |
@@ -111,6 +121,7 @@ jobs:
             Generated from published rule documentation. Do not hand-edit the marked region.
             Published source: ${{ steps.reference.outputs.version }}
             Source commit: ${{ steps.reference.outputs.commit }}
+            Refs z-shell/zsh-lint#${{ steps.reference.outputs.source-pull-request }}
           delete-branch: true
 
       - name: Report sync PR operation
