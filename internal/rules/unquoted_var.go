@@ -53,8 +53,10 @@ import (
 // function or file scope, unless that scope unsets them; and the read-only
 // numeric parameters `PPID`, `ZSH_SUBSHELL` and `TTYIDLE`. Code may
 // intentionally omit an empty argument or expand a value guaranteed to be
-// non-empty; suppress those cases with a reason. Array advice uses only earlier
-// declarations in the same lexical function or file scope, without resolving
+// non-empty; suppress those cases with a reason. Single-element subscripts use
+// scalar advice; ranges, reverse and chained subscripts preserve the selection.
+// Array advice uses only earlier declarations in the same lexical function or
+// file scope, without resolving
 // dynamic caller scope or declarations in other files. A declaration or unset
 // inside a command substitution counts only within that substitution, which
 // runs in a subshell.
@@ -106,10 +108,36 @@ func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 		}
 		message := "Variable expansion should be double-quoted"
 		if param.Param != nil && ctx.Scope != nil && ctx.Scope.IsDeclaredArray(param.Param.Value, param.Pos()) {
-			message = "Array expansion should preserve elements with \"${" + param.Param.Value + "[@]}\""
+			message = unquotedArrayMessage(param)
 		}
 		ctx.Report(param.Pos(), param.End(), r.ID(), diag.Info, message)
 	}
+}
+
+func unquotedArrayMessage(param *syntax.ParamExp) string {
+	// Never replace a selection with all elements (#747). Complex selectors
+	// can yield a scalar or an array, so preserve them without guessing a rewrite.
+	if len(param.LaterIndexes) > 0 {
+		return "Quote this expansion without replacing its subscripts; use (@) to preserve selected array elements"
+	}
+	if param.Index != nil {
+		switch index := param.Index.(type) {
+		case *syntax.FlagsArithm:
+			return "Quote this expansion without replacing its subscripts; use (@) to preserve selected array elements"
+		case *syntax.BinaryArithm:
+			if index.Op == syntax.Comma {
+				return "Quote this expansion without replacing its subscripts; use (@) to preserve selected array elements"
+			}
+		case *syntax.Word:
+			if len(index.Parts) == 1 {
+				if lit, ok := index.Parts[0].(*syntax.Lit); ok && (lit.Value == "@" || lit.Value == "*") {
+					return "Array expansion should preserve elements with \"${" + param.Param.Value + "[@]}\""
+				}
+			}
+		}
+		return "Variable expansion should be double-quoted"
+	}
+	return "Array expansion should preserve elements with \"${" + param.Param.Value + "[@]}\""
 }
 
 func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {

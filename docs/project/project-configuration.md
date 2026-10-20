@@ -43,6 +43,7 @@ Configured plugin and Zi annex `sourced-library` sources retain the Warning for 
 `quoting/unquoted-var` also stays silent without configured source metadata ([#705](https://github.com/z-shell/zsh-lint/issues/705)).
 Native Zsh does not split or glob an unquoted parameter, so the remaining hazard is an empty value dropped from the argument list, and one file cannot show whether a value may be empty.
 Configured sources keep the Info finding, except for expansions that can never be empty: `${x:+word}`, `${x:-word}` or `${x:=word}` with a non-empty literal word, `${x:?word}`, names declared integer or float earlier in the same scope and not unset there, and read-only numeric parameters.
+Single-element subscripts receive scalar quoting advice; advice for ranges, reverse or chained subscripts preserves the selection instead of replacing it with every array element.
 The rule stays in the default set, so its suppression directives remain valid.
 
 In project profile version 2:

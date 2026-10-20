@@ -256,6 +256,38 @@ func TestUnquotedVarDeclaredArrays(t *testing.T) {
 	}
 }
 
+func TestUnquotedVarSubscriptAdvice(t *testing.T) {
+	const scalar = "Variable expansion should be double-quoted"
+	const selection = "Quote this expansion without replacing its subscripts; use (@) to preserve selected array elements"
+	tests := []struct {
+		name, src, want string
+	}{
+		{"indexed element", `typeset -a arr=(x y); print $arr[1]`, scalar},
+		{"braced element", `typeset -a arr=(x y); print ${arr[1]}`, scalar},
+		{"negative element", `typeset -a arr=(x y); print $arr[-1]`, scalar},
+		{"dynamic element", `typeset -a arr=(x y); print $arr[$i]`, scalar},
+		{"associative element", `typeset -A m; m=(a b); print $m[a]`, scalar},
+		{"array range", `typeset -a arr=(x y z); print ${arr[1,2]}`, selection},
+		{"reverse selection", `typeset -a arr=(x y); print ${arr[(r)y]}`, selection},
+		{"chained subscript", `typeset -a arr=(xx yy); print ${arr[1][2]}`, selection},
+		{"all then selection", `typeset -a arr=(x y z); print ${arr[@][1,2]}`, selection},
+		{"all elements", `typeset -a arr=(x y); print ${arr[@]}`, `Array expansion should preserve elements with "${arr[@]}"`},
+		{"star elements", `typeset -a arr=(x y); print ${arr[*]}`, `Array expansion should preserve elements with "${arr[@]}"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "test.zsh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := analyzeUnquotedVar(file, "test.zsh")
+			if len(got) != 1 || got[0].Message != test.want || got[0].Severity != diag.Info {
+				t.Fatalf("diagnostics = %v, want one Info with %q", got, test.want)
+			}
+		})
+	}
+}
+
 // analyzeUnquotedVar runs the rule for a configured standalone script; the rule
 // reports nothing without project configuration (#705).
 func analyzeUnquotedVar(file *parse.File, path string) diag.Diagnostics {
