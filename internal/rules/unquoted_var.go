@@ -48,21 +48,16 @@ import (
 // words, command names, and arguments of `:` are also excluded. Expansions that
 // can never be empty are skipped: `${x:+word}` and `${x+word}`, which elide on
 // purpose and would pass an empty argument if quoted; `${x:-word}` and
-// `${x:=word}` with a literal-only default, or safe literal text alongside
-// plain short named expansions, optionally double-quoted, when neither the
-// outer name nor referenced names appear in any declaration or array assignment
-// and no option-changing command is visible; `${x:?word}`, which fails instead
+// `${x:=word}` with a non-empty literal word; `${x:?word}`, which fails instead
 // of expanding empty; names declared integer or float earlier in the same
 // function or file scope, unless that scope unsets them; and the read-only
 // numeric parameters `PPID`, `ZSH_SUBSHELL` and `TTYIDLE`. Code may
 // intentionally omit an empty argument or expand a value guaranteed to be
 // non-empty; suppress those cases with a reason. Single-element subscripts use
-// scalar advice; ranges, reverse and chained subscripts retain their selections
-// rather than recommending all elements. Array advice uses only earlier
-// declarations in the same lexical function or file scope, without resolving
-// dynamic caller scope or declarations in other files. Non-empty default
-// inference assumes native option defaults for parameters not known as arrays;
-// it does not model caller option state. A declaration or unset
+// scalar advice; ranges, reverse and chained subscripts preserve the selection.
+// Array advice uses only earlier declarations in the same lexical function or
+// file scope, without resolving
+// dynamic caller scope or declarations in other files. A declaration or unset
 // inside a command substitution counts only within that substitution, which
 // runs in a subshell.
 //
@@ -105,7 +100,7 @@ func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 			continue
 		}
 		param, ok := word.Parts[0].(*syntax.ParamExp)
-		if !ok || shouldSkipUnquotedParam(ctx, param) {
+		if !ok || shouldSkipUnquotedParam(param) {
 			continue
 		}
 		if param.Param != nil && ctx.Scope != nil && ctx.Scope.IsDeclaredNumeric(param.Param.Value, param.Pos()) {
@@ -145,7 +140,7 @@ func unquotedArrayMessage(param *syntax.ParamExp) string {
 	return "Array expansion should preserve elements with \"${" + param.Param.Value + "[@]}\""
 }
 
-func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool {
+func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 	if param == nil {
 		return true
 	}
@@ -168,18 +163,13 @@ func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool
 	// 6. Expansion operators whose result is never an empty argument: ${x:+w}
 	// and ${x+w} elide on purpose, so quoting them would pass an empty word;
 	// ${x:?w} fails rather than expanding empty; ${x:-w} and ${x:=w} with a
-	// literal-only w keep their existing exemption. The additional matcher
-	// accepts only a bounded literal-and-reference grammar, not arbitrary words.
+	// non-empty literal w fall back to that text.
 	if param.Exp != nil {
 		switch param.Exp.Op {
 		case syntax.AlternateUnset, syntax.AlternateUnsetOrNull, syntax.ErrorUnsetOrNull:
 			return true
 		case syntax.DefaultUnsetOrNull, syntax.AssignUnsetOrNull:
-			if nonEmptyStaticWord(param.Exp.Word) ||
-				param.Param != nil && syntax.ValidName(param.Param.Value) && param.Index == nil &&
-					param.Flags == nil && len(param.Modifiers) == 0 &&
-					param.RcExpand == syntax.OptUnset && param.Split == syntax.OptUnset && param.GlobSubst == syntax.OptUnset &&
-					plainLiteralDefault(param.Exp.Word) && !mixedDefaultVeto(ctx, param) {
+			if nonEmptyLiteralWord(param.Exp.Word) {
 				return true
 			}
 		}
@@ -211,142 +201,9 @@ func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool
 	return false
 }
 
-// plainLiteralDefault recognizes a small grammar, not general word
-// non-emptiness: safe literal parts plus short named references, optionally
-// enclosed together in one pair of double quotes (#746).
-func plainLiteralDefault(word *syntax.Word) bool {
-	if word == nil {
-		return false
-	}
-	parts, quoted := word.Parts, false
-	if len(parts) == 1 {
-		if q, ok := parts[0].(*syntax.DblQuoted); ok && !q.Dollar {
-			parts, quoted = q.Parts, true
-		}
-	}
-	literal := false
-	for _, part := range parts {
-		switch x := part.(type) {
-		case *syntax.Lit:
-			if strings.ContainsAny(x.Value, "\\:") {
-				return false
-			}
-			if !quoted && strings.Trim(x.Value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-") != "" {
-				return false
-			}
-			literal = literal || x.Value != ""
-		case *syntax.ParamExp:
-			if !x.Short || x.Param == nil || !syntax.ValidName(x.Param.Value) || x.Index != nil ||
-				x.RcExpand != syntax.OptUnset || x.Split != syntax.OptUnset || x.GlobSubst != syntax.OptUnset || len(x.Modifiers) != 0 {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return literal
-}
-
-// mixedDefaultVeto is intentionally file-wide and independent of the shared
-// scope index: an unrecognized declaration is not proof of scalar type. It
-// models neither option values, declaration flags, scope nor execution order.
-func mixedDefaultVeto(ctx *analyzer.Context, param *syntax.ParamExp) bool {
-	if ctx.File == nil {
-		return true
-	}
-	names := map[string]bool{"options": true}
-	shellManaged := false
-	syntax.Walk(param, func(node syntax.Node) bool {
-		if p, ok := node.(*syntax.ParamExp); ok && p.Param != nil {
-			names[p.Param.Value] = true
-			shellManaged = shellManaged || strings.Contains(mixedDefaultShellNames, " "+p.Param.Value+" ")
-		}
-		return true
-	})
-	if shellManaged {
-		return true
-	}
-	mentions := func(word *syntax.Word) bool {
-		text, static := staticDeclarationWord(word)
-		if !static {
-			return true
-		}
-		for _, name := range strings.FieldsFunc(text, func(c rune) bool {
-			return !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", c)
-		}) {
-			if names[name] {
-				return true
-			}
-		}
-		return false
-	}
-	unsafe := false
-	syntax.Walk(ctx.File.AST(), func(node syntax.Node) bool {
-		if unsafe {
-			return false
-		}
-		switch x := node.(type) {
-		case *syntax.ParamExp:
-			if x.Param != nil && x.Param.Value == "options" && x.Exp != nil {
-				switch x.Exp.Op {
-				case syntax.AssignUnset, syntax.AssignUnsetOrNull:
-					unsafe = true
-				}
-			}
-		case *syntax.Assign:
-			if x.Name != nil && (x.Name.Value == "options" || names[x.Name.Value] && (x.Array != nil || x.Index != nil)) {
-				unsafe = true
-			}
-		case *syntax.DeclClause:
-			for _, arg := range x.Args {
-				if arg.Name != nil && (names[arg.Name.Value] || arg.Name.Value == "options") || arg.Name == nil && mentions(arg.Value) {
-					unsafe = true
-				}
-			}
-		case *syntax.CallExpr:
-			// Include command-prefixed builtins even when native defaults would
-			// search only external commands. This is a veto, not execution proof.
-			command := resolveCommand(x)
-		prefixes:
-			for range x.Args {
-				switch command.name {
-				case "builtin", "command", "noglob":
-				default:
-					break prefixes
-				}
-				command = resolveCommand(&syntax.CallExpr{Args: command.args})
-			}
-			switch command.name {
-			case "setopt", "unsetopt", "emulate":
-				unsafe = true
-			case "set":
-				for _, arg := range command.args {
-					value, static := staticDeclarationWord(arg)
-					if static && value == "--" {
-						break
-					}
-					if !static || strings.HasPrefix(value, "-") || strings.HasPrefix(value, "+") {
-						unsafe = true
-					} else {
-						break
-					}
-				}
-			case "typeset", "declare", "local", "integer", "float", "readonly", "export":
-				for _, arg := range command.args {
-					if mentions(arg) {
-						unsafe = true
-					}
-				}
-			}
-		}
-		return !unsafe
-	})
-	return unsafe
-}
-
-// nonEmptyStaticWord preserves the pre-existing literal-only exemption. The
-// new mixed-word inference is deliberately narrower around transformations.
-func nonEmptyStaticWord(word *syntax.Word) bool {
+// nonEmptyLiteralWord reports a word made only of literal or quoted literal
+// text that is not empty.
+func nonEmptyLiteralWord(word *syntax.Word) bool {
 	if word == nil {
 		return false
 	}
