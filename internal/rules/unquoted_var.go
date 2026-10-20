@@ -228,16 +228,16 @@ func plainLiteralDefault(word *syntax.Word) bool {
 	for _, part := range parts {
 		switch x := part.(type) {
 		case *syntax.Lit:
-			if strings.Contains(x.Value, "\\") {
+			if strings.ContainsAny(x.Value, "\\:") {
 				return false
 			}
-			if !quoted && strings.Trim(x.Value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-") != "" {
+			if !quoted && strings.Trim(x.Value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-") != "" {
 				return false
 			}
 			literal = literal || x.Value != ""
 		case *syntax.ParamExp:
 			if !x.Short || x.Param == nil || !syntax.ValidName(x.Param.Value) || x.Index != nil ||
-				x.RcExpand != syntax.OptUnset || x.Split != syntax.OptUnset || x.GlobSubst != syntax.OptUnset {
+				x.RcExpand != syntax.OptUnset || x.Split != syntax.OptUnset || x.GlobSubst != syntax.OptUnset || len(x.Modifiers) != 0 {
 				return false
 			}
 		default:
@@ -255,12 +255,17 @@ func mixedDefaultVeto(ctx *analyzer.Context, param *syntax.ParamExp) bool {
 		return true
 	}
 	names := map[string]bool{"options": true}
+	shellManaged := false
 	syntax.Walk(param, func(node syntax.Node) bool {
 		if p, ok := node.(*syntax.ParamExp); ok && p.Param != nil {
 			names[p.Param.Value] = true
+			shellManaged = shellManaged || strings.Contains(mixedDefaultShellNames, " "+p.Param.Value+" ")
 		}
 		return true
 	})
+	if shellManaged {
+		return true
+	}
 	mentions := func(word *syntax.Word) bool {
 		text, static := staticDeclarationWord(word)
 		if !static {

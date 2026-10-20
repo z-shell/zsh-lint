@@ -60,6 +60,18 @@ func TestUnquotedVarMixedDefaultCoarseVetoes(t *testing.T) {
 		{"unrelated=()\n" + use, 0},
 		{"set -- a b\n" + use, 0},
 		{"setopt glob_subst; print ${mode:-literal}\n", 0},
+		{"x= y=; print ${x:-$y:s/a/b/}\n", 1},
+		{"x= y=; print ${x:=$y:s/a/b/}\n", 1},
+		{"print ${mode:-\"prefix:$other\"}\n", 1},
+		{"set -- '' ''; other=; print ${argv:-prefix$other}\n", 1},
+		{"set -- '' ''; other=; print ${argv:=prefix$other}\n", 1},
+		{"set -- '' ''; other=; print ${argv:-\"prefix$other\"}\n", 1},
+		{"print ${mode:-prefix$argv}\n", 1},
+		{"print ${mode:-prefix$path}\n", 1},
+		{"print ${mode:-prefix$match}\n", 1},
+		{"print ${mode:-prefix$words}\n", 1},
+		{"print ${mode:-prefix$funcstack}\n", 1},
+		{"print ${mode:-prefix$BUFFER}\n", 1},
 		{"x= y='*(N)'; setopt +o no_glob_subst; print ${x:-prefix$y}\n", 1},
 		{"make_array() { y=(); }; make_array; x=; setopt +o no_rc_expand_param; print ${x:-prefix$y}\n", 1},
 	} {
@@ -71,6 +83,11 @@ func TestUnquotedVarMixedDefaultCoarseVetoes(t *testing.T) {
 		src := "builtin typeset '" + name + "=value'\nprint ${mode:-prefix$" + name + "}"
 		t.Run(name, func(t *testing.T) {
 			assertMixedDefaultCount(t, src, 1)
+		})
+	}
+	for _, name := range strings.Fields(mixedDefaultShellNames) {
+		t.Run("shell-managed/"+name, func(t *testing.T) {
+			assertMixedDefaultCount(t, "print ${mode:-prefix$"+name+"}", 1)
 		})
 	}
 }

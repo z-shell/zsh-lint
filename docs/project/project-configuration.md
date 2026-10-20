@@ -44,7 +44,8 @@ Configured plugin and Zi annex `sourced-library` sources retain the Warning for 
 Native Zsh does not split or glob an unquoted parameter, so the remaining hazard is an empty value dropped from the argument list, and one file cannot show whether a value may be empty.
 Configured sources keep the Info finding, except for intentional alternates such as `${x:+word}` and expansions proven non-empty: `${x:-word}` or `${x:=word}` whose word contains non-empty literal text, `${x:?word}`, names declared integer or float earlier in the same scope and not unset there, and read-only numeric parameters.
 The additional default matcher accepts non-empty literal text alongside plain short `$name` references, optionally enclosed together in one pair of double quotes, as in `${x:-$dir/file}` or `${x:="prefix$other"}`.
-Unquoted literal parts may contain only ASCII letters, digits and `_./:-`; brace, glob, quote and escape syntax are not interpreted by the matcher.
+Unquoted literal parts may contain only ASCII letters, digits and `_./-`; any colon is excluded even within double quotes, so short-reference modifier syntax cannot count as literal text.
+Shell-managed parameter names, including special arrays such as `argv` and module/widget parameters, veto the additional exemption as outer names or inner references.
 It excludes subscripts, outer flags or modifiers, escaped literal text and expansions other than plain short named references.
 Any visible `setopt`, `unsetopt`, `emulate`, option form of `set`, or assignment to `options` disables the additional exemption throughout the file, irrespective of the option values or execution order.
 The exemption is also vetoed when the outer name or any referenced name appears in a declaration builtin (`typeset`, `declare`, `local`, `integer`, `float`, `readonly`, `export`) with any flags or command modifiers, or in an array assignment anywhere in the file.
