@@ -256,6 +256,38 @@ func TestUnquotedVarDeclaredArrays(t *testing.T) {
 	}
 }
 
+func TestUnquotedVarSubscriptAdvice(t *testing.T) {
+	const scalar = "Variable expansion should be double-quoted"
+	const selection = "Quote this expansion without replacing its subscripts; use (@) to preserve selected array elements"
+	tests := []struct {
+		name, src, want string
+	}{
+		{"indexed element", `typeset -a arr=(x y); print $arr[1]`, scalar},
+		{"braced element", `typeset -a arr=(x y); print ${arr[1]}`, scalar},
+		{"negative element", `typeset -a arr=(x y); print $arr[-1]`, scalar},
+		{"dynamic element", `typeset -a arr=(x y); print $arr[$i]`, scalar},
+		{"associative element", `typeset -A m; m=(a b); print $m[a]`, scalar},
+		{"array range", `typeset -a arr=(x y z); print ${arr[1,2]}`, selection},
+		{"reverse selection", `typeset -a arr=(x y); print ${arr[(r)y]}`, selection},
+		{"chained subscript", `typeset -a arr=(xx yy); print ${arr[1][2]}`, selection},
+		{"all then selection", `typeset -a arr=(x y z); print ${arr[@][1,2]}`, selection},
+		{"all elements", `typeset -a arr=(x y); print ${arr[@]}`, `Array expansion should preserve elements with "${arr[@]}"`},
+		{"star elements", `typeset -a arr=(x y); print ${arr[*]}`, `Array expansion should preserve elements with "${arr[@]}"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.src), "test.zsh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := analyzeUnquotedVar(file, "test.zsh")
+			if len(got) != 1 || got[0].Message != test.want || got[0].Severity != diag.Info {
+				t.Fatalf("diagnostics = %v, want one Info with %q", got, test.want)
+			}
+		})
+	}
+}
+
 // analyzeUnquotedVar runs the rule for a configured standalone script; the rule
 // reports nothing without project configuration (#705).
 func analyzeUnquotedVar(file *parse.File, path string) diag.Diagnostics {
@@ -290,6 +322,22 @@ func TestUnquotedVarSkipsNeverEmptyExpansions(t *testing.T) {
 		{"literal default", "sleep ${interval:-0.1}\n", 0},
 		{"quoted literal default", "sleep ${interval:-\"0.1\"}\n", 0},
 		{"literal assigned default", "print -r -- ${mode:=fast}\n", 0},
+		{"literal suffix in dynamic default", "print -r -- ${mode:-$other/path}\n", 0},
+		{"literal prefix in dynamic default", "print -r -- ${mode:-prefix$other}\n", 0},
+		{"literal between expansions", "print -r -- ${mode:-$first/$second}\n", 0},
+		{"quoted dynamic default", "print -r -- ${mode:-\"prefix$other\"}\n", 0},
+		{"single quoted text in dynamic default", "print -r -- ${mode:-'prefix'$other}\n", 0},
+		{"dynamic assigned default", "print -r -- ${mode:=$other/path}\n", 0},
+		{"array product can remove literal", "print -r -- ${mode:-prefix${^other}}\n", 1},
+		{"declared empty array with rc option", "setopt rc_expand_param; other=(); print -r -- ${mode:-prefix$other}\n", 1},
+		{"declared array without rc option", "other=(); print -r -- ${mode:-prefix$other}\n", 1},
+		{"rc explicitly disabled for array", "setopt rc_expand_param; other=(); print -r -- ${mode:-prefix${^^other}}\n", 0},
+		{"glob prefix can remove literal", "setopt null_glob; print -r -- ${mode:-prefix$~other}\n", 1},
+		{"glob suffix can remove literal", "setopt null_glob; print -r -- ${mode:-${~other}suffix}\n", 1},
+		{"product before other expansion", "print -r -- ${mode:-${^first}/$second}\n", 1},
+		{"product after other expansion", "print -r -- ${mode:-$first/${^second}}\n", 1},
+		{"quoted array product retains literal", "print -r -- ${mode:-\"prefix${^other}\"}\n", 0},
+		{"escaped newline is not literal text", "print -r -- ${mode:-\\\n$other}\n", 1},
 		{"empty default", "print -r -- ${mode:-}\n", 1},
 		{"empty quoted default", "print -r -- ${mode:-\"\"}\n", 1},
 		{"expansion default", "print -r -- ${mode:-$other}\n", 1},

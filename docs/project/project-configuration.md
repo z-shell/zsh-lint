@@ -42,7 +42,10 @@ Configured plugin and Zi annex `sourced-library` sources retain the Warning for 
 
 `quoting/unquoted-var` also stays silent without configured source metadata ([#705](https://github.com/z-shell/zsh-lint/issues/705)).
 Native Zsh does not split or glob an unquoted parameter, so the remaining hazard is an empty value dropped from the argument list, and one file cannot show whether a value may be empty.
-Configured sources keep the Info finding, except for expansions that can never be empty: `${x:+word}`, `${x:-word}` or `${x:=word}` with a non-empty literal word, `${x:?word}`, names declared integer or float earlier in the same scope and not unset there, and read-only numeric parameters.
+Configured sources keep the Info finding, except for intentional alternates such as `${x:+word}` and expansions proven non-empty: `${x:-word}` or `${x:=word}` whose word contains non-empty literal text, `${x:?word}`, names declared integer or float earlier in the same scope and not unset there, and read-only numeric parameters.
+Literal text in a default may accompany expansions, as in `${x:-$dir/file}`; unquoted declared arrays, explicit array products such as `${x:-prefix${^values}}` and explicit glob substitution are not treated as non-empty because expansion can remove the entire word.
+Default-word inference assumes native option defaults for parameters not known as arrays; it does not resolve dynamic caller declarations or options.
+Single-element subscripts receive scalar quoting advice; advice for ranges, reverse or chained subscripts preserves the selection instead of replacing it with every array element.
 The rule stays in the default set, so its suppression directives remain valid.
 
 In project profile version 2:

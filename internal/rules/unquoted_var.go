@@ -48,14 +48,20 @@ import (
 // words, command names, and arguments of `:` are also excluded. Expansions that
 // can never be empty are skipped: `${x:+word}` and `${x+word}`, which elide on
 // purpose and would pass an empty argument if quoted; `${x:-word}` and
-// `${x:=word}` with a non-empty literal word; `${x:?word}`, which fails instead
+// `${x:=word}` whose word contains non-empty literal text (even alongside
+// expansions), except possible unquoted array products or explicit glob
+// substitution; `${x:?word}`, which fails instead
 // of expanding empty; names declared integer or float earlier in the same
 // function or file scope, unless that scope unsets them; and the read-only
 // numeric parameters `PPID`, `ZSH_SUBSHELL` and `TTYIDLE`. Code may
 // intentionally omit an empty argument or expand a value guaranteed to be
-// non-empty; suppress those cases with a reason. Array advice uses only earlier
+// non-empty; suppress those cases with a reason. Single-element subscripts use
+// scalar advice; ranges, reverse and chained subscripts retain their selections
+// rather than recommending all elements. Array advice uses only earlier
 // declarations in the same lexical function or file scope, without resolving
-// dynamic caller scope or declarations in other files. A declaration or unset
+// dynamic caller scope or declarations in other files. Non-empty default
+// inference assumes native option defaults for parameters not known as arrays;
+// it does not model caller option state. A declaration or unset
 // inside a command substitution counts only within that substitution, which
 // runs in a subshell.
 //
@@ -98,7 +104,7 @@ func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 			continue
 		}
 		param, ok := word.Parts[0].(*syntax.ParamExp)
-		if !ok || shouldSkipUnquotedParam(param) {
+		if !ok || shouldSkipUnquotedParam(ctx, param) {
 			continue
 		}
 		if param.Param != nil && ctx.Scope != nil && ctx.Scope.IsDeclaredNumeric(param.Param.Value, param.Pos()) {
@@ -106,13 +112,39 @@ func (r UnquotedVar) Analyze(ctx *analyzer.Context, node syntax.Node) {
 		}
 		message := "Variable expansion should be double-quoted"
 		if param.Param != nil && ctx.Scope != nil && ctx.Scope.IsDeclaredArray(param.Param.Value, param.Pos()) {
-			message = "Array expansion should preserve elements with \"${" + param.Param.Value + "[@]}\""
+			message = unquotedArrayMessage(param)
 		}
 		ctx.Report(param.Pos(), param.End(), r.ID(), diag.Info, message)
 	}
 }
 
-func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
+func unquotedArrayMessage(param *syntax.ParamExp) string {
+	// Never replace a selection with all elements (#747). Complex selectors
+	// can yield a scalar or an array, so preserve them without guessing a rewrite.
+	if len(param.LaterIndexes) > 0 {
+		return "Quote this expansion without replacing its subscripts; use (@) to preserve selected array elements"
+	}
+	if param.Index != nil {
+		switch index := param.Index.(type) {
+		case *syntax.FlagsArithm:
+			return "Quote this expansion without replacing its subscripts; use (@) to preserve selected array elements"
+		case *syntax.BinaryArithm:
+			if index.Op == syntax.Comma {
+				return "Quote this expansion without replacing its subscripts; use (@) to preserve selected array elements"
+			}
+		case *syntax.Word:
+			if len(index.Parts) == 1 {
+				if lit, ok := index.Parts[0].(*syntax.Lit); ok && (lit.Value == "@" || lit.Value == "*") {
+					return "Array expansion should preserve elements with \"${" + param.Param.Value + "[@]}\""
+				}
+			}
+		}
+		return "Variable expansion should be double-quoted"
+	}
+	return "Array expansion should preserve elements with \"${" + param.Param.Value + "[@]}\""
+}
+
+func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool {
 	if param == nil {
 		return true
 	}
@@ -135,13 +167,14 @@ func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 	// 6. Expansion operators whose result is never an empty argument: ${x:+w}
 	// and ${x+w} elide on purpose, so quoting them would pass an empty word;
 	// ${x:?w} fails rather than expanding empty; ${x:-w} and ${x:=w} with a
-	// non-empty literal w fall back to that text.
+	// non-empty literal text in w fall back to that text unless an unquoted
+	// product can remove it.
 	if param.Exp != nil {
 		switch param.Exp.Op {
 		case syntax.AlternateUnset, syntax.AlternateUnsetOrNull, syntax.ErrorUnsetOrNull:
 			return true
 		case syntax.DefaultUnsetOrNull, syntax.AssignUnsetOrNull:
-			if nonEmptyLiteralWord(param.Exp.Word) {
+			if nonEmptyLiteralWord(ctx, param.Exp.Word) {
 				return true
 			}
 		}
@@ -173,30 +206,47 @@ func shouldSkipUnquotedParam(param *syntax.ParamExp) bool {
 	return false
 }
 
-// nonEmptyLiteralWord reports a word made only of literal or quoted literal
-// text that is not empty.
-func nonEmptyLiteralWord(word *syntax.Word) bool {
+// nonEmptyLiteralWord reports whether a word contains non-empty literal text
+// without an unquoted array product that can remove it (#746).
+func nonEmptyLiteralWord(ctx *analyzer.Context, word *syntax.Word) bool {
 	if word == nil {
 		return false
 	}
-	text := ""
-	for _, part := range word.Parts {
-		switch x := part.(type) {
-		case *syntax.Lit:
-			text += x.Value
-		case *syntax.SglQuoted:
-			text += x.Value
-		case *syntax.DblQuoted:
-			for _, inner := range x.Parts {
-				lit, ok := inner.(*syntax.Lit)
-				if !ok {
-					return false
-				}
-				text += lit.Value
-			}
-		default:
+	// An unquoted empty array product removes even adjacent literal text. A
+	// declared array may inherit RC_EXPAND_PARAM, so require an explicit ^^ to
+	// rule that out. Explicit glob substitution can also vanish with NULL_GLOB.
+	// Double quotes retain the text, so do not inspect their children here.
+	product := false
+	syntax.Walk(word, func(node syntax.Node) bool {
+		if _, quoted := node.(*syntax.DblQuoted); quoted {
 			return false
 		}
+		if param, ok := node.(*syntax.ParamExp); ok {
+			product = product || param.RcExpand == syntax.OptOn || param.GlobSubst == syntax.OptOn ||
+				param.RcExpand != syntax.OptOff && param.Param != nil && ctx.Scope != nil &&
+					ctx.Scope.IsDeclaredArray(param.Param.Value, param.Pos())
+		}
+		return !product
+	})
+	return !product && nonEmptyLiteralParts(word.Parts)
+}
+
+func nonEmptyLiteralParts(parts []syntax.WordPart) bool {
+	for _, part := range parts {
+		switch x := part.(type) {
+		case *syntax.Lit:
+			if x.Value != "" {
+				return true
+			}
+		case *syntax.SglQuoted:
+			if x.Value != "" {
+				return true
+			}
+		case *syntax.DblQuoted:
+			if nonEmptyLiteralParts(x.Parts) {
+				return true
+			}
+		}
 	}
-	return text != ""
+	return false
 }
