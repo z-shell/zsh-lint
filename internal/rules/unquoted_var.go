@@ -49,8 +49,8 @@ import (
 // can never be empty are skipped: `${x:+word}` and `${x+word}`, which elide on
 // purpose and would pass an empty argument if quoted; `${x:-word}` and
 // `${x:=word}` whose word contains non-empty literal text (even alongside
-// expansions), except possible unquoted array products or explicit glob
-// substitution; `${x:?word}`, which fails instead
+// expansions), except possible unquoted array products, glob syntax or outer
+// transformations whose effect is unproven; `${x:?word}`, which fails instead
 // of expanding empty; names declared integer or float earlier in the same
 // function or file scope, unless that scope unsets them; and the read-only
 // numeric parameters `PPID`, `ZSH_SUBSHELL` and `TTYIDLE`. Code may
@@ -174,7 +174,9 @@ func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool
 		case syntax.AlternateUnset, syntax.AlternateUnsetOrNull, syntax.ErrorUnsetOrNull:
 			return true
 		case syntax.DefaultUnsetOrNull, syntax.AssignUnsetOrNull:
-			if nonEmptyLiteralWord(ctx, param.Exp.Word) {
+			if nonEmptyStaticWord(param.Exp.Word) ||
+				param.Flags == nil && len(param.Modifiers) == 0 && param.RcExpand != syntax.OptOn &&
+					nonEmptyLiteralWord(ctx, param.Exp.Word) {
 				return true
 			}
 		}
@@ -228,7 +230,47 @@ func nonEmptyLiteralWord(ctx *analyzer.Context, word *syntax.Word) bool {
 		}
 		return !product
 	})
+	// Reject potential glob syntax conservatively, including escaped syntax.
+	// Pattern text inside a nested parameter operator does not itself glob.
+	for _, part := range word.Parts {
+		switch x := part.(type) {
+		case *syntax.Lit:
+			if strings.ContainsAny(x.Value, "*?[]()<>|#~^\\") {
+				return false
+			}
+		case *syntax.ExtGlob:
+			return false
+		}
+	}
 	return !product && nonEmptyLiteralParts(word.Parts)
+}
+
+// nonEmptyStaticWord preserves the pre-existing literal-only exemption. The
+// new mixed-word inference is deliberately narrower around transformations.
+func nonEmptyStaticWord(word *syntax.Word) bool {
+	if word == nil {
+		return false
+	}
+	text := ""
+	for _, part := range word.Parts {
+		switch x := part.(type) {
+		case *syntax.Lit:
+			text += x.Value
+		case *syntax.SglQuoted:
+			text += x.Value
+		case *syntax.DblQuoted:
+			for _, inner := range x.Parts {
+				lit, ok := inner.(*syntax.Lit)
+				if !ok {
+					return false
+				}
+				text += lit.Value
+			}
+		default:
+			return false
+		}
+	}
+	return text != ""
 }
 
 func nonEmptyLiteralParts(parts []syntax.WordPart) bool {

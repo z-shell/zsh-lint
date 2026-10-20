@@ -44,6 +44,7 @@ Configured plugin and Zi annex `sourced-library` sources retain the Warning for 
 Native Zsh does not split or glob an unquoted parameter, so the remaining hazard is an empty value dropped from the argument list, and one file cannot show whether a value may be empty.
 Configured sources keep the Info finding, except for intentional alternates such as `${x:+word}` and expansions proven non-empty: `${x:-word}` or `${x:=word}` whose word contains non-empty literal text, `${x:?word}`, names declared integer or float earlier in the same scope and not unset there, and read-only numeric parameters.
 Literal text in a default may accompany expansions, as in `${x:-$dir/file}`; unquoted declared arrays, explicit array products such as `${x:-prefix${^values}}` and explicit glob substitution are not treated as non-empty because expansion can remove the entire word.
+The mixed-word exemption also excludes possible unquoted glob syntax and outer flags or modifiers whose effect is not proven to preserve non-emptiness; literal-only defaults retain their existing behavior.
 Default-word inference assumes native option defaults for parameters not known as arrays; it does not resolve dynamic caller declarations or options.
 Single-element subscripts receive scalar quoting advice; advice for ranges, reverse or chained subscripts preserves the selection instead of replacing it with every array element.
 The rule stays in the default set, so its suppression directives remain valid.
