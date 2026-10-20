@@ -43,8 +43,11 @@ Configured plugin and Zi annex `sourced-library` sources retain the Warning for 
 `quoting/unquoted-var` also stays silent without configured source metadata ([#705](https://github.com/z-shell/zsh-lint/issues/705)).
 Native Zsh does not split or glob an unquoted parameter, so the remaining hazard is an empty value dropped from the argument list, and one file cannot show whether a value may be empty.
 Configured sources keep the Info finding, except for intentional alternates such as `${x:+word}` and expansions proven non-empty: `${x:-word}` or `${x:=word}` whose word contains non-empty literal text, `${x:?word}`, names declared integer or float earlier in the same scope and not unset there, and read-only numeric parameters.
-Literal text in a default may accompany expansions, as in `${x:-$dir/file}`; unquoted declared arrays, explicit array products such as `${x:-prefix${^values}}` and explicit glob substitution are not treated as non-empty because expansion can remove the entire word.
-The mixed-word exemption also excludes possible unquoted glob syntax and outer flags or modifiers whose effect is not proven to preserve non-emptiness; literal-only defaults retain their existing behavior.
+The additional default matcher accepts non-empty literal text alongside plain short `$name` references, optionally enclosed together in one pair of double quotes, as in `${x:-$dir/file}` or `${x:="prefix$other"}`.
+Unquoted literal parts may contain only ASCII letters, digits and `_./:-`; brace, glob, quote and escape syntax are not interpreted by the matcher.
+It excludes known outer or referenced arrays, subscripts, outer flags or modifiers, escaped literal text and expansions other than plain short named references.
+Any visible `setopt` enabling `rc_expand_param` or `glob_subst`, or using dynamic arguments, patterns or short option bundles, disables the additional exemption throughout the file.
+Nested operators, explicit array products and glob substitution remain reported; literal-only defaults retain their existing behavior.
 Default-word inference assumes native option defaults for parameters not known as arrays; it does not resolve dynamic caller declarations or options.
 Single-element subscripts receive scalar quoting advice; advice for ranges, reverse or chained subscripts preserves the selection instead of replacing it with every array element.
 The rule stays in the default set, so its suppression directives remain valid.

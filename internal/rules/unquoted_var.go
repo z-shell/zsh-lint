@@ -48,9 +48,10 @@ import (
 // words, command names, and arguments of `:` are also excluded. Expansions that
 // can never be empty are skipped: `${x:+word}` and `${x+word}`, which elide on
 // purpose and would pass an empty argument if quoted; `${x:-word}` and
-// `${x:=word}` whose word contains non-empty literal text (even alongside
-// expansions), except possible unquoted array products, glob syntax or outer
-// transformations whose effect is unproven; `${x:?word}`, which fails instead
+// `${x:=word}` with a literal-only default, or safe literal text alongside
+// plain short named expansions, optionally double-quoted, when neither the
+// outer name nor referenced names are known arrays and no expansion-changing
+// setopt is visible; `${x:?word}`, which fails instead
 // of expanding empty; names declared integer or float earlier in the same
 // function or file scope, unless that scope unsets them; and the read-only
 // numeric parameters `PPID`, `ZSH_SUBSHELL` and `TTYIDLE`. Code may
@@ -167,16 +168,19 @@ func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool
 	// 6. Expansion operators whose result is never an empty argument: ${x:+w}
 	// and ${x+w} elide on purpose, so quoting them would pass an empty word;
 	// ${x:?w} fails rather than expanding empty; ${x:-w} and ${x:=w} with a
-	// non-empty literal text in w fall back to that text unless an unquoted
-	// product can remove it.
+	// literal-only w keep their existing exemption. The additional matcher
+	// accepts only a bounded literal-and-reference grammar, not arbitrary words.
 	if param.Exp != nil {
 		switch param.Exp.Op {
 		case syntax.AlternateUnset, syntax.AlternateUnsetOrNull, syntax.ErrorUnsetOrNull:
 			return true
 		case syntax.DefaultUnsetOrNull, syntax.AssignUnsetOrNull:
 			if nonEmptyStaticWord(param.Exp.Word) ||
-				param.Flags == nil && len(param.Modifiers) == 0 && param.RcExpand != syntax.OptOn &&
-					nonEmptyLiteralWord(ctx, param.Exp.Word) {
+				param.Param != nil && syntax.ValidName(param.Param.Value) && param.Index == nil &&
+					param.Flags == nil && len(param.Modifiers) == 0 &&
+					param.RcExpand == syntax.OptUnset && param.Split == syntax.OptUnset && param.GlobSubst == syntax.OptUnset &&
+					(ctx.Scope == nil || !ctx.Scope.IsDeclaredArray(param.Param.Value, param.Pos())) &&
+					plainLiteralDefault(ctx, param.Exp.Word) && !hasDefaultExpansionOptions(ctx) {
 				return true
 			}
 		}
@@ -208,41 +212,72 @@ func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool
 	return false
 }
 
-// nonEmptyLiteralWord reports whether a word contains non-empty literal text
-// without an unquoted array product that can remove it (#746).
-func nonEmptyLiteralWord(ctx *analyzer.Context, word *syntax.Word) bool {
+// plainLiteralDefault recognizes a small grammar, not general word
+// non-emptiness: safe literal parts plus short named references, optionally
+// enclosed together in one pair of double quotes (#746).
+func plainLiteralDefault(ctx *analyzer.Context, word *syntax.Word) bool {
 	if word == nil {
 		return false
 	}
-	// An unquoted empty array product removes even adjacent literal text. A
-	// declared array may inherit RC_EXPAND_PARAM, so require an explicit ^^ to
-	// rule that out. Explicit glob substitution can also vanish with NULL_GLOB.
-	// Double quotes retain the text, so do not inspect their children here.
-	product := false
-	syntax.Walk(word, func(node syntax.Node) bool {
-		if _, quoted := node.(*syntax.DblQuoted); quoted {
-			return false
+	parts, quoted := word.Parts, false
+	if len(parts) == 1 {
+		if q, ok := parts[0].(*syntax.DblQuoted); ok && !q.Dollar {
+			parts, quoted = q.Parts, true
 		}
-		if param, ok := node.(*syntax.ParamExp); ok {
-			product = product || param.RcExpand == syntax.OptOn || param.GlobSubst == syntax.OptOn ||
-				param.RcExpand != syntax.OptOff && param.Param != nil && ctx.Scope != nil &&
-					ctx.Scope.IsDeclaredArray(param.Param.Value, param.Pos())
-		}
-		return !product
-	})
-	// Reject potential glob syntax conservatively, including escaped syntax.
-	// Pattern text inside a nested parameter operator does not itself glob.
-	for _, part := range word.Parts {
+	}
+	literal := false
+	for _, part := range parts {
 		switch x := part.(type) {
 		case *syntax.Lit:
-			if strings.ContainsAny(x.Value, "*?[]()<>|#~^\\") {
+			if strings.Contains(x.Value, "\\") {
 				return false
 			}
-		case *syntax.ExtGlob:
+			if !quoted && strings.Trim(x.Value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-") != "" {
+				return false
+			}
+			literal = literal || x.Value != ""
+		case *syntax.ParamExp:
+			if !x.Short || x.Param == nil || !syntax.ValidName(x.Param.Value) || x.Index != nil ||
+				x.RcExpand != syntax.OptUnset || x.Split != syntax.OptUnset || x.GlobSubst != syntax.OptUnset ||
+				ctx.Scope != nil && ctx.Scope.IsDeclaredArray(x.Param.Value, x.Pos()) {
+				return false
+			}
+		default:
 			return false
 		}
 	}
-	return !product && nonEmptyLiteralParts(word.Parts)
+	return literal
+}
+
+// Any visible setopt enabling expansion-changing options defeats this narrow
+// proof, even after the use or in a different function. Dynamic names and
+// short option bundles are unknown, not evidence that native defaults hold.
+func hasDefaultExpansionOptions(ctx *analyzer.Context) bool {
+	if ctx.File == nil {
+		return true
+	}
+	unsafe := false
+	syntax.Walk(ctx.File.AST(), func(node syntax.Node) bool {
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || unsafe {
+			return !unsafe
+		}
+		name, args := effectiveCommand(call)
+		if name != "setopt" {
+			return true
+		}
+		for _, arg := range args {
+			value, static := staticDeclarationWord(arg)
+			value = strings.ToLower(strings.ReplaceAll(value, "_", ""))
+			if !static || value != "--" && (strings.HasPrefix(value, "-") ||
+				strings.ContainsAny(value, "*?[]") || value == "rcexpandparam" || value == "globsubst") {
+				unsafe = true
+				return false
+			}
+		}
+		return true
+	})
+	return unsafe
 }
 
 // nonEmptyStaticWord preserves the pre-existing literal-only exemption. The
@@ -271,24 +306,4 @@ func nonEmptyStaticWord(word *syntax.Word) bool {
 		}
 	}
 	return text != ""
-}
-
-func nonEmptyLiteralParts(parts []syntax.WordPart) bool {
-	for _, part := range parts {
-		switch x := part.(type) {
-		case *syntax.Lit:
-			if x.Value != "" {
-				return true
-			}
-		case *syntax.SglQuoted:
-			if x.Value != "" {
-				return true
-			}
-		case *syntax.DblQuoted:
-			if nonEmptyLiteralParts(x.Parts) {
-				return true
-			}
-		}
-	}
-	return false
 }
