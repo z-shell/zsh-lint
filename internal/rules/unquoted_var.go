@@ -50,8 +50,8 @@ import (
 // purpose and would pass an empty argument if quoted; `${x:-word}` and
 // `${x:=word}` with a literal-only default, or safe literal text alongside
 // plain short named expansions, optionally double-quoted, when neither the
-// outer name nor referenced names are known arrays and no expansion-changing
-// setopt is visible; `${x:?word}`, which fails instead
+// outer name nor referenced names appear in any declaration or array assignment
+// and no option-changing command is visible; `${x:?word}`, which fails instead
 // of expanding empty; names declared integer or float earlier in the same
 // function or file scope, unless that scope unsets them; and the read-only
 // numeric parameters `PPID`, `ZSH_SUBSHELL` and `TTYIDLE`. Code may
@@ -179,8 +179,7 @@ func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool
 				param.Param != nil && syntax.ValidName(param.Param.Value) && param.Index == nil &&
 					param.Flags == nil && len(param.Modifiers) == 0 &&
 					param.RcExpand == syntax.OptUnset && param.Split == syntax.OptUnset && param.GlobSubst == syntax.OptUnset &&
-					(ctx.Scope == nil || !ctx.Scope.IsDeclaredArray(param.Param.Value, param.Pos())) &&
-					plainLiteralDefault(ctx, param.Exp.Word) && !hasDefaultExpansionOptions(ctx) {
+					plainLiteralDefault(param.Exp.Word) && !mixedDefaultVeto(ctx, param) {
 				return true
 			}
 		}
@@ -215,7 +214,7 @@ func shouldSkipUnquotedParam(ctx *analyzer.Context, param *syntax.ParamExp) bool
 // plainLiteralDefault recognizes a small grammar, not general word
 // non-emptiness: safe literal parts plus short named references, optionally
 // enclosed together in one pair of double quotes (#746).
-func plainLiteralDefault(ctx *analyzer.Context, word *syntax.Word) bool {
+func plainLiteralDefault(word *syntax.Word) bool {
 	if word == nil {
 		return false
 	}
@@ -238,8 +237,7 @@ func plainLiteralDefault(ctx *analyzer.Context, word *syntax.Word) bool {
 			literal = literal || x.Value != ""
 		case *syntax.ParamExp:
 			if !x.Short || x.Param == nil || !syntax.ValidName(x.Param.Value) || x.Index != nil ||
-				x.RcExpand != syntax.OptUnset || x.Split != syntax.OptUnset || x.GlobSubst != syntax.OptUnset ||
-				ctx.Scope != nil && ctx.Scope.IsDeclaredArray(x.Param.Value, x.Pos()) {
+				x.RcExpand != syntax.OptUnset || x.Split != syntax.OptUnset || x.GlobSubst != syntax.OptUnset {
 				return false
 			}
 		default:
@@ -249,33 +247,94 @@ func plainLiteralDefault(ctx *analyzer.Context, word *syntax.Word) bool {
 	return literal
 }
 
-// Any visible setopt enabling expansion-changing options defeats this narrow
-// proof, even after the use or in a different function. Dynamic names and
-// short option bundles are unknown, not evidence that native defaults hold.
-func hasDefaultExpansionOptions(ctx *analyzer.Context) bool {
+// mixedDefaultVeto is intentionally file-wide and independent of the shared
+// scope index: an unrecognized declaration is not proof of scalar type. It
+// models neither option values, declaration flags, scope nor execution order.
+func mixedDefaultVeto(ctx *analyzer.Context, param *syntax.ParamExp) bool {
 	if ctx.File == nil {
 		return true
 	}
-	unsafe := false
-	syntax.Walk(ctx.File.AST(), func(node syntax.Node) bool {
-		call, ok := node.(*syntax.CallExpr)
-		if !ok || unsafe {
-			return !unsafe
-		}
-		name, args := effectiveCommand(call)
-		if name != "setopt" {
-			return true
-		}
-		for _, arg := range args {
-			value, static := staticDeclarationWord(arg)
-			value = strings.ToLower(strings.ReplaceAll(value, "_", ""))
-			if !static || value != "--" && (strings.HasPrefix(value, "-") ||
-				strings.ContainsAny(value, "*?[]") || value == "rcexpandparam" || value == "globsubst") {
-				unsafe = true
-				return false
-			}
+	names := map[string]bool{"options": true}
+	syntax.Walk(param, func(node syntax.Node) bool {
+		if p, ok := node.(*syntax.ParamExp); ok && p.Param != nil {
+			names[p.Param.Value] = true
 		}
 		return true
+	})
+	mentions := func(word *syntax.Word) bool {
+		text, static := staticDeclarationWord(word)
+		if !static {
+			return true
+		}
+		for _, name := range strings.FieldsFunc(text, func(c rune) bool {
+			return !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", c)
+		}) {
+			if names[name] {
+				return true
+			}
+		}
+		return false
+	}
+	unsafe := false
+	syntax.Walk(ctx.File.AST(), func(node syntax.Node) bool {
+		if unsafe {
+			return false
+		}
+		switch x := node.(type) {
+		case *syntax.ParamExp:
+			if x.Param != nil && x.Param.Value == "options" && x.Exp != nil {
+				switch x.Exp.Op {
+				case syntax.AssignUnset, syntax.AssignUnsetOrNull:
+					unsafe = true
+				}
+			}
+		case *syntax.Assign:
+			if x.Name != nil && (x.Name.Value == "options" || names[x.Name.Value] && (x.Array != nil || x.Index != nil)) {
+				unsafe = true
+			}
+		case *syntax.DeclClause:
+			for _, arg := range x.Args {
+				if arg.Name != nil && (names[arg.Name.Value] || arg.Name.Value == "options") || arg.Name == nil && mentions(arg.Value) {
+					unsafe = true
+				}
+			}
+		case *syntax.CallExpr:
+			// Include command-prefixed builtins even when native defaults would
+			// search only external commands. This is a veto, not execution proof.
+			command := resolveCommand(x)
+		prefixes:
+			for range x.Args {
+				switch command.name {
+				case "builtin", "command", "noglob":
+				default:
+					break prefixes
+				}
+				command = resolveCommand(&syntax.CallExpr{Args: command.args})
+			}
+			switch command.name {
+			case "setopt", "unsetopt", "emulate":
+				unsafe = true
+			case "set":
+				for _, arg := range command.args {
+					value, static := staticDeclarationWord(arg)
+					if static && value == "--" {
+						break
+					}
+					if !static || strings.HasPrefix(value, "-") || strings.HasPrefix(value, "+") {
+						unsafe = true
+					} else {
+						break
+					}
+				}
+			case "typeset", "declare", "local", "integer", "float", "readonly", "export":
+				for _, arg := range command.args {
+					if mentions(arg) {
+						unsafe = true
+					}
+				}
+			}
+		}
+		return !unsafe
 	})
 	return unsafe
 }

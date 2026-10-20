@@ -354,7 +354,7 @@ func TestUnquotedVarSkipsNeverEmptyExpansions(t *testing.T) {
 		{"setopt pattern", "setopt -m 'rc*'; print -r -- ${mode:-prefix$other}\n", 1},
 		{"setopt after unrelated command in function", "f() { true; setopt rc_expand_param; }; print -r -- ${mode:-prefix$other}\n", 1},
 		{"setopt inside command argument", "print \"$(setopt rc_expand_param)\"; print -r -- ${mode:-prefix$other}\n", 1},
-		{"unrelated option", "setopt no_beep; print -r -- ${mode:-prefix$other}\n", 0},
+		{"unrelated option still vetoes", "setopt no_beep; print -r -- ${mode:-prefix$other}\n", 1},
 		{"tilde syntax unsupported", "print -r -- ${mode:-~$other}\n", 1},
 		{"equals syntax unsupported", "print -r -- ${mode:-=$other}\n", 1},
 		{"hash syntax unsupported", "print -r -- ${mode:-#$other}\n", 1},
