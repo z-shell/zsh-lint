@@ -8,3 +8,13 @@
   typeset -r source_path=$1
   print -r -- "$source_path"
 } "${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}"
+
+# Invocation tails and enclosing closers remain outside the words (#279).
+() { print -r -- "$1"; } later && print tail
+() { print -r -- "$1"; } later || print tail
+() { print -r -- "$1"; } later | cat
+() { print -r -- "$1"; } later & print tail
+() { print -r -- "$1"; } later > /dev/null
+() { print -r -- "$1"; } later # retained comment
+{ () { print -r -- "$1"; } later }
+print "$( () { print -r -- "$1"; } later)"

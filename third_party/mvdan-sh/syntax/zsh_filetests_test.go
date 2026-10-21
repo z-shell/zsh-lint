@@ -10,6 +10,22 @@ import (
 // These fork-local rows share upstream's tree, print, printer-option, native
 // confirmation and fuzz-seed checks. Keep focused position and state tests too.
 var zshFileTests = []fileTestCase{
+	// Anonymous invocations own their operator tails, rather than storing
+	// them as part of the function body (#279).
+	// https://zsh.sourceforge.io/Doc/Release/Functions.html#Anonymous-Functions
+	fileTest(
+		[]string{"() { :; } && print tail"},
+		langFile(&BinaryCmd{Op: AndStmt, X: stmt(&FuncDecl{Parens: true, Body: stmt(block(litStmt(":")))}), Y: litStmt("print", "tail")}, LangZsh),
+	),
+	fileTest(
+		[]string{"() { :; } | cat"},
+		langFile(&BinaryCmd{Op: Pipe, X: stmt(&FuncDecl{Parens: true, Body: stmt(block(litStmt(":")))}), Y: litStmt("cat")}, LangZsh),
+	),
+	fileTest(
+		[]string{"() { :; } > out"},
+		printsAs("() { :; } >out"),
+		langFile(&Stmt{Cmd: &FuncDecl{Parens: true, Body: stmt(block(litStmt(":")))}, Redirs: []*Redirect{{Op: RdrOut, Word: litWord("out")}}}, LangZsh),
+	),
 	// An assignment index's nested flag pattern retains typed expansions (#735).
 	// https://zsh.sourceforge.io/Doc/Release/Parameters.html#Array-Element-Assignment
 	fileTest(
