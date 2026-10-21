@@ -6209,7 +6209,13 @@ func (p *Parser) funcDecl(s *Stmt, pos Pos, long, withParens bool, parensEnd Pos
 		p.got(_Newl)
 	}
 	// TODO: reject any body which isn't a compound command, like a quoted word
-	if fd.Body = p.getStmt(false, false, true); fd.Body == nil {
+	if p.lang.in(LangZsh) && len(names) == 0 && p.tok == _LitWord && p.val == "{" {
+		// An anonymous brace function is invoked here. Operators and
+		// redirections after its brace belong to that invocation, not
+		// to the stored body statement (#279).
+		fd.Body = &Stmt{Position: p.pos}
+		p.block(fd.Body)
+	} else if fd.Body = p.getStmt(false, false, true); fd.Body == nil {
 		p.followErr(fd.Pos(), "foo()", noQuote("a statement"))
 	}
 	s.Cmd = fd

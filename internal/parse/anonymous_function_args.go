@@ -3,6 +3,7 @@ package parse
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,8 +18,9 @@ import (
 var closerRetries atomic.Int64
 
 type anonymousInvocationCandidate struct {
-	close int
-	words []*syntax.Word
+	close  int
+	words  []*syntax.Word
+	redirs []*syntax.Redirect
 	// seedErr is the error whose position seeded this candidate's discovery,
 	// captured before it was masked. When this specific candidate turns out
 	// not to be a genuine anonymous function, seedErr is the true, unmasked
@@ -30,8 +32,12 @@ type anonymousInvocationCandidate struct {
 
 // parseAnonymousFunctionArgs closes the native-Zsh gap where an anonymous
 // function declaration is immediately followed by invocation words. The full
-// retry masks only those words with same-width spaces. Each masked word is
-// parsed separately at its original offset and retained as typed metadata.
+// retry masks the argument words with same-width blanks, including internal
+// newlines, then restores original line/column positions. Operators, redirect
+// targets, comments after the arguments and enclosing closers are not masked.
+// A braced redirect descriptor is masked and restored onto its owning
+// redirect. The original words are parsed together at their original offsets
+// and retained as typed metadata.
 func parseAnonymousFunctionArgs(
 	src []byte,
 	name string,
@@ -43,7 +49,7 @@ func parseAnonymousFunctionArgs(
 	var candidates []anonymousInvocationCandidate
 
 	for {
-		close, end, words, ok := anonymousFunctionInvocationCandidate(src, name, currentErr)
+		close, stmt, ok := anonymousFunctionInvocationCandidate(src, name, currentErr)
 		if !ok || seen[close] {
 			// A seed candidate can land on an ordinary brace group followed
 			// by a stray word (for example `{ :; } argument`), which is not
@@ -72,17 +78,45 @@ func parseAnonymousFunctionArgs(
 			return nil, nil, currentErr
 		}
 		seen[close] = true
-		candidates = append(candidates, anonymousInvocationCandidate{close: close, words: words, seedErr: currentErr})
-		for offset := close + 1; offset < end; offset++ {
-			if masked[offset] != '\n' {
+		words := stmt.Cmd.(*syntax.CallExpr).Args[1:]
+		candidates = append(candidates, anonymousInvocationCandidate{close: close, words: words, redirs: stmt.Redirs, seedErr: currentErr})
+		for _, word := range words {
+			for offset := int(word.Pos().Offset()); offset < int(word.End().Offset()); offset++ {
 				masked[offset] = ' '
+			}
+		}
+		// A braced descriptor is lexed in command position after the
+		// masked words disappear. Preserve the operator and target, then
+		// restore this typed prefix onto its matching redirect below.
+		for _, redir := range stmt.Redirs {
+			if redir.N != nil && strings.HasPrefix(redir.N.Value, "{") {
+				for offset := redir.N.Pos().Offset(); offset < redir.N.End().Offset(); offset++ {
+					masked[offset] = ' '
+				}
 			}
 		}
 
 		tree, err := parseWithAdapters(masked, name)
 		if err != nil {
+			var failure syntax.ParseError
+			if errors.As(err, &failure) {
+				line, col := lineCol(src, int(failure.Pos.Offset()))
+				failure.Pos = syntax.NewPos(failure.Pos.Offset(), line, col)
+				err = failure
+			}
 			currentErr = err
 			continue
+		}
+		if bytes.Count(src, []byte{'\n'}) != bytes.Count(masked, []byte{'\n'}) {
+			// Byte offsets never change, but masked word-internal newlines
+			// do. Reuse the existing position traversal with an identity map.
+			boundaries := make([]int, len(src)+1)
+			for i := range boundaries {
+				boundaries[i] = i
+			}
+			if err := rebaseLegacyBacktickPositions(reflect.ValueOf(tree), islandSourceMap{originalOffsetByBoundary: boundaries}, originalLineStarts(src), &legacyBacktickSpan{openOffset: -1, closeOffset: len(src)}); err != nil {
+				return nil, nil, firstErr
+			}
 		}
 		invocations, ok, failed := bindAnonymousInvocations(tree, candidates)
 		if !ok {
@@ -265,17 +299,17 @@ func anonymousFunctionInvocationCandidate(
 	src []byte,
 	name string,
 	parseFailure error,
-) (int, int, []*syntax.Word, bool) {
+) (int, *syntax.Stmt, bool) {
 	var parseErr syntax.ParseError
 	if !errors.As(parseFailure, &parseErr) || parseErr.Text != tryAlwaysParseError {
-		return 0, 0, nil, false
+		return 0, nil, false
 	}
 	seed := int(parseErr.Pos.Offset())
 	if seed >= len(src) {
 		seed = len(src) - 1
 	}
 	if seed < 0 {
-		return 0, 0, nil, false
+		return 0, nil, false
 	}
 
 	lineStart := logicalLineStart(src, seed+1)
@@ -286,7 +320,7 @@ func anonymousFunctionInvocationCandidate(
 	if close < lineStart || src[close] != '}' {
 		close = bytes.LastIndexByte(src[lineStart:seed+1], '}')
 		if close < 0 {
-			return 0, 0, nil, false
+			return 0, nil, false
 		}
 		close += lineStart
 	}
@@ -296,75 +330,16 @@ func anonymousFunctionInvocationCandidate(
 		wordStart++
 	}
 	if wordStart >= len(src) || src[wordStart] == '\n' || src[wordStart] == ';' {
-		return 0, 0, nil, false
+		return 0, nil, false
 	}
-	end, ok := anonymousInvocationEnd(src, wordStart)
+	stmt, ok := parseAnonymousInvocationWords(src, name, close, len(src))
 	if !ok {
-		return 0, 0, nil, false
+		return 0, nil, false
 	}
-	words, ok := parseAnonymousInvocationWords(src, name, close, end)
-	if !ok {
-		return 0, 0, nil, false
-	}
-	return close, end, words, true
+	return close, stmt, true
 }
 
-func anonymousInvocationEnd(src []byte, start int) (int, bool) {
-	var quote byte
-	escaped := false
-	parenDepth := 0
-	braceDepth := 0
-	bracketDepth := 0
-
-	for offset := start; offset < len(src); offset++ {
-		b := src[offset]
-		if escaped {
-			escaped = false
-			continue
-		}
-		if quote != 0 {
-			switch {
-			case b == '\\' && quote != '\'':
-				escaped = true
-			case b == quote:
-				quote = 0
-			}
-			continue
-		}
-
-		switch b {
-		case '\\':
-			escaped = true
-		case '\'', '"', '`':
-			quote = b
-		case '(':
-			parenDepth++
-		case ')':
-			if parenDepth > 0 {
-				parenDepth--
-			}
-		case '{':
-			braceDepth++
-		case '}':
-			if braceDepth > 0 {
-				braceDepth--
-			}
-		case '[':
-			bracketDepth++
-		case ']':
-			if bracketDepth > 0 {
-				bracketDepth--
-			}
-		case '\n', ';':
-			if parenDepth == 0 && braceDepth == 0 && bracketDepth == 0 {
-				return offset, true
-			}
-		}
-	}
-	return len(src), quote == 0 && !escaped && parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
-}
-
-func parseAnonymousInvocationWords(src []byte, name string, close, end int) ([]*syntax.Word, bool) {
+func parseAnonymousInvocationWords(src []byte, name string, close, end int) (*syntax.Stmt, bool) {
 	island := make([]byte, len(src))
 	for offset, b := range src {
 		if b == '\n' {
@@ -375,9 +350,26 @@ func parseAnonymousInvocationWords(src []byte, name string, close, end int) ([]*
 	}
 	island[close] = ':'
 	copy(island[close+1:end], src[close+1:end])
-	tree, err := parseWithAdapters(island, name)
-	if err != nil {
-		return nil, false
+	var tree *syntax.File
+	for {
+		var err error
+		tree, err = parseWithAdapters(island[:end], name)
+		if err == nil {
+			break
+		}
+		// The island starts at an invocation, not at its enclosing
+		// grammar context. Cut off a closer or a later error and retry
+		// the complete prefix. Each retry strictly shrinks; the full-file
+		// parse still validates every byte not owned by argument words.
+		var failure syntax.ParseError
+		if !errors.As(err, &failure) {
+			return nil, false
+		}
+		next := int(failure.Pos.Offset())
+		if next <= close || next >= end {
+			return nil, false
+		}
+		end = next
 	}
 	// The words are typed metadata, not part of the returned File, so the
 	// shared walk in Parse never reaches them. Repair a flagged subscript
@@ -396,12 +388,20 @@ func parseAnonymousInvocationWords(src []byte, name string, close, end int) ([]*
 	// the island need the fallback. The bare chain is kept as the bound: it
 	// makes the non-recursion structural rather than incidental.
 	tree = resolveFlagPatternCuts(island, name, tree, parseWithAdapters)
-	for _, stmt := range tree.Stmts {
-		call, ok := stmt.Cmd.(*syntax.CallExpr)
-		if !ok || len(call.Args) < 2 || getParseWordLiteral(call.Args[0]) != ":" {
+	if len(tree.Stmts) == 0 {
+		return nil, false
+	}
+	stmt := tree.Stmts[0]
+	for {
+		if binary, ok := stmt.Cmd.(*syntax.BinaryCmd); ok {
+			stmt = binary.X
 			continue
 		}
-		return append([]*syntax.Word(nil), call.Args[1:]...), true
+		break
+	}
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if ok && len(call.Args) >= 2 && int(call.Args[0].Pos().Offset()) == close && getParseWordLiteral(call.Args[0]) == ":" {
+		return stmt, true
 	}
 	return nil, false
 }
@@ -415,7 +415,13 @@ func bindAnonymousInvocations(
 	candidates []anonymousInvocationCandidate,
 ) ([]AnonymousInvocation, bool, anonymousInvocationCandidate) {
 	functionsByClose := make(map[int]*syntax.FuncDecl)
+	statementsByFunction := make(map[*syntax.FuncDecl]*syntax.Stmt)
 	syntax.Walk(tree, func(node syntax.Node) bool {
+		if stmt, ok := node.(*syntax.Stmt); ok {
+			if decl, ok := stmt.Cmd.(*syntax.FuncDecl); ok {
+				statementsByFunction[decl] = stmt
+			}
+		}
 		decl, ok := node.(*syntax.FuncDecl)
 		if ok && decl.Name == nil && len(decl.Names) == 0 {
 			functionsByClose[int(decl.End().Offset())-1] = decl
@@ -429,6 +435,22 @@ func bindAnonymousInvocations(
 		decl := functionsByClose[candidate.close]
 		if decl == nil {
 			return nil, false, candidate
+		}
+		stmt := statementsByFunction[decl]
+		for _, original := range candidate.redirs {
+			if original.N == nil || !strings.HasPrefix(original.N.Value, "{") {
+				continue
+			}
+			restored := false
+			for _, redir := range stmt.Redirs {
+				if redir.OpPos.Offset() == original.OpPos.Offset() {
+					redir.N = original.N
+					restored = true
+				}
+			}
+			if !restored {
+				return nil, false, candidate
+			}
 		}
 		invocations = append(invocations, AnonymousInvocation{
 			Function: decl,
