@@ -22,6 +22,10 @@ import (
 // exact test/tests path components, ignoring case. Explicit configured profiles
 // take precedence over that path heuristic. Function-local search paths are not
 // caller mutations.
+// Ordinary declaration-builtin calls after precommand modifiers are included.
+// Their scalar operands retain ordinary expansion semantics. These calls never
+// prove localization or suppress later findings; a later write to an ordinary
+// local search path can therefore remain a conservative false positive.
 //
 // Why: Sourced Zsh plugins must not destructively replace `fpath` (which removes
 // standard system and user function directories), add hardcoded user machine paths,
@@ -178,31 +182,59 @@ func (rule FpathHygiene) walkScope(ctx *analyzer.Context, node syntax.Node, invo
 		case *syntax.ProcSubst:
 			walkList(value.Stmts, localized)
 			return false
-		case *syntax.CallExpr:
-			if !localized {
-				rule.analyzeCall(ctx, value)
+		case *syntax.CallExpr, *syntax.DeclClause:
+			if call, ok := value.(*syntax.CallExpr); ok && !localized {
+				rule.analyzeCall(ctx, call)
 			}
-		case *syntax.DeclClause:
-			if value.Variant == nil {
+			declaration := ruleDeclaration(value)
+			if declaration == nil || declaration.Variant == nil {
 				return true
 			}
-			scan := scanDeclarationOptions(value.Variant.Value, value.Args)
+			scan := scanRuleDeclaration(value, declaration)
 			if scan.mode == declarationModeNonDeclaration || (inFunction && scan.mode == declarationModeUnknown) {
 				return true
 			}
-			for _, assign := range value.Args[scan.firstOperand:] {
-				name, _, _, valid := declaredParameter(assign)
-				if valid && (name == "fpath" || name == "FPATH") && inFunction && scan.mode == declarationModeLocal {
+			for _, assign := range declaration.Args[scan.firstOperand:] {
+				name, valid := reservedDeclarationName(assign)
+				_, reserved := value.(*syntax.DeclClause)
+				oldScan := scanDeclarationOptions(declaration.Variant.Value, declaration.Args)
+				if reserved && valid && (name == "fpath" || name == "FPATH") && inFunction && oldScan.mode == declarationModeLocal {
 					localized = true
 				}
 				if !localized {
-					rule.analyzeAssignment(ctx, assign, true)
+					if assign.Name == nil {
+						rule.analyzeDeclarationWord(ctx, assign.Value)
+					} else {
+						rule.analyzeAssignment(ctx, assign, true)
+					}
 				}
 			}
 		}
 		return true
 	})
 	return localized
+}
+
+// An ordinary builtin receives scalar name=value operands, not array syntax.
+// Only a completely static operand proves a destructive replacement. Use the
+// original operand span for the diagnostic, including any surrounding quotes.
+func (rule FpathHygiene) analyzeDeclarationWord(ctx *analyzer.Context, word *syntax.Word) {
+	value, static := staticDeclarationWord(word)
+	if !static {
+		return
+	}
+	name, text, assigned := strings.Cut(value, "=")
+	if !assigned || (name != "fpath" && name != "FPATH") {
+		return
+	}
+	rule.reportOverwrite(ctx, word.Pos(), word.End(), name)
+	paths := []string{text}
+	if name == "FPATH" {
+		paths = strings.Split(text, ":")
+	}
+	for _, path := range paths {
+		checkFpathDirectory(ctx, word, rule.ID(), path)
+	}
 }
 
 func (rule FpathHygiene) analyzeCall(ctx *analyzer.Context, call *syntax.CallExpr) {
