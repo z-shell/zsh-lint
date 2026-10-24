@@ -28,8 +28,33 @@ func ruleDeclaration(node syntax.Node) *syntax.DeclClause {
 				args = append(args, &syntax.Assign{Naked: true, Value: word})
 			}
 		}
+		// Any uncertain source word before an apparent operand boundary can
+		// disappear and expose a later option, not only a name=value word.
+		for i, assign := range args {
+			if declarationProvesLocal(assign) {
+				continue
+			}
+			for _, later := range args[i+1:] {
+				text, static := staticDeclarationWord(later.Value)
+				if !static || text != "" && strings.ContainsRune("-+", rune(text[0])) {
+					return nil
+				}
+			}
+		}
 		// The optional third -T operand is separator data, never a parameter.
 		scan := scanDeclarationOptions(name, args)
+		if scan.mode == declarationModeUnknown {
+			return nil
+		}
+		if scan.tied {
+			for _, assign := range args[scan.firstOperand:] {
+				// Source-word positions give parameter/separator roles only
+				// when every preceding operand has known single-word arity.
+				if !declarationProvesLocal(assign) {
+					return nil
+				}
+			}
+		}
 		if separator := scan.tiedParameterSeparator(args); separator != nil {
 			args = args[:scan.firstOperand+2]
 		}

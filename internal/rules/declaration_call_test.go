@@ -63,6 +63,36 @@ func TestDeclarationCallOperandBoundaries(t *testing.T) {
 	}
 }
 
+func TestDeclarationCallsRuntimeOperandRoles(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		rule   analyzer.Rule
+		source string
+		want   int
+	}{
+		{"optional operand exposes global registry", SharedPluginsRegistry{}, "example_f() { builtin typeset unused=${^empty} -g Plugins; Plugins=changed; }\n", 1},
+		{"optional operand exposes global fpath", FpathHygiene{}, "example_f() { builtin typeset unused=${^empty} -g FPATH; FPATH=/changed; }\n", 1},
+		{"optional operand exposes zero query", ZeroHandling{}, "builtin typeset unused=${^empty} -p 0=changed\nprint -r -- $0\n", 1},
+		{"optional operand exposes shadow query", SpecialParamShadow{}, "example_f() { builtin typeset unused=${^empty} -p ZSH_VERSION=changed; }\n", 0},
+		{"expanded tie registry separator", SharedPluginsRegistry{}, "example_f() { builtin typeset -T -- scalar=${values[@]} Plugins; Plugins=changed; }\n", 1},
+		{"expanded tie fpath separator", FpathHygiene{}, "example_f() { builtin typeset -T -- scalar=${values[@]} FPATH; FPATH=/changed; }\n", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			file, err := parse.Parse(strings.NewReader(test.source), "example.zsh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := analyzer.New(test.rule).AnalyzeSource(file, "example.zsh", sourceContext(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "example"))
+			if _, fpath := test.rule.(FpathHygiene); fpath {
+				got = analyzer.New(test.rule).Analyze(file, "example.zsh")
+			}
+			if len(got) != test.want {
+				t.Fatalf("diagnostics = %+v, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 func TestSpecialParamShadowDeclarationCalls(t *testing.T) {
 	for _, prefix := range []string{"builtin ", "noglob ", "- ", "nocorrect "} {
 		t.Run(prefix, func(t *testing.T) {

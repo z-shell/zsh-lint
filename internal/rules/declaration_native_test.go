@@ -13,6 +13,33 @@ import (
 // in an empty environment, never consumer source or inherited parameter data.
 // https://zsh.sourceforge.io/Doc/Release/Shell-Grammar.html#Precommand-Modifiers
 // https://zsh.sourceforge.io/Doc/Release/Shell-Builtin-Commands.html#index-typeset
+func TestDeclarationRuntimeCardinalityNative(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh not installed")
+	}
+	for _, test := range []struct{ name, source, want string }{
+		{"optional argument exposes global option", "typeset -a empty=(); Plugins=outer; f() { builtin typeset unused=${^empty} -g Plugins >/dev/null; Plugins=changed; }; f; print -r -- OBS:$Plugins\n", "OBS:changed\n"},
+		{"expanding argument changes tie roles", "typeset -a values=(one array); Plugins=outer; f() { builtin typeset -T -- scalar=${values[@]} Plugins >/dev/null; Plugins=changed; }; f; print -r -- OBS:$Plugins\n", "OBS:changed\n"},
+		{"expanding argument does not localize fpath", "typeset -a values=(one array); FPATH=/original; f() { builtin typeset -T -- scalar=${values[@]} FPATH >/dev/null; FPATH=/changed; }; f; print -r -- OBS:$FPATH\n", "OBS:/changed\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			file := filepath.Join(dir, "probe.zsh")
+			if err := os.WriteFile(file, []byte(test.source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			command := exec.Command(zsh, "-f", file)
+			command.Dir = dir
+			command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "ZDOTDIR=" + dir, "TMPDIR=" + dir, "LC_ALL=C"}
+			output, err := command.CombinedOutput()
+			if err != nil || string(output) != test.want {
+				t.Fatalf("output %q, error %v, want %q", output, err, test.want)
+			}
+		})
+	}
+}
+
 func TestDeclarationCallsNative(t *testing.T) {
 	zsh, err := exec.LookPath("zsh")
 	if err != nil {
@@ -28,7 +55,7 @@ func TestDeclarationCallsNative(t *testing.T) {
 			}
 			command := exec.Command(zsh, "-f", file)
 			command.Dir = dir
-			command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "ZDOTDIR=" + dir, "LC_ALL=C"}
+			command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "ZDOTDIR=" + dir, "TMPDIR=" + dir, "LC_ALL=C"}
 			output, err := command.CombinedOutput()
 			if err != nil || string(output) != "inner\nouter\n" {
 				t.Fatalf("local behavior: output %q, error %v", output, err)
@@ -39,7 +66,7 @@ func TestDeclarationCallsNative(t *testing.T) {
 			}
 			command = exec.Command(zsh, "-f", file)
 			command.Dir = dir
-			command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "ZDOTDIR=" + dir, "LC_ALL=C"}
+			command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "ZDOTDIR=" + dir, "TMPDIR=" + dir, "LC_ALL=C"}
 			output, err = command.CombinedOutput()
 			reserved := prefix == "" || prefix == "nocorrect "
 			if reserved {

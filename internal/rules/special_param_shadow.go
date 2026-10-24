@@ -283,6 +283,19 @@ func scanDeclarationOptions(variant string, args []*syntax.Assign) declarationOp
 		}
 		if name, known := declarationWordName(assign.Value); known && name != "" &&
 			!strings.ContainsRune("-+", rune(name[0])) && declarationWordAssigns(assign.Value) {
+			if !declarationProvesLocal(assign) {
+				for _, later := range args[i+1:] {
+					if later == nil || later.Name != nil {
+						continue
+					}
+					value, static := staticDeclarationWord(later.Value)
+					if !static || value != "" && strings.ContainsRune("-+", rune(value[0])) {
+						// This operand may disappear and expose a later option.
+						scan.mode = declarationModeUnknown
+						return scan
+					}
+				}
+			}
 			scan.firstOperand = i
 			break
 		}
