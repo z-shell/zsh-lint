@@ -20,6 +20,8 @@ import (
 // Summary: Reports declarations, assignments, and indexed writes to the
 // ownerless global `Plugins` parameter in configured portable plugin and Zi
 // annex source.
+// Declaration builtins after precommand modifiers are included; print-only
+// forms remain read-only, and uncertain operands do not prove localization.
 //
 // Why: Zsh Plugin Standard 2 requires every persistent parameter to have one
 // project owner. A shared global registry has no portable ownership or unload
@@ -85,21 +87,18 @@ func (rule SharedPluginsRegistry) Analyze(ctx *analyzer.Context, node syntax.Nod
 
 	for _, statement := range file.Stmts {
 		syntax.Walk(statement, func(candidate syntax.Node) bool {
+			if declaration := ruleDeclaration(candidate); declaration != nil && declaration.Variant != nil {
+				scan := scanDeclarationOptions(declaration.Variant.Value, declaration.Args)
+				if !registryDeclarationPrints(declaration, scan) {
+					for _, assign := range declaration.Args[scan.firstOperand:] {
+						report(assign)
+					}
+				}
+				return false
+			}
 			switch value := candidate.(type) {
 			case *syntax.FuncDecl:
 				rule.analyzeFunction(value, report)
-				return false
-			case *syntax.DeclClause:
-				if value == nil || value.Variant == nil {
-					return false
-				}
-				scan := scanDeclarationOptions(value.Variant.Value, value.Args)
-				if registryDeclarationPrints(value, scan) {
-					return false
-				}
-				for _, assign := range value.Args[scan.firstOperand:] {
-					report(assign)
-				}
 				return false
 			case *syntax.CallExpr:
 				if len(value.Args) == 0 {
@@ -120,13 +119,10 @@ func (rule SharedPluginsRegistry) analyzeFunction(function *syntax.FuncDecl, rep
 
 	hasLocalPlugins := false
 	syntax.Walk(function.Body, func(candidate syntax.Node) bool {
-		switch value := candidate.(type) {
-		case *syntax.FuncDecl:
+		if _, nested := candidate.(*syntax.FuncDecl); nested {
 			return false
-		case *syntax.DeclClause:
-			if value == nil || value.Variant == nil {
-				return false
-			}
+		}
+		if value := ruleDeclaration(candidate); value != nil && value.Variant != nil {
 			scan := scanDeclarationOptions(value.Variant.Value, value.Args)
 			if registryDeclarationPrints(value, scan) {
 				return false
@@ -138,7 +134,7 @@ func (rule SharedPluginsRegistry) analyzeFunction(function *syntax.FuncDecl, rep
 				}
 				if scan.mode == declarationModeGlobal {
 					report(assign)
-				} else {
+				} else if declarationProvesLocal(assign) {
 					hasLocalPlugins = true
 				}
 			}
@@ -189,6 +185,8 @@ func registryDeclarationPrints(declaration *syntax.DeclClause, scan declarationO
 //
 // Summary: Reports persistent parameters that do not use the configured
 // project's `_project_name_...` private namespace.
+// This includes ordinary declaration-builtin calls after precommand modifiers,
+// without treating their arguments as reserved-word array assignments.
 //
 // Why: Shell parameters share one process-wide namespace. Standard 2 routes
 // public configuration through `:project-identifier:config` zstyles and
@@ -262,8 +260,8 @@ func (rule PersistentParameterNamespace) Analyze(ctx *analyzer.Context, node syn
 
 	// An explicit -g declaration is persistent even inside a function.
 	syntax.Walk(file, func(candidate syntax.Node) bool {
-		declaration, ok := candidate.(*syntax.DeclClause)
-		if !ok || declaration == nil || declaration.Variant == nil {
+		declaration := ruleDeclaration(candidate)
+		if declaration == nil || declaration.Variant == nil {
 			return true
 		}
 		scan := scanDeclarationOptions(declaration.Variant.Value, declaration.Args)
@@ -284,11 +282,7 @@ func (rule PersistentParameterNamespace) Analyze(ctx *analyzer.Context, node syn
 			if _, ok := candidate.(*syntax.FuncDecl); ok {
 				return false
 			}
-			switch value := candidate.(type) {
-			case *syntax.DeclClause:
-				if value == nil || value.Variant == nil {
-					return true
-				}
+			if value := ruleDeclaration(candidate); value != nil && value.Variant != nil {
 				scan := scanDeclarationOptions(value.Variant.Value, value.Args)
 				if scan.mode != declarationModeLocal {
 					return true
@@ -296,6 +290,9 @@ func (rule PersistentParameterNamespace) Analyze(ctx *analyzer.Context, node syn
 				for _, assign := range value.Args[scan.firstOperand:] {
 					report(assign)
 				}
+				return true
+			}
+			switch value := candidate.(type) {
 			case *syntax.CallExpr:
 				if len(value.Args) != 0 {
 					return true
@@ -326,12 +323,10 @@ func declaredParameter(assign *syntax.Assign) (string, syntax.Pos, syntax.Pos, b
 	if assign.Name != nil {
 		return assign.Name.Value, assign.Name.Pos(), assign.Name.End(), true
 	}
-	value, ok := staticDeclarationWord(assign.Value)
+	name, ok := declarationWordName(assign.Value)
 	if !ok {
 		return "", syntax.Pos{}, syntax.Pos{}, false
 	}
-	name, _, _ := strings.Cut(value, "=")
-	name = strings.TrimSuffix(name, "+")
 	if name == "" || strings.ContainsAny(name, "[]") {
 		return "", syntax.Pos{}, syntax.Pos{}, false
 	}

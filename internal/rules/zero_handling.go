@@ -19,6 +19,8 @@ import (
 // replace caller state. Unconfigured sources remain silent: their execution
 // profile and the caller's option state are unknown.
 // The `${0:#$ZSH_ARGZERO}` filter is accepted.
+// Assignment operands of declaration builtins are included, both directly and
+// after precommand modifiers; print-only declarations remain read-only.
 //
 // Why: Native Zsh enables `FUNCTION_ARGZERO` by default, temporarily setting
 // `$0` to the sourced filename or function name on entry. A caller that disables
@@ -137,6 +139,30 @@ func analyzeZeroIf(ctx *analyzer.Context, clause *syntax.IfClause, ruleID diag.R
 }
 
 func reportConfiguredZeroAssignment(ctx *analyzer.Context, stmt *syntax.Stmt, ruleID diag.RuleID) bool {
+	if declaration := ruleDeclaration(stmt.Cmd); declaration != nil && declaration.Variant != nil {
+		scan := scanDeclarationOptions(declaration.Variant.Value, declaration.Args)
+		if scan.mode == declarationModeNonDeclaration || scan.mode == declarationModeUnknown {
+			return false
+		}
+		reported := false
+		for _, assign := range declaration.Args[scan.firstOperand:] {
+			if assign == nil {
+				continue
+			}
+			name, _, _, known := declaredParameter(assign)
+			assigned := assign.Name != nil && !assign.Naked
+			if assign.Name == nil {
+				assigned = declarationWordAssigns(assign.Value)
+			}
+			if known && name == "0" && assigned {
+				ctx.Report(assign.Pos(), assign.End(), ruleID, diag.Warning,
+					"Do not assign to special parameter '0' in a sourced entrypoint; pass the resolved source path into a localized anonymous function")
+				// A disappearing ordinary argument must not hide a later use.
+				reported = reported || declarationProvesLocal(assign)
+			}
+		}
+		return reported
+	}
 	call, ok := stmt.Cmd.(*syntax.CallExpr)
 	if !ok {
 		return false

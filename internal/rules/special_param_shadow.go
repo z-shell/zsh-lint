@@ -26,6 +26,10 @@ import (
 // when an effective `+g` makes matching non-local parameters local. The rule
 // also stays silent when dynamic option words or the ambient `GLOBAL_EXPORT`
 // option make declaration scope uncertain. Reads are never reported.
+// Ordinary builtin calls after precommand modifiers use the same scope and
+// display-mode checks; dynamic values do not need to be evaluated to recognize
+// a static parameter name. An ordinary operand can disappear during expansion,
+// so recognizing its name is a potential declaration, not value-flow proof.
 //
 // Why: The Zsh manual's zshparam "Parameters Set By The Shell" section
 // documents these as shell-provided state. In a function, `readonly` is
@@ -113,8 +117,8 @@ var shadowingDecls = map[string]struct{}{
 }
 
 func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) {
-	decl, ok := node.(*syntax.DeclClause)
-	if !ok || decl.Variant == nil {
+	decl := ruleDeclaration(node)
+	if decl == nil || decl.Variant == nil {
 		return
 	}
 	if _, ok := shadowingDecls[decl.Variant.Value]; !ok {
@@ -135,6 +139,8 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 		if assign.Name != nil {
 			name = assign.Name.Value
 			start, end = assign.Name.Pos(), assign.Name.End()
+		} else if _, ordinary := node.(*syntax.CallExpr); ordinary {
+			name, _ = declarationWordName(assign.Value)
 		} else if value, ok := staticDeclarationWord(assign.Value); ok {
 			var hasValue bool
 			name, _, hasValue = strings.Cut(value, "=")
@@ -172,8 +178,8 @@ func testPlatformDeclaration(ctx *analyzer.Context, decl *syntax.DeclClause, ass
 		return false
 	}
 	if assign.Name == nil {
-		value, static := staticDeclarationWord(assign.Value)
-		if !static || !strings.HasPrefix(value, "OSTYPE=") {
+		name, known := declarationWordName(assign.Value)
+		if !known || name != "OSTYPE" || !declarationWordAssigns(assign.Value) {
 			return false
 		}
 	}
@@ -272,6 +278,11 @@ func scanDeclarationOptions(variant string, args []*syntax.Assign) declarationOp
 			continue
 		}
 		if assign.Name != nil {
+			scan.firstOperand = i
+			break
+		}
+		if name, known := declarationWordName(assign.Value); known && name != "" &&
+			!strings.ContainsRune("-+", rune(name[0])) && declarationWordAssigns(assign.Value) {
 			scan.firstOperand = i
 			break
 		}
