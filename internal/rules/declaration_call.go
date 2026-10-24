@@ -42,7 +42,7 @@ func ruleDeclaration(node syntax.Node) *syntax.DeclClause {
 			}
 		}
 		// The optional third -T operand is separator data, never a parameter.
-		scan := scanDeclarationOptions(name, args)
+		scan := scanRecallDeclarationOptions(name, args)
 		if scan.mode == declarationModeUnknown {
 			return nil
 		}
@@ -122,9 +122,38 @@ func declarationWordAssigns(word *syntax.Word) bool {
 	return assigned
 }
 
+// Only ordinary calls use the added recall scan. Reserved-word declarations
+// keep their existing mode classification and suppression behavior unchanged.
+func scanRuleDeclaration(node syntax.Node, declaration *syntax.DeclClause) declarationOptionScan {
+	if _, ordinary := node.(*syntax.CallExpr); ordinary {
+		return scanRecallDeclarationOptions(declaration.Variant.Value, declaration.Args)
+	}
+	return scanDeclarationOptions(declaration.Variant.Value, declaration.Args)
+}
+
+// reservedDeclarationName preserves the pre-existing reserved-word reading
+// used to suppress later findings. Recall from ordinary calls or dynamic
+// prefixes must never strengthen that suppression evidence.
+func reservedDeclarationName(assign *syntax.Assign) (string, bool) {
+	if assign == nil {
+		return "", false
+	}
+	if assign.Name != nil {
+		return assign.Name.Value, true
+	}
+	text, static := staticDeclarationWord(assign.Value)
+	if !static {
+		return "", false
+	}
+	name, _, _ := strings.Cut(text, "=")
+	name = strings.TrimSuffix(name, "+")
+	return name, name != "" && !strings.ContainsAny(name, "[]")
+}
+
 // Only quoted static text and plain unquoted name/value bytes prove that an
-// ordinary operand survives expansion. An empty array product or a null glob
-// can remove even a name= prefix; it must not hide a later global write.
+// ordinary operand has single-word cardinality for classifying recall. An
+// empty array product or null glob can remove even a name= prefix. This helper
+// is never proof of localization or initialization for suppressing findings.
 func declarationProvesLocal(assign *syntax.Assign) bool {
 	if assign.Name != nil {
 		return true

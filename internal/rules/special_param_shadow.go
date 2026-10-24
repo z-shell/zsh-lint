@@ -124,7 +124,7 @@ func (rule SpecialParamShadow) Analyze(ctx *analyzer.Context, node syntax.Node) 
 	if _, ok := shadowingDecls[decl.Variant.Value]; !ok {
 		return
 	}
-	optionScan := scanDeclarationOptions(decl.Variant.Value, decl.Args)
+	optionScan := scanRuleDeclaration(node, decl)
 	if optionScan.mode != declarationModeLocal {
 		return
 	}
@@ -266,6 +266,14 @@ type declarationOptionScan struct {
 // because GLOBAL_EXPORT controls its scope; a later +x does not undo that
 // uncertainty. Pattern mode declares local matches only with an effective +g.
 func scanDeclarationOptions(variant string, args []*syntax.Assign) declarationOptionScan {
+	return scanDeclarationOptionsMode(variant, args, false)
+}
+
+func scanRecallDeclarationOptions(variant string, args []*syntax.Assign) declarationOptionScan {
+	return scanDeclarationOptionsMode(variant, args, true)
+}
+
+func scanDeclarationOptionsMode(variant string, args []*syntax.Assign, recall bool) declarationOptionScan {
 	scan := declarationOptionScan{
 		mode:         declarationModeLocal,
 		firstOperand: len(args),
@@ -281,7 +289,7 @@ func scanDeclarationOptions(variant string, args []*syntax.Assign) declarationOp
 			scan.firstOperand = i
 			break
 		}
-		if name, known := declarationWordName(assign.Value); known && name != "" &&
+		if name, known := declarationWordName(assign.Value); recall && known && name != "" &&
 			!strings.ContainsRune("-+", rune(name[0])) && declarationWordAssigns(assign.Value) {
 			if !declarationProvesLocal(assign) {
 				for _, later := range args[i+1:] {

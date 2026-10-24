@@ -23,8 +23,9 @@ import (
 // take precedence over that path heuristic. Function-local search paths are not
 // caller mutations.
 // Ordinary declaration-builtin calls after precommand modifiers are included.
-// Their scalar operands retain ordinary expansion semantics; uncertain operands
-// cannot prove that the caller's search paths have been localized.
+// Their scalar operands retain ordinary expansion semantics. These calls never
+// prove localization or suppress later findings; a later write to an ordinary
+// local search path can therefore remain a conservative false positive.
 //
 // Why: Sourced Zsh plugins must not destructively replace `fpath` (which removes
 // standard system and user function directories), add hardcoded user machine paths,
@@ -189,13 +190,15 @@ func (rule FpathHygiene) walkScope(ctx *analyzer.Context, node syntax.Node, invo
 			if declaration == nil || declaration.Variant == nil {
 				return true
 			}
-			scan := scanDeclarationOptions(declaration.Variant.Value, declaration.Args)
+			scan := scanRuleDeclaration(value, declaration)
 			if scan.mode == declarationModeNonDeclaration || (inFunction && scan.mode == declarationModeUnknown) {
 				return true
 			}
 			for _, assign := range declaration.Args[scan.firstOperand:] {
-				name, _, _, valid := declaredParameter(assign)
-				if valid && (name == "fpath" || name == "FPATH") && inFunction && scan.mode == declarationModeLocal && declarationProvesLocal(assign) {
+				name, valid := reservedDeclarationName(assign)
+				_, reserved := value.(*syntax.DeclClause)
+				oldScan := scanDeclarationOptions(declaration.Variant.Value, declaration.Args)
+				if reserved && valid && (name == "fpath" || name == "FPATH") && inFunction && oldScan.mode == declarationModeLocal {
 					localized = true
 				}
 				if !localized {

@@ -21,7 +21,7 @@ func TestDeclarationCallOperandBoundaries(t *testing.T) {
 		{"unquoted escaped shadow", SpecialParamShadow{}, "example_f() { builtin local ZSH_\\VERSION=1; }\n", 1},
 		{"quoted backslash name is invalid", SpecialParamShadow{}, "example_f() { builtin local \"ZSH_\\VERSION=1\"; }\n", 0},
 		{"quoted dynamic zero", ZeroHandling{}, "builtin typeset \"0=$value\"\n", 1},
-		{"invalid parameter", PersistentParameterNamespace{}, "builtin typeset -g invalid-name=1\n", 0},
+		{"invalid parameter remains conservative recall", PersistentParameterNamespace{}, "builtin typeset -g invalid-name=1\n", 1},
 		{"ordinary append rejected", SpecialParamShadow{}, "example_f() { builtin local ZSH_VERSION+=1; }\n", 0},
 		{"tied separator", PersistentParameterNamespace{}, "builtin typeset -T _example_scalar _example_array :\n", 0},
 		{"tied name separator", PersistentParameterNamespace{}, "builtin typeset -T _example_scalar _example_array foreign_separator\n", 0},
@@ -39,12 +39,18 @@ func TestDeclarationCallOperandBoundaries(t *testing.T) {
 		{"scalar path hazards", FpathHygiene{}, "builtin typeset FPATH=/opt/bin:/opt/test:/opt/functions\n", 3},
 		{"dynamic zero option", ZeroHandling{}, "builtin typeset $flags 0=changed\nprint -r -- $0\n", 1},
 		{"valueless zero declaration", ZeroHandling{}, "typeset 0\nprint -r -- $0\n", 1},
-		{"static declaration stops cascading", ZeroHandling{}, "builtin typeset 0=changed\nprint -r -- $0\n", 1},
+		{"ordinary declaration retains later read", ZeroHandling{}, "builtin typeset 0=changed\nprint -r -- $0\n", 2},
 		{"tied second parameter is declared", PersistentParameterNamespace{}, "builtin typeset -T _example_scalar foreign_array :\n", 1},
 		{"quoted dynamic name stays unknown", PersistentParameterNamespace{}, "builtin typeset -g \"$name\"=changed\n", 0},
 		{"glued quoted dynamic name stays unknown", SpecialParamShadow{}, "example_f() { builtin local ZSH_\"$name\"=1; }\n", 0},
 		{"bare test parameter is not initialization", SpecialParamShadow{}, "example_f() { builtin local OSTYPE; }\n", 1},
-		{"letter bounds prove local", SharedPluginsRegistry{}, "example_f() { builtin local Plugins=aAzZ09; Plugins=changed; }\n", 0},
+		{"ordinary local retains later registry finding", SharedPluginsRegistry{}, "example_f() { builtin local Plugins=aAzZ09; Plugins=changed; }\n", 1},
+		{"invalid tie count retains registry finding", SharedPluginsRegistry{}, "example_f() { builtin typeset -T scalar Plugins : extra; Plugins=changed; }\n", 1},
+		{"invalid tie count retains path finding", FpathHygiene{}, "example_f() { builtin typeset -T scalar FPATH : extra; FPATH=/changed; }\n", 1},
+		{"underfull tie retains registry finding", SharedPluginsRegistry{}, "example_f() { builtin typeset -T Plugins; Plugins=changed; }\n", 1},
+		{"invalid option retains registry finding", SharedPluginsRegistry{}, "example_f() { builtin typeset -Q Plugins; Plugins=changed; }\n", 1},
+		{"invalid option retains path finding", FpathHygiene{}, "example_f() { builtin typeset -Q FPATH; FPATH=/changed; }\n", 1},
+		{"new declaration preserves existing prefix finding", ZeroHandling{}, "0=changed builtin typeset foreign=1\n", 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -142,7 +148,7 @@ func TestFpathDeclarationCalls(t *testing.T) {
 			want int
 		}{
 			{"overwrite", prefix + "typeset FPATH=/opt/functions\n", 1},
-			{"localization", "example_f() { " + prefix + "local -a fpath; fpath=( /opt/functions ); }\n", 0},
+			{"localization", "example_f() { " + prefix + "local -a fpath; fpath=( /opt/functions ); }\n", 1},
 			{"global", "example_f() { " + prefix + "typeset -g FPATH=/opt/functions; }\n", 1},
 			{"print", prefix + "typeset -p FPATH\n", 0},
 		} {
@@ -152,6 +158,9 @@ func TestFpathDeclarationCalls(t *testing.T) {
 					t.Fatal(err)
 				}
 				got := analyzer.New(FpathHygiene{}).Analyze(file, "example.zsh")
+				if prefix == "" && test.name == "localization" {
+					test.want = 0 // Existing reserved-word localization is unchanged.
+				}
 				if len(got) != test.want {
 					t.Fatalf("diagnostics = %+v, want %d", got, test.want)
 				}
@@ -171,7 +180,7 @@ func TestPersistentDeclarationCalls(t *testing.T) {
 			{"global", PersistentParameterNamespace{}, "example_f() { " + prefix + "typeset -g foreign_state=1; }\n", 1},
 			{"local", PersistentParameterNamespace{}, "example_f() { " + prefix + "local foreign_state=1; }\n", 0},
 			{"registry", SharedPluginsRegistry{}, prefix + "typeset -gA Plugins\n", 1},
-			{"local registry", SharedPluginsRegistry{}, "example_f() { " + prefix + "local -A Plugins; Plugins[item]=value; }\n", 0},
+			{"local registry", SharedPluginsRegistry{}, "example_f() { " + prefix + "local -A Plugins; Plugins[item]=value; }\n", 1},
 			{"registry query", SharedPluginsRegistry{}, prefix + "typeset -p Plugins\n", 0},
 		} {
 			t.Run(prefix+test.name, func(t *testing.T) {
@@ -180,6 +189,9 @@ func TestPersistentDeclarationCalls(t *testing.T) {
 					t.Fatal(err)
 				}
 				got := analyzer.New(test.rule).AnalyzeSource(file, "example.zsh", sourceContext(projectconfig.KindPlugin, projectconfig.ProfileSourcedLibrary, "example"))
+				if prefix == "" && test.name == "local registry" {
+					test.want = 0 // Existing reserved-word localization is unchanged.
+				}
 				if len(got) != test.want {
 					t.Fatalf("diagnostics = %+v, want %d", got, test.want)
 				}

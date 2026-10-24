@@ -21,6 +21,8 @@ import (
 // The `${0:#$ZSH_ARGZERO}` filter is accepted.
 // Assignment operands of declaration builtins are included, both directly and
 // after precommand modifiers; print-only declarations remain read-only.
+// These added declaration findings do not initialize flow state or suppress
+// existing later reads, even when the operand is a static scalar assignment.
 //
 // Why: Native Zsh enables `FUNCTION_ARGZERO` by default, temporarily setting
 // `$0` to the sourced filename or function name on entry. A caller that disables
@@ -106,6 +108,9 @@ func analyzeZeroStatements(ctx *analyzer.Context, stmts []*syntax.Stmt, ruleID d
 		case *syntax.IfClause:
 			initialized = analyzeZeroIf(ctx, command, ruleID, zeroInitialized)
 		default:
+			if ctx.Source.Configured() {
+				reportConfiguredZeroDeclaration(ctx, stmt, ruleID)
+			}
 			if ctx.Source.Configured() && reportConfiguredZeroAssignment(ctx, stmt, ruleID) {
 				// Avoid cascading path-use findings after the primary caller-state
 				// violation on the assignment itself.
@@ -138,13 +143,14 @@ func analyzeZeroIf(ctx *analyzer.Context, clause *syntax.IfClause, ruleID diag.R
 	return thenInitialized && elseInitialized
 }
 
-func reportConfiguredZeroAssignment(ctx *analyzer.Context, stmt *syntax.Stmt, ruleID diag.RuleID) bool {
+// Declaration recall is separate from existing assignment-flow analysis so
+// neither a declaration nor its argument classification can hide old findings.
+func reportConfiguredZeroDeclaration(ctx *analyzer.Context, stmt *syntax.Stmt, ruleID diag.RuleID) {
 	if declaration := ruleDeclaration(stmt.Cmd); declaration != nil && declaration.Variant != nil {
-		scan := scanDeclarationOptions(declaration.Variant.Value, declaration.Args)
+		scan := scanRuleDeclaration(stmt.Cmd, declaration)
 		if scan.mode == declarationModeNonDeclaration || scan.mode == declarationModeUnknown {
-			return false
+			return
 		}
-		reported := false
 		for _, assign := range declaration.Args[scan.firstOperand:] {
 			if assign == nil {
 				continue
@@ -157,12 +163,14 @@ func reportConfiguredZeroAssignment(ctx *analyzer.Context, stmt *syntax.Stmt, ru
 			if known && name == "0" && assigned {
 				ctx.Report(assign.Pos(), assign.End(), ruleID, diag.Warning,
 					"Do not assign to special parameter '0' in a sourced entrypoint; pass the resolved source path into a localized anonymous function")
-				// A disappearing ordinary argument must not hide a later use.
-				reported = reported || declarationProvesLocal(assign)
+				// This new declaration path adds recall only; it never
+				// initializes the flow state or hides a later zero read.
 			}
 		}
-		return reported
 	}
+}
+
+func reportConfiguredZeroAssignment(ctx *analyzer.Context, stmt *syntax.Stmt, ruleID diag.RuleID) bool {
 	call, ok := stmt.Cmd.(*syntax.CallExpr)
 	if !ok {
 		return false
