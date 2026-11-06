@@ -13,6 +13,8 @@ Prepare once per session with `bash .github/scripts/agent-setup.sh`; inspect its
 Build a tight failing loop, trace the owning decision, and choose contrasting cases before adopting a production edit.
 Use the contract's shared fork cases and retain focused interface regressions.
 
+For a structural-oracle mismatch, a new token or scoped reading, an adapter gate, or verification-input changes, read [parser repair pitfalls](references/repair-pitfalls.md) before selecting contrasting cases.
+
 ```sh
 go run ./cmd/zsh-lint-survey -reduce big.zsh > gap.zsh
 go run ./cmd/zsh-lint-survey -judge gap.zsh
